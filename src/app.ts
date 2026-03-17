@@ -113,7 +113,15 @@ function handleWorkerMessage(msg: WorkerOutMsg): void {
       onDone();
       break;
     case 'error':
-      showError(msg.message);
+      if (!modelReady) {
+        // Surface errors on the load screen when the model is not yet ready,
+        // so users don't get stuck on "Initializing…" without feedback.
+        loadStatus.textContent = `Error loading model: ${msg.message}`;
+        loadScreen.classList.remove('hidden');
+        chatApp.classList.add('hidden');
+      } else {
+        showError(msg.message);
+      }
       onDone();
       break;
   }
