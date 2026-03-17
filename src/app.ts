@@ -330,7 +330,12 @@ function splitThinkBlocks(raw: string): Part[] {
 }
 
 function stripThinkTags(raw: string): string {
-  return raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  // Remove complete <think>...</think> blocks first, then strip any remaining
+  // open <think> tag and everything that follows (in case generation was cut off).
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<think>[\s\S]*$/g, '')
+    .trim();
 }
 
 /**
