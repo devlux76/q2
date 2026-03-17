@@ -8,6 +8,13 @@
  *  • Embedding panel (previews Q² input vectors from the last LIV layer)
  */
 
+// Allow tests to override the worker entrypoint (e.g. a blob URL) and to
+// prevent auto-start while the test configures globals.
+declare global {
+  var __Q2_SKIP_AUTO_INIT__: boolean | undefined;
+  var __Q2_WORKER_URL__: string | undefined;
+}
+
 import type {
   WorkerOutMsg,
   WorkerInMsg,
@@ -57,8 +64,7 @@ const repValueEl = $<HTMLSpanElement>('#rep-value');
 
 // ─── Application state ─────────────────────────────────────────────────────────
 
-let worker: Worker | null = null;
-export const getWorker = () => worker;
+export let worker: Worker | null = null;
 let modelReady = false;
 let isGenerating = false;
 
@@ -75,7 +81,11 @@ let activeRawText = '';
 // ─── Worker bootstrap ──────────────────────────────────────────────────────────
 
 function initWorker(): void {
-  worker = new Worker(new URL('./worker.js', import.meta.url), {
+  const workerUrl =
+    (globalThis as any).__Q2_WORKER_URL__ ??
+    new URL('./worker.js', import.meta.url).toString();
+
+  worker = new Worker(workerUrl, {
     type: 'module',
   });
 
@@ -525,7 +535,9 @@ repPenaltyEl.addEventListener('input', () => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
-initWorker();
+if (!(globalThis as any).__Q2_SKIP_AUTO_INIT__) {
+  initWorker();
+}
 
 // Exported for testing and integration.
 export {

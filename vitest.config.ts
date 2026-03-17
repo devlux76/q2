@@ -1,9 +1,16 @@
 import { defineConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
 
 export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    browser: {
+      // Disabled by default; enable using `--browser`.
+      enabled: false,
+      provider: playwright(),
+      instances: [{ browser: 'chromium' }],
+    },
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'lcov'],
