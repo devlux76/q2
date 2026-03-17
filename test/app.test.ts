@@ -182,6 +182,9 @@ describe('app.ts helpers and DOM integration', () => {
     expect(worker.postMessage).toHaveBeenCalled();
     const lastMessage = worker.postMessage.mock.calls.slice(-1)[0][0];
     expect(lastMessage).toMatchObject({ type: 'generate' });
+
+    // Reset generation state so later tests are not affected by isGenerating.
+    app.onDone();
   });
 
   it('handleWorkerMessage handles token stream and done events', async () => {
