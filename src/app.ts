@@ -65,6 +65,8 @@ const repValueEl = $<HTMLSpanElement>('#rep-value');
 // ─── Application state ─────────────────────────────────────────────────────────
 
 export let worker: Worker | null = null;
+let worker: Worker | null = null;
+export const getWorker = () => worker;
 let modelReady = false;
 let isGenerating = false;
 
@@ -538,6 +540,7 @@ repPenaltyEl.addEventListener('input', () => {
 if (!(globalThis as any).__Q2_SKIP_AUTO_INIT__) {
   initWorker();
 }
+initWorker();
 
 // Exported for testing and integration.
 export {
