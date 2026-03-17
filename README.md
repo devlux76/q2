@@ -29,3 +29,9 @@ bun run dev
 ```bash
 bun run typecheck
 ```
+
+- **Test** (unit tests + coverage):
+
+```bash
+bun run test
+```
