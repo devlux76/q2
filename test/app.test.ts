@@ -65,12 +65,17 @@ function setupDom() {
 describe('app.ts helpers and DOM integration', () => {
   let app: typeof import('../src/app.ts');
 
-  beforeAll(async () => {
-    setupDom();
-    app = await import('../src/app.ts');
-  });
+  beforeEach(async () => {
+    // Ensure each test gets a fresh copy of app.ts and its module-level state.
+    vi.resetModules();
 
-  beforeEach(() => {
+    // Recreate the DOM and stubs needed by app.ts.
+    document.body.innerHTML = '';
+    setupDom();
+
+    // Re-import app.ts for this test.
+    app = await import('../src/app.ts');
+
     // Reset the DOM state between tests.
     const loadScreen = document.querySelector('#load-screen') as HTMLElement;
     const chatApp = document.querySelector('#chat-app') as HTMLElement;
