@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Q² — LFM2.5 Chat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Model loading screen ──────────────────────────────────────────────── -->
+  <div id="load-screen">
+    <div class="load-card">
+      <div class="load-logo">Q²</div>
+      <h1 class="load-title">LFM2.5-1.2B Thinking</h1>
+      <p class="load-subtitle">Quaternary Quantization · ONNX · WASM</p>
+
+      <div id="load-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+        <div id="load-bar-fill"></div>
+      </div>
+      <p id="load-status">Initializing…</p>
+
+      <p class="load-note">
+        Weights (~1.2 GB) are cached in your browser after the first download.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Main chat application ─────────────────────────────────────────────── -->
+  <div id="chat-app" class="hidden">
+
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">Q²</span>
+        <span class="model-tag">LFM2.5-1.2B</span>
+      </div>
+
+      <section class="settings-section">
+        <h2>Generation</h2>
+
+        <label for="max-tokens">Max tokens
+          <input id="max-tokens" type="number" min="64" max="8192" step="64" value="2048" />
+        </label>
+
+        <label for="temperature">Temperature
+          <span id="temp-value" class="value-badge">0.00</span>
+          <input id="temperature" type="range" min="0" max="2" step="0.05" value="0" />
+        </label>
+
+        <label for="rep-penalty">Repetition penalty
+          <span id="rep-value" class="value-badge">1.10</span>
+          <input id="rep-penalty" type="range" min="1" max="2" step="0.05" value="1.1" />
+        </label>
+      </section>
+
+      <!-- Q² Embedding panel — populated by the worker when hidden states are available -->
+      <section id="embedding-panel" class="hidden">
+        <h2>Last LIV layer embeddings</h2>
+        <p class="section-note">Input to the Q² WASM kernel (last conv layer before GQA)</p>
+        <canvas id="embedding-canvas" width="280" height="64" aria-label="Embedding heat-map"></canvas>
+        <p id="embedding-stats" class="stats-text"></p>
+      </section>
+
+      <div class="sidebar-footer">
+        <a
+          href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Model card ↗</a>
+      </div>
+    </aside>
+
+    <!-- Chat area -->
+    <main id="chat-main">
+      <header id="chat-header">
+        <span id="header-title">LFM2.5-1.2B Thinking · Q4 ONNX</span>
+        <span id="model-status" class="status-badge">Ready</span>
+      </header>
+
+      <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
+
+      <footer id="input-area">
+        <div id="input-wrapper">
+          <textarea
+            id="user-input"
+            rows="1"
+            placeholder="Message LFM2.5… (Enter to send, Shift+Enter for newline)"
+            aria-label="Message input"
+            autocomplete="off"
+            spellcheck="true"
+          ></textarea>
+          <div id="btn-group">
+            <button id="send-btn" aria-label="Send message" title="Send (Enter)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21 23 12 2 3v7l15 2-15 2z"/></svg>
+            </button>
+            <button id="stop-btn" class="hidden" aria-label="Stop generation" title="Stop">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="input-hint">Powered by <strong>transformers.js</strong> · Runs entirely in your browser</p>
+      </footer>
+    </main>
+
+  </div><!-- /#chat-app -->
+
+  <script type="module" src="dist/app.js"></script>
+</body>
+</html>
