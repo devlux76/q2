@@ -57,7 +57,7 @@ const repValueEl = $<HTMLSpanElement>('#rep-value');
 
 // ─── Application state ─────────────────────────────────────────────────────────
 
-let worker: Worker | null = null;
+export let worker: Worker | null = null;
 let modelReady = false;
 let isGenerating = false;
 
@@ -525,3 +525,25 @@ repPenaltyEl.addEventListener('input', () => {
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
 initWorker();
+
+// Exported for testing and integration.
+export {
+  initWorker,
+  handleWorkerMessage,
+  onStatus,
+  onProgress,
+  onToken,
+  onEmbedding,
+  onDone,
+  sendMessage,
+  stopGeneration,
+  readConfig,
+  splitThinkBlocks,
+  stripThinkTags,
+  escapeAndFormatText,
+  renderBubble,
+  appendAssistantBubble,
+  renderEmbeddingHeatmap,
+  min,
+  max,
+};
