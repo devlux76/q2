@@ -154,11 +154,35 @@ function onProgress(file: string, loaded: number, total: number): void {
   }
 }
 
+// Throttle bubble re-renders during streaming to at most once per animation frame.
+let tokenRenderScheduled = false;
+
+function scheduleBubbleRender(): void {
+  if (!activeBubble) {
+    // Nothing to render; clear any pending schedule.
+    tokenRenderScheduled = false;
+    return;
+  }
+
+  if (tokenRenderScheduled) return;
+  tokenRenderScheduled = true;
+
+  requestAnimationFrame(() => {
+    // activeBubble / activeRawText may have changed since scheduling.
+    if (!activeBubble) {
+      tokenRenderScheduled = false;
+      return;
+    }
+    renderBubble(activeBubble, activeRawText);
+    scrollToBottom();
+    tokenRenderScheduled = false;
+  });
+}
+
 function onToken(token: string): void {
   if (!activeBubble) return;
   activeRawText += token;
-  renderBubble(activeBubble, activeRawText);
-  scrollToBottom();
+  scheduleBubbleRender();
 }
 
 function onEmbedding(msg: EmbeddingMsg): void {
