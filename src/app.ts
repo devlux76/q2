@@ -352,8 +352,13 @@ function escapeAndFormatText(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // 2. Fenced code blocks ```…```
-  s = s.replace(/```([\s\S]*?)```/g, '<pre class="code-block"><code>$1</code></pre>');
+  // 2. Fenced code blocks ```…``` — temporarily replace with placeholders
+  const codeBlocks: string[] = [];
+  s = s.replace(/```([\s\S]*?)```/g, (_match, codeContent: string) => {
+    const index = codeBlocks.length;
+    codeBlocks.push(`<pre class="code-block"><code>${codeContent}</code></pre>`);
+    return `__CODE_BLOCK_${index}__`;
+  });
 
   // 3. Inline code `…`
   s = s.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
@@ -364,8 +369,14 @@ function escapeAndFormatText(text: string): string {
   // 5. Italic *…* (single asterisk, not inside **…**)
   s = s.replace(/(^|[^*])\*([^*\n]+)\*([^*]|$)/g, '$1<em>$2</em>$3');
 
-  // 6. Newlines → <br>
+  // 6. Newlines → <br> (only in non-code segments)
   s = s.replace(/\n/g, '<br>');
+
+  // 7. Restore fenced code blocks
+  s = s.replace(/__CODE_BLOCK_(\d+)__/g, (_match, index: string) => {
+    const i = Number(index);
+    return codeBlocks[i] ?? '';
+  });
 
   return s;
 }
