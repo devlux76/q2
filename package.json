@@ -7,6 +7,9 @@
     "bun": ">=1.3.10"
   },
   "scripts": {
+    "lint": "eslint --fix . --ext .js,.ts,.html,.yml,.yaml && eslint . --ext .js,.ts,.html,.yml,.yaml",
+    "lint:css": "stylelint --fix \"**/*.{css,html}\" && stylelint \"**/*.{css,html}\"",
+    "prebuild": "bun run lint && bun run lint:css",
     "build": "bun build --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
     "dev": "bun build --watch --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
     "typecheck": "bun x tsc --noEmit",
@@ -22,12 +25,22 @@
   "keywords": ["llm", "onnx", "transformers", "wasm", "quaternary-quantization"],
   "license": "MIT",
   "devDependencies": {
-    "@vitest/browser-playwright": "^4.1.0",
-    "@vitest/coverage-istanbul": "^4.1.0",
-    "jsdom": "^29.0.0",
-    "playwright": "^1.46.0",
+    "@eslint/eslintrc": "^3.3.5",
+    "@html-eslint/eslint-plugin": "latest",
+    "@html-eslint/parser": "latest",
+    "@types/node": "latest",
+    "@typescript-eslint/eslint-plugin": "latest",
+    "@typescript-eslint/parser": "latest",
+    "@vitest/browser-playwright": "latest",
+    "@vitest/coverage-istanbul": "latest",
+    "eslint": "latest",
+    "eslint-plugin-yml": "latest",
+    "jsdom": "latest",
+    "playwright": "latest",
+    "stylelint": "latest",
+    "stylelint-config-standard": "latest",
     "typescript": "latest",
-    "vitest": "^4.1.0"
+    "vitest": "latest"
   },
   "dependencies": {
     "@huggingface/transformers": "latest"

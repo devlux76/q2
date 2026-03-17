@@ -1,0 +1,7 @@
+{
+  "extends": "stylelint-config-standard",
+  "ignoreFiles": ["dist/**", "node_modules/**", "coverage/**"],
+  "rules": {
+    "indentation": 2
+  }
+}

@@ -90,7 +90,7 @@ async function loadModel(modelId: string, dtype: string, apiToken?: string): Pro
   for (const device of DEVICE_PRIORITY) {
     try {
       send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       pipe = (await (pipeline as any)('text-generation', modelId, {
         dtype,
         device,

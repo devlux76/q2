@@ -92,6 +92,10 @@ git subtree push --prefix dist origin gh-pages
 
 4. In your repo settings, enable GitHub Pages and set the source to the `gh-pages` branch (root).
 
+### Optional: Auto deploy on push to main
+
+This repository includes a GitHub Actions workflow (`.github/workflows/gh-pages.yml`) that automatically builds and publishes `dist/` to the `gh-pages` branch whenever you push to `main`.
+
 ### Optional local sanity check
 
 To verify the built site loads before deploying, serve `dist/` locally with a static server (this is just for local testing):
