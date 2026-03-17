@@ -1,10 +1,12 @@
 /**
  * worker.ts — Inference Web Worker
  *
- * Runs LFM2.5-1.2B-Thinking-ONNX (model_q4.onnx) inside a dedicated Web
+ * Runs any Hugging Face ONNX text-generation model inside a dedicated Web
  * Worker so that heavy computation never blocks the UI thread.
  *
- * Architecture notes (LFM2.5):
+ * Device fallback order: WebNN → WebGPU → WebGL → WASM
+ *
+ * Architecture notes (LFM2.5-1.2B, when that model is selected):
  *   ┌─────────────────────────────────────────────────────────┐
  *   │  10 × LIV blocks  (double-gated 1-D causal convolution) │
  *   │   └─ Layer 9 output (0-based) → [last conv embeddings]  │
@@ -40,14 +42,22 @@ interface DownloadProgress {
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
-const MODEL_ID = 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX';
-
 /**
  * dtype: 'q4' → loads model_q4.onnx
- * Use 'wasm' device for the WASM-optimised runtime (no WebGPU dependency).
+ * Most onnx-community models ship a q4-quantised file.
+ * The dtype is now passed dynamically from the load message.
  */
-const MODEL_DTYPE = 'q4' as const;
-const MODEL_DEVICE = 'wasm' as const;
+
+/**
+ * Preferred inference backends in priority order.
+ * The worker tries each one in turn and settles on the first that succeeds.
+ *   webnn  – Web Neural Network API (hardware-accelerated where available)
+ *   webgpu – GPU-accelerated via the WebGPU API
+ *   webgl  – Fallback GPU path via WebGL
+ *   wasm   – Pure WebAssembly (always available)
+ */
+const DEVICE_PRIORITY = ['webnn', 'webgpu', 'webgl', 'wasm'] as const;
+type ModelDevice = (typeof DEVICE_PRIORITY)[number];
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -68,28 +78,41 @@ function send(msg: WorkerOutMsg): void {
 
 // ─── Model loading ────────────────────────────────────────────────────────────
 
-async function loadModel(): Promise<void> {
+async function loadModel(modelId: string, dtype: string, apiToken?: string): Promise<void> {
+  // Apply the API token before any network requests (used by the Hub client).
+  if (apiToken) {
+    (env as unknown as Record<string, unknown>).accessToken = apiToken;
+  }
+
   send({ type: 'status', status: 'loading', detail: 'Fetching model weights…' });
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    pipe = (await (pipeline as any)('text-generation', MODEL_ID, {
-      dtype: MODEL_DTYPE,
-      device: MODEL_DEVICE,
-      progress_callback: (p: DownloadProgress) => {
-        send({
-          type: 'progress',
-          file: p.file ?? '',
-          loaded: p.loaded ?? 0,
-          total: p.total ?? 0,
-        });
-      },
-    })) as TextGenerationPipeline;
+  let lastErr: unknown;
+  for (const device of DEVICE_PRIORITY) {
+    try {
+      send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pipe = (await (pipeline as any)('text-generation', modelId, {
+        dtype,
+        device,
+        progress_callback: (p: DownloadProgress) => {
+          send({
+            type: 'progress',
+            file: p.file ?? '',
+            loaded: p.loaded ?? 0,
+            total: p.total ?? 0,
+          });
+        },
+      })) as TextGenerationPipeline;
 
-    send({ type: 'status', status: 'ready' });
-  } catch (err) {
-    send({ type: 'error', message: String(err) });
+      send({ type: 'status', status: 'ready' });
+      return;
+    } catch (err) {
+      lastErr = err;
+      // Fall through to the next device in the priority list.
+    }
   }
+
+  send({ type: 'error', message: String(lastErr) });
 }
 
 // ─── Inference ────────────────────────────────────────────────────────────────
@@ -167,7 +190,7 @@ async function generateResponse(
     const msg = e.data;
     switch (msg.type) {
       case 'load':
-        void loadModel();
+        void loadModel(msg.modelId, msg.dtype, msg.apiToken);
         break;
       case 'generate':
         void generateResponse(msg.messages, msg.config);

@@ -2,6 +2,8 @@
  * app.ts — Main-thread entry point
  *
  * Manages:
+ *  • Model discovery (live HuggingFace Hub API search + custom HF URN)
+ *  • App settings (API token, ONNX dtype, library filter) persisted to localStorage
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
@@ -22,6 +24,83 @@ import type {
   GenerationConfig,
   EmbeddingMsg,
 } from './types.js';
+
+// ─── HuggingFace Hub API ───────────────────────────────────────────────────────
+
+/** Model record returned by the HF Hub API. */
+export interface HFModel {
+  id: string;
+  downloads: number;
+  likes: number;
+  tags: string[];
+}
+
+/** Persistent application settings stored in localStorage. */
+export interface AppSettings {
+  /** Optional HuggingFace API token (private models, higher rate limits). */
+  apiToken: string;
+  /** ONNX file suffix: 'q4' | 'q8' | 'fp16' | 'fp32'. */
+  dtype: string;
+  /**
+   * library filter sent to the HF Hub API.
+   * 'transformers.js' — models tagged for the transformers.js runtime (default)
+   * 'onnx'            — all ONNX models
+   * ''                — no filter (all text-generation models)
+   */
+  filterLibrary: string;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  apiToken: '',
+  dtype: 'q4',
+  filterLibrary: 'transformers.js',
+};
+
+const SETTINGS_KEY = 'q2_settings';
+
+export function loadSettings(): AppSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<AppSettings>) };
+  } catch { /* ignore parse/storage errors */ }
+  return { ...DEFAULT_SETTINGS };
+}
+
+export function saveSettings(settings: AppSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch { /* ignore storage errors */ }
+}
+
+/** Format a large number as a compact string (e.g. 1234567 → "1.2M"). */
+export function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+/**
+ * Fetch text-generation models from the HuggingFace Hub API.
+ * No API key is required for public models; providing one enables private
+ * models and increases the rate limit.
+ */
+export async function fetchHFModels(query: string, settings: AppSettings): Promise<HFModel[]> {
+  const params = new URLSearchParams({
+    pipeline_tag: 'text-generation',
+    sort: 'downloads',
+    direction: '-1',
+    limit: '20',
+  });
+  if (query.trim()) params.set('search', query.trim());
+  if (settings.filterLibrary) params.set('library', settings.filterLibrary);
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (settings.apiToken) headers['Authorization'] = `Bearer ${settings.apiToken}`;
+
+  const res = await fetch(`https://huggingface.co/api/models?${params}`, { headers });
+  if (!res.ok) throw new Error(`HF API ${res.status}: ${res.statusText}`);
+  return (await res.json()) as HFModel[];
+}
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -55,18 +134,37 @@ const embeddingPanel = $<HTMLDivElement>('#embedding-panel');
 const embeddingCanvas = $<HTMLCanvasElement>('#embedding-canvas');
 const embeddingStats = $<HTMLParagraphElement>('#embedding-stats');
 
-// Settings controls
+// Generation controls (sidebar)
 const maxTokensEl = $<HTMLInputElement>('#max-tokens');
 const temperatureEl = $<HTMLInputElement>('#temperature');
 const tempValueEl = $<HTMLSpanElement>('#temp-value');
 const repPenaltyEl = $<HTMLInputElement>('#rep-penalty');
 const repValueEl = $<HTMLSpanElement>('#rep-value');
 
+// Model picker phase elements
+const modelPickerEl = $<HTMLDivElement>('#model-picker');
+const loadProgressEl = $<HTMLDivElement>('#load-progress');
+const modelSearchEl = $<HTMLInputElement>('#model-search');
+const modelListEl = $<HTMLUListElement>('#model-list');
+const modelCustomIdEl = $<HTMLInputElement>('#model-custom-id');
+const loadBtnEl = $<HTMLButtonElement>('#load-btn');
+const headerTitleEl = $<HTMLSpanElement>('#header-title');
+const sidebarModelTagEl = $<HTMLSpanElement>('#sidebar-model-tag');
+
 // ─── Application state ─────────────────────────────────────────────────────────
 
 export let worker: Worker | null = null;
 let modelReady = false;
 let isGenerating = false;
+
+/** Loaded and applied before the first HF API call or model load. */
+let currentSettings: AppSettings = loadSettings();
+
+/**
+ * The model ID selected in the picker or entered via the custom field.
+ * Empty string means "nothing selected yet" (load button is disabled in that state).
+ */
+export let selectedModelId = '';
 
 /** Persistent conversation history sent to the model each turn. */
 const history: ChatMessage[] = [
@@ -78,9 +176,207 @@ let activeBubble: HTMLDivElement | null = null;
 /** Accumulated raw text for the current response (including <think> tags). */
 let activeRawText = '';
 
+// ─── Model picker ──────────────────────────────────────────────────────────────
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Fetch models from HF Hub and render them into the list.
+ * On the initial (empty-query) load, auto-selects the first result so the
+ * Load button is immediately enabled.
+ */
+async function refreshModelList(query: string, autoSelectFirst = false): Promise<void> {
+  modelListEl.innerHTML = '<li class="model-list-status">Searching models…</li>';
+
+  try {
+    const models = await fetchHFModels(query, currentSettings);
+
+    if (models.length === 0) {
+      modelListEl.innerHTML =
+        '<li class="model-list-status">No models found. Try a different search.</li>';
+      return;
+    }
+
+    modelListEl.innerHTML = '';
+    for (const model of models) {
+      renderModelItem(model);
+    }
+
+    // Auto-select the top result on the initial load so the Load button
+    // is immediately usable without requiring an explicit click.
+    if (autoSelectFirst && !selectedModelId && models[0]) {
+      selectModel(models[0].id);
+    }
+  } catch (err) {
+    const li = document.createElement('li');
+    li.className = 'model-list-status model-list-error';
+    li.textContent = String(err);
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'model-list-retry';
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', () => void refreshModelList(query, autoSelectFirst));
+    li.appendChild(retryBtn);
+    modelListEl.innerHTML = '';
+    modelListEl.appendChild(li);
+  }
+}
+
+function renderModelItem(model: HFModel): void {
+  const li = document.createElement('li');
+  li.role = 'option';
+  li.className = 'model-item' + (model.id === selectedModelId ? ' selected' : '');
+  li.setAttribute('aria-selected', model.id === selectedModelId ? 'true' : 'false');
+  li.dataset['modelId'] = model.id;
+
+  const slashIdx = model.id.indexOf('/');
+  const author = slashIdx !== -1 ? model.id.slice(0, slashIdx) : '';
+  const name = slashIdx !== -1 ? model.id.slice(slashIdx + 1) : model.id;
+
+  const info = document.createElement('div');
+  info.className = 'model-item-info';
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'model-item-label';
+  labelEl.textContent = name;
+
+  const authorEl = document.createElement('span');
+  authorEl.className = 'model-item-author';
+  authorEl.textContent = author;
+
+  info.appendChild(labelEl);
+  info.appendChild(authorEl);
+
+  const stats = document.createElement('div');
+  stats.className = 'model-item-stats';
+
+  const dlEl = document.createElement('span');
+  dlEl.className = 'model-item-stat';
+  dlEl.title = 'Downloads';
+  dlEl.textContent = `↓ ${formatCount(model.downloads)}`;
+
+  const likeEl = document.createElement('span');
+  likeEl.className = 'model-item-stat';
+  likeEl.title = 'Likes';
+  likeEl.textContent = `♥ ${formatCount(model.likes)}`;
+
+  stats.appendChild(dlEl);
+  stats.appendChild(likeEl);
+  li.appendChild(info);
+  li.appendChild(stats);
+  li.addEventListener('click', () => selectModel(model.id));
+  modelListEl.appendChild(li);
+}
+
+export function selectModel(modelId: string): void {
+  selectedModelId = modelId;
+  modelCustomIdEl.value = '';
+  document.querySelectorAll<HTMLLIElement>('.model-item').forEach((item) => {
+    const selected = item.dataset['modelId'] === modelId;
+    item.classList.toggle('selected', selected);
+    item.setAttribute('aria-selected', selected ? 'true' : 'false');
+  });
+  loadBtnEl.disabled = false;
+}
+
+export function initModelPicker(): void {
+  // Kick off the initial model list fetch from HF Hub.
+  void refreshModelList('', true);
+
+  // Debounced live search as the user types.
+  modelSearchEl.addEventListener('input', () => {
+    const q = modelSearchEl.value;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      void refreshModelList(q);
+      searchTimer = null;
+    }, 400);
+  });
+
+  // Typing a custom ID clears the list selection.
+  modelCustomIdEl.addEventListener('input', () => {
+    const val = modelCustomIdEl.value.trim();
+    if (val) {
+      document.querySelectorAll<HTMLLIElement>('.model-item').forEach((item) => {
+        item.classList.remove('selected');
+        item.setAttribute('aria-selected', 'false');
+      });
+      loadBtnEl.disabled = false;
+    } else {
+      loadBtnEl.disabled = !selectedModelId;
+    }
+  });
+
+  modelCustomIdEl.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      triggerLoad();
+    }
+  });
+
+  loadBtnEl.addEventListener('click', triggerLoad);
+  initSettingsPanel();
+}
+
+/** Wire up the collapsible settings panel and persist changes to localStorage. */
+function initSettingsPanel(): void {
+  const toggleBtn = $<HTMLButtonElement>('#settings-toggle');
+  const panel = $<HTMLDivElement>('#settings-panel');
+  const tokenEl = $<HTMLInputElement>('#hf-token');
+  const dtypeEl = $<HTMLSelectElement>('#model-dtype');
+  const libraryEl = $<HTMLSelectElement>('#filter-library');
+
+  // Restore persisted values into the form.
+  tokenEl.value = currentSettings.apiToken;
+  dtypeEl.value = currentSettings.dtype;
+  libraryEl.value = currentSettings.filterLibrary;
+
+  toggleBtn.addEventListener('click', () => {
+    const isHidden = panel.classList.toggle('hidden');
+    toggleBtn.setAttribute('aria-expanded', String(!isHidden));
+  });
+
+  tokenEl.addEventListener('change', () => {
+    currentSettings.apiToken = tokenEl.value.trim();
+    saveSettings(currentSettings);
+  });
+
+  dtypeEl.addEventListener('change', () => {
+    currentSettings.dtype = dtypeEl.value;
+    saveSettings(currentSettings);
+  });
+
+  libraryEl.addEventListener('change', () => {
+    currentSettings.filterLibrary = libraryEl.value;
+    saveSettings(currentSettings);
+    // Re-fetch the model list with the updated library filter.
+    void refreshModelList(modelSearchEl.value);
+  });
+}
+
+function triggerLoad(): void {
+  const customId = modelCustomIdEl.value.trim();
+  const modelId = customId || selectedModelId;
+  if (!modelId) return;
+  startWithModel(modelId);
+}
+
 // ─── Worker bootstrap ──────────────────────────────────────────────────────────
 
-function initWorker(): void {
+/**
+ * Transition from the model-picker phase to the loading-progress phase and
+ * spin up the inference worker for the given model ID.
+ */
+export function startWithModel(modelId: string): void {
+  selectedModelId = modelId;
+
+  // Switch load screen from picker → progress.
+  modelPickerEl.classList.add('hidden');
+  loadProgressEl.classList.remove('hidden');
+
+  initWorker(modelId);
+}
+
+export function initWorker(modelId: string): void {
   const workerUrl =
     (globalThis as any).__Q2_WORKER_URL__ ??
     new URL('./worker.js', import.meta.url).toString();
@@ -97,7 +393,10 @@ function initWorker(): void {
     showError(`Worker error: ${e.message}`);
   });
 
-  postToWorker({ type: 'load' });
+  const loadMsg: WorkerInMsg = currentSettings.apiToken
+    ? { type: 'load', modelId, dtype: currentSettings.dtype, apiToken: currentSettings.apiToken }
+    : { type: 'load', modelId, dtype: currentSettings.dtype };
+  postToWorker(loadMsg);
 }
 
 function postToWorker(msg: WorkerInMsg): void {
@@ -106,7 +405,7 @@ function postToWorker(msg: WorkerInMsg): void {
 
 // ─── Worker message handler ────────────────────────────────────────────────────
 
-function handleWorkerMessage(msg: WorkerOutMsg): void {
+export function handleWorkerMessage(msg: WorkerOutMsg): void {
   switch (msg.type) {
     case 'status':
       onStatus(msg.status, msg.detail);
@@ -140,7 +439,7 @@ function handleWorkerMessage(msg: WorkerOutMsg): void {
 
 // ─── Worker event handlers ─────────────────────────────────────────────────────
 
-function onStatus(
+export function onStatus(
   status: 'loading' | 'ready' | 'generating' | 'idle',
   detail?: string,
 ): void {
@@ -148,13 +447,19 @@ function onStatus(
     modelReady = true;
     loadScreen.classList.add('hidden');
     chatApp.classList.remove('hidden');
+
+    // Update model name in the header and sidebar.
+    const displayName = selectedModelId.split('/').at(-1) ?? selectedModelId;
+    headerTitleEl.textContent = `${displayName} · ${currentSettings.dtype.toUpperCase()} ONNX`;
+    sidebarModelTagEl.textContent = displayName;
+
     inputEl.focus();
   } else if (status === 'loading') {
     loadStatus.textContent = detail ?? 'Loading model…';
   }
 }
 
-function onProgress(file: string, loaded: number, total: number): void {
+export function onProgress(file: string, loaded: number, total: number): void {
   if (total > 0) {
     const pct = Math.round((loaded / total) * 100);
     loadBar.style.width = `${pct}%`;
@@ -198,13 +503,13 @@ function scheduleBubbleRender(): void {
   });
 }
 
-function onToken(token: string): void {
+export function onToken(token: string): void {
   if (!activeBubble) return;
   activeRawText += token;
   scheduleBubbleRender();
 }
 
-function onEmbedding(msg: EmbeddingMsg): void {
+export function onEmbedding(msg: EmbeddingMsg): void {
   // Display the last-LIV-layer embedding as a heat-map preview.
   // The actual Q² WASM quantisation kernel will be wired here.
   embeddingPanel.classList.remove('hidden');
@@ -215,7 +520,7 @@ function onEmbedding(msg: EmbeddingMsg): void {
     `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
 }
 
-function onDone(): void {
+export function onDone(): void {
   isGenerating = false;
   sendBtn.disabled = false;
   sendBtn.classList.remove('hidden');
@@ -237,7 +542,7 @@ function onDone(): void {
 
 // ─── User interaction ──────────────────────────────────────────────────────────
 
-function sendMessage(): void {
+export function sendMessage(): void {
   const text = inputEl.value.trim();
   if (!text || !modelReady || isGenerating) return;
 
@@ -264,11 +569,11 @@ function sendMessage(): void {
   });
 }
 
-function stopGeneration(): void {
+export function stopGeneration(): void {
   postToWorker({ type: 'abort' });
 }
 
-function readConfig(): GenerationConfig {
+export function readConfig(): GenerationConfig {
   return {
     max_new_tokens: parseInt(maxTokensEl.value, 10) || DEFAULT_CONFIG.max_new_tokens,
     temperature: parseFloat(temperatureEl.value) || DEFAULT_CONFIG.temperature,
@@ -289,7 +594,7 @@ function appendUserBubble(text: string): void {
   scrollToBottom();
 }
 
-function appendAssistantBubble(): HTMLDivElement {
+export function appendAssistantBubble(): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   const bubble = document.createElement('div');
@@ -308,7 +613,7 @@ function appendAssistantBubble(): HTMLDivElement {
  * <think>…</think> blocks are rendered as a collapsed details/summary so the
  * reasoning trace is accessible but not visually dominant.
  */
-function renderBubble(bubble: HTMLDivElement, raw: string): void {
+export function renderBubble(bubble: HTMLDivElement, raw: string): void {
   // Split out <think>…</think> blocks (LFM2.5-Thinking model).
   const parts = splitThinkBlocks(raw);
   bubble.innerHTML = '';
@@ -344,7 +649,7 @@ interface TextPart { type: 'text'; text: string }
 interface ThinkPart { type: 'think'; text: string }
 type Part = TextPart | ThinkPart;
 
-function splitThinkBlocks(raw: string): Part[] {
+export function splitThinkBlocks(raw: string): Part[] {
   const parts: Part[] = [];
   const re = /<think>([\s\S]*?)(?:<\/think>|$)/g;
   let lastIndex = 0;
@@ -373,7 +678,7 @@ function splitThinkBlocks(raw: string): Part[] {
   return parts;
 }
 
-function stripThinkTags(raw: string): string {
+export function stripThinkTags(raw: string): string {
   // Remove complete <think>...</think> blocks first, then strip any remaining
   // open <think> tag and everything that follows (in case generation was cut off).
   return raw
@@ -389,7 +694,7 @@ function stripThinkTags(raw: string): string {
  *  - Converts **bold** and *italic*
  *  - Converts newlines to <br>
  */
-function escapeAndFormatText(text: string): string {
+export function escapeAndFormatText(text: string): string {
   // 1. Escape HTML special chars.
   let s = text
     .replace(/&/g, '&amp;')
@@ -452,7 +757,7 @@ function showError(message: string): void {
  * One column per sequence position, one row per hidden dimension bin.
  * Colour: blue (negative) → white (zero) → red (positive).
  */
-function renderEmbeddingHeatmap(
+export function renderEmbeddingHeatmap(
   data: Float32Array,
   seqLen: number,
   hiddenDim: number,
@@ -499,13 +804,13 @@ function renderEmbeddingHeatmap(
   }
 }
 
-function min(arr: Float32Array): number {
+export function min(arr: Float32Array): number {
   let m = Infinity;
   for (const v of arr) if (v < m) m = v;
   return m;
 }
 
-function max(arr: Float32Array): number {
+export function max(arr: Float32Array): number {
   let m = -Infinity;
   for (const v of arr) if (v > m) m = v;
   return m;
@@ -536,27 +841,6 @@ repPenaltyEl.addEventListener('input', () => {
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
 if (!(globalThis as any).__Q2_SKIP_AUTO_INIT__) {
-  initWorker();
+  initModelPicker();
 }
 
-// Exported for testing and integration.
-export {
-  initWorker,
-  handleWorkerMessage,
-  onStatus,
-  onProgress,
-  onToken,
-  onEmbedding,
-  onDone,
-  sendMessage,
-  stopGeneration,
-  readConfig,
-  splitThinkBlocks,
-  stripThinkTags,
-  escapeAndFormatText,
-  renderBubble,
-  appendAssistantBubble,
-  renderEmbeddingHeatmap,
-  min,
-  max,
-};
