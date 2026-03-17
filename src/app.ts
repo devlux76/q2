@@ -2,6 +2,7 @@
  * app.ts — Main-thread entry point
  *
  * Manages:
+ *  • Model selection (curated list + custom HuggingFace URN input)
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
@@ -22,6 +23,78 @@ import type {
   GenerationConfig,
   EmbeddingMsg,
 } from './types.js';
+
+// ─── Model catalogue ───────────────────────────────────────────────────────────
+
+export interface ModelEntry {
+  id: string;
+  label: string;
+  size: string;
+  tags: string[];
+}
+
+export const CURATED_MODELS: ModelEntry[] = [
+  {
+    id: 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
+    label: 'LFM2.5-1.2B Thinking',
+    size: '~1.2 GB',
+    tags: ['thinking'],
+  },
+  {
+    id: 'onnx-community/SmolLM2-135M-Instruct',
+    label: 'SmolLM2-135M Instruct',
+    size: '~90 MB',
+    tags: ['fast'],
+  },
+  {
+    id: 'onnx-community/SmolLM2-360M-Instruct',
+    label: 'SmolLM2-360M Instruct',
+    size: '~200 MB',
+    tags: [],
+  },
+  {
+    id: 'onnx-community/SmolLM2-1.7B-Instruct',
+    label: 'SmolLM2-1.7B Instruct',
+    size: '~1 GB',
+    tags: [],
+  },
+  {
+    id: 'onnx-community/Qwen2.5-0.5B-Instruct',
+    label: 'Qwen2.5-0.5B Instruct',
+    size: '~300 MB',
+    tags: ['fast'],
+  },
+  {
+    id: 'onnx-community/Qwen2.5-1.5B-Instruct',
+    label: 'Qwen2.5-1.5B Instruct',
+    size: '~850 MB',
+    tags: [],
+  },
+  {
+    id: 'onnx-community/Qwen2.5-3B-Instruct',
+    label: 'Qwen2.5-3B Instruct',
+    size: '~1.7 GB',
+    tags: [],
+  },
+  {
+    id: 'onnx-community/Llama-3.2-1B-Instruct',
+    label: 'Llama-3.2-1B Instruct',
+    size: '~580 MB',
+    tags: [],
+  },
+  {
+    id: 'onnx-community/Llama-3.2-3B-Instruct',
+    label: 'Llama-3.2-3B Instruct',
+    size: '~1.7 GB',
+    tags: [],
+  },
+  {
+    id: 'onnx-community/DeepSeek-R1-Distill-Qwen-1.5B',
+    label: 'DeepSeek-R1-Distill 1.5B',
+    size: '~850 MB',
+    tags: ['thinking'],
+  },
+];
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -62,11 +135,24 @@ const tempValueEl = $<HTMLSpanElement>('#temp-value');
 const repPenaltyEl = $<HTMLInputElement>('#rep-penalty');
 const repValueEl = $<HTMLSpanElement>('#rep-value');
 
+// Model picker phase elements
+const modelPickerEl = $<HTMLDivElement>('#model-picker');
+const loadProgressEl = $<HTMLDivElement>('#load-progress');
+const modelSearchEl = $<HTMLInputElement>('#model-search');
+const modelListEl = $<HTMLUListElement>('#model-list');
+const modelCustomIdEl = $<HTMLInputElement>('#model-custom-id');
+const loadBtnEl = $<HTMLButtonElement>('#load-btn');
+const headerTitleEl = $<HTMLSpanElement>('#header-title');
+const sidebarModelTagEl = $<HTMLSpanElement>('#sidebar-model-tag');
+
 // ─── Application state ─────────────────────────────────────────────────────────
 
 export let worker: Worker | null = null;
 let modelReady = false;
 let isGenerating = false;
+
+/** The model ID selected in the picker (or entered as a custom ID). */
+export let selectedModelId: string = CURATED_MODELS[0]?.id ?? 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX';
 
 /** Persistent conversation history sent to the model each turn. */
 const history: ChatMessage[] = [
@@ -78,9 +164,131 @@ let activeBubble: HTMLDivElement | null = null;
 /** Accumulated raw text for the current response (including <think> tags). */
 let activeRawText = '';
 
+// ─── Model picker ──────────────────────────────────────────────────────────────
+
+function renderModelList(models: ModelEntry[]): void {
+  modelListEl.innerHTML = '';
+  for (const model of models) {
+    const li = document.createElement('li');
+    li.role = 'option';
+    li.className = 'model-item' + (model.id === selectedModelId ? ' selected' : '');
+    li.setAttribute('aria-selected', model.id === selectedModelId ? 'true' : 'false');
+    li.dataset['modelId'] = model.id;
+
+    const info = document.createElement('div');
+    info.className = 'model-item-info';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'model-item-label';
+    labelEl.textContent = model.label;
+
+    const sizeEl = document.createElement('span');
+    sizeEl.className = 'model-item-size';
+    sizeEl.textContent = model.size;
+
+    info.appendChild(labelEl);
+    info.appendChild(sizeEl);
+    li.appendChild(info);
+
+    if (model.tags.length > 0) {
+      const tagsEl = document.createElement('div');
+      tagsEl.className = 'model-item-tags';
+      for (const tag of model.tags) {
+        const tagEl = document.createElement('span');
+        tagEl.className = 'model-item-tag';
+        tagEl.textContent = tag;
+        tagsEl.appendChild(tagEl);
+      }
+      li.appendChild(tagsEl);
+    }
+
+    li.addEventListener('click', () => {
+      selectCuratedModel(model.id);
+    });
+
+    modelListEl.appendChild(li);
+  }
+}
+
+export function selectCuratedModel(modelId: string): void {
+  selectedModelId = modelId;
+  modelCustomIdEl.value = '';
+  document.querySelectorAll<HTMLLIElement>('.model-item').forEach((item) => {
+    const selected = item.dataset['modelId'] === modelId;
+    item.classList.toggle('selected', selected);
+    item.setAttribute('aria-selected', selected ? 'true' : 'false');
+  });
+  loadBtnEl.disabled = false;
+}
+
+export function initModelPicker(): void {
+  renderModelList(CURATED_MODELS);
+
+  // Filter the list as the user types in the search box.
+  modelSearchEl.addEventListener('input', () => {
+    const q = modelSearchEl.value.toLowerCase().trim();
+    const filtered = q
+      ? CURATED_MODELS.filter(
+          (m) =>
+            m.label.toLowerCase().includes(q) ||
+            m.id.toLowerCase().includes(q) ||
+            m.tags.some((t) => t.includes(q)),
+        )
+      : CURATED_MODELS;
+    renderModelList(filtered);
+  });
+
+  // Typing in the custom field clears the curated selection.
+  modelCustomIdEl.addEventListener('input', () => {
+    const val = modelCustomIdEl.value.trim();
+    if (val) {
+      document.querySelectorAll<HTMLLIElement>('.model-item').forEach((item) => {
+        item.classList.remove('selected');
+        item.setAttribute('aria-selected', 'false');
+      });
+      loadBtnEl.disabled = false;
+    } else {
+      // Restore curated selection if the custom field is cleared.
+      renderModelList(CURATED_MODELS);
+      loadBtnEl.disabled = false;
+    }
+  });
+
+  // Allow pressing Enter in the custom field to trigger loading.
+  modelCustomIdEl.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      triggerLoad();
+    }
+  });
+
+  loadBtnEl.addEventListener('click', triggerLoad);
+}
+
+function triggerLoad(): void {
+  const customId = modelCustomIdEl.value.trim();
+  const modelId = customId || selectedModelId;
+  if (!modelId) return;
+  startWithModel(modelId);
+}
+
 // ─── Worker bootstrap ──────────────────────────────────────────────────────────
 
-function initWorker(): void {
+/**
+ * Transition from the model-picker phase to the loading-progress phase and
+ * spin up the inference worker for the given model ID.
+ */
+export function startWithModel(modelId: string): void {
+  selectedModelId = modelId;
+
+  // Switch load screen from picker → progress.
+  modelPickerEl.classList.add('hidden');
+  loadProgressEl.classList.remove('hidden');
+
+  initWorker(modelId);
+}
+
+export function initWorker(modelId: string): void {
   const workerUrl =
     (globalThis as any).__Q2_WORKER_URL__ ??
     new URL('./worker.js', import.meta.url).toString();
@@ -97,7 +305,7 @@ function initWorker(): void {
     showError(`Worker error: ${e.message}`);
   });
 
-  postToWorker({ type: 'load' });
+  postToWorker({ type: 'load', modelId });
 }
 
 function postToWorker(msg: WorkerInMsg): void {
@@ -106,7 +314,7 @@ function postToWorker(msg: WorkerInMsg): void {
 
 // ─── Worker message handler ────────────────────────────────────────────────────
 
-function handleWorkerMessage(msg: WorkerOutMsg): void {
+export function handleWorkerMessage(msg: WorkerOutMsg): void {
   switch (msg.type) {
     case 'status':
       onStatus(msg.status, msg.detail);
@@ -140,7 +348,7 @@ function handleWorkerMessage(msg: WorkerOutMsg): void {
 
 // ─── Worker event handlers ─────────────────────────────────────────────────────
 
-function onStatus(
+export function onStatus(
   status: 'loading' | 'ready' | 'generating' | 'idle',
   detail?: string,
 ): void {
@@ -148,13 +356,20 @@ function onStatus(
     modelReady = true;
     loadScreen.classList.add('hidden');
     chatApp.classList.remove('hidden');
+
+    // Update model name in the header and sidebar.
+    const entry = CURATED_MODELS.find((m) => m.id === selectedModelId);
+    const displayName = entry ? entry.label : selectedModelId.split('/').pop() ?? selectedModelId;
+    headerTitleEl.textContent = `${displayName} · Q4 ONNX`;
+    sidebarModelTagEl.textContent = displayName;
+
     inputEl.focus();
   } else if (status === 'loading') {
     loadStatus.textContent = detail ?? 'Loading model…';
   }
 }
 
-function onProgress(file: string, loaded: number, total: number): void {
+export function onProgress(file: string, loaded: number, total: number): void {
   if (total > 0) {
     const pct = Math.round((loaded / total) * 100);
     loadBar.style.width = `${pct}%`;
@@ -198,13 +413,13 @@ function scheduleBubbleRender(): void {
   });
 }
 
-function onToken(token: string): void {
+export function onToken(token: string): void {
   if (!activeBubble) return;
   activeRawText += token;
   scheduleBubbleRender();
 }
 
-function onEmbedding(msg: EmbeddingMsg): void {
+export function onEmbedding(msg: EmbeddingMsg): void {
   // Display the last-LIV-layer embedding as a heat-map preview.
   // The actual Q² WASM quantisation kernel will be wired here.
   embeddingPanel.classList.remove('hidden');
@@ -215,7 +430,7 @@ function onEmbedding(msg: EmbeddingMsg): void {
     `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
 }
 
-function onDone(): void {
+export function onDone(): void {
   isGenerating = false;
   sendBtn.disabled = false;
   sendBtn.classList.remove('hidden');
@@ -237,7 +452,7 @@ function onDone(): void {
 
 // ─── User interaction ──────────────────────────────────────────────────────────
 
-function sendMessage(): void {
+export function sendMessage(): void {
   const text = inputEl.value.trim();
   if (!text || !modelReady || isGenerating) return;
 
@@ -264,11 +479,11 @@ function sendMessage(): void {
   });
 }
 
-function stopGeneration(): void {
+export function stopGeneration(): void {
   postToWorker({ type: 'abort' });
 }
 
-function readConfig(): GenerationConfig {
+export function readConfig(): GenerationConfig {
   return {
     max_new_tokens: parseInt(maxTokensEl.value, 10) || DEFAULT_CONFIG.max_new_tokens,
     temperature: parseFloat(temperatureEl.value) || DEFAULT_CONFIG.temperature,
@@ -289,7 +504,7 @@ function appendUserBubble(text: string): void {
   scrollToBottom();
 }
 
-function appendAssistantBubble(): HTMLDivElement {
+export function appendAssistantBubble(): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'message-row assistant';
   const bubble = document.createElement('div');
@@ -308,7 +523,7 @@ function appendAssistantBubble(): HTMLDivElement {
  * <think>…</think> blocks are rendered as a collapsed details/summary so the
  * reasoning trace is accessible but not visually dominant.
  */
-function renderBubble(bubble: HTMLDivElement, raw: string): void {
+export function renderBubble(bubble: HTMLDivElement, raw: string): void {
   // Split out <think>…</think> blocks (LFM2.5-Thinking model).
   const parts = splitThinkBlocks(raw);
   bubble.innerHTML = '';
@@ -344,7 +559,7 @@ interface TextPart { type: 'text'; text: string }
 interface ThinkPart { type: 'think'; text: string }
 type Part = TextPart | ThinkPart;
 
-function splitThinkBlocks(raw: string): Part[] {
+export function splitThinkBlocks(raw: string): Part[] {
   const parts: Part[] = [];
   const re = /<think>([\s\S]*?)(?:<\/think>|$)/g;
   let lastIndex = 0;
@@ -373,7 +588,7 @@ function splitThinkBlocks(raw: string): Part[] {
   return parts;
 }
 
-function stripThinkTags(raw: string): string {
+export function stripThinkTags(raw: string): string {
   // Remove complete <think>...</think> blocks first, then strip any remaining
   // open <think> tag and everything that follows (in case generation was cut off).
   return raw
@@ -389,7 +604,7 @@ function stripThinkTags(raw: string): string {
  *  - Converts **bold** and *italic*
  *  - Converts newlines to <br>
  */
-function escapeAndFormatText(text: string): string {
+export function escapeAndFormatText(text: string): string {
   // 1. Escape HTML special chars.
   let s = text
     .replace(/&/g, '&amp;')
@@ -452,7 +667,7 @@ function showError(message: string): void {
  * One column per sequence position, one row per hidden dimension bin.
  * Colour: blue (negative) → white (zero) → red (positive).
  */
-function renderEmbeddingHeatmap(
+export function renderEmbeddingHeatmap(
   data: Float32Array,
   seqLen: number,
   hiddenDim: number,
@@ -499,13 +714,13 @@ function renderEmbeddingHeatmap(
   }
 }
 
-function min(arr: Float32Array): number {
+export function min(arr: Float32Array): number {
   let m = Infinity;
   for (const v of arr) if (v < m) m = v;
   return m;
 }
 
-function max(arr: Float32Array): number {
+export function max(arr: Float32Array): number {
   let m = -Infinity;
   for (const v of arr) if (v > m) m = v;
   return m;
@@ -536,27 +751,6 @@ repPenaltyEl.addEventListener('input', () => {
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
 if (!(globalThis as any).__Q2_SKIP_AUTO_INIT__) {
-  initWorker();
+  initModelPicker();
 }
 
-// Exported for testing and integration.
-export {
-  initWorker,
-  handleWorkerMessage,
-  onStatus,
-  onProgress,
-  onToken,
-  onEmbedding,
-  onDone,
-  sendMessage,
-  stopGeneration,
-  readConfig,
-  splitThinkBlocks,
-  stripThinkTags,
-  escapeAndFormatText,
-  renderBubble,
-  appendAssistantBubble,
-  renderEmbeddingHeatmap,
-  min,
-  max,
-};

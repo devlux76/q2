@@ -6,6 +6,13 @@ function setupDom() {
     <div id="load-screen">
       <p id="load-status"></p>
       <div id="load-bar" role="progressbar"><div id="load-bar-fill"></div></div>
+      <div id="model-picker">
+        <input id="model-search" type="search" />
+        <ul id="model-list"></ul>
+        <input id="model-custom-id" type="text" />
+        <button id="load-btn">Load</button>
+      </div>
+      <div id="load-progress" class="hidden"></div>
     </div>
     <div id="chat-app" class="hidden">
       <div id="messages"></div>
@@ -21,6 +28,8 @@ function setupDom() {
     <span id="temp-value"></span>
     <input id="rep-penalty" value="1.1" />
     <span id="rep-value"></span>
+    <span id="header-title"></span>
+    <span id="sidebar-model-tag"></span>
   `;
 
   // Polyfill requestAnimationFrame for the test environment.
@@ -29,7 +38,7 @@ function setupDom() {
     globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(cb, 0);
   }
 
-  // Stub Worker so importing app.ts (which calls initWorker()) doesn't attempt to load a real worker.
+  // Stub Worker so importing app.ts doesn't attempt to load a real worker.
   class FakeWorker {
     listeners = new Map<string, EventListenerOrEventListenerObject>();
     postMessage = vi.fn();
@@ -128,6 +137,17 @@ describe('app.ts helpers and DOM integration', () => {
     expect(input).toBeInstanceOf(HTMLTextAreaElement);
   });
 
+  it('onStatus ready updates header-title and sidebar-model-tag', () => {
+    // Use a curated model so the display name is looked up from CURATED_MODELS.
+    app.selectCuratedModel('onnx-community/SmolLM2-135M-Instruct');
+    app.onStatus('ready');
+
+    const headerTitle = document.querySelector('#header-title') as HTMLElement;
+    const sidebarTag = document.querySelector('#sidebar-model-tag') as HTMLElement;
+    expect(headerTitle.textContent).toContain('SmolLM2-135M Instruct');
+    expect(sidebarTag.textContent).toContain('SmolLM2-135M Instruct');
+  });
+
   it('onProgress updates the progress bar and status text', () => {
     const loadBar = document.querySelector('#load-bar-fill') as HTMLElement;
     const loadStatus = document.querySelector('#load-status') as HTMLElement;
@@ -154,7 +174,10 @@ describe('app.ts helpers and DOM integration', () => {
   it('sendMessage posts a generate message and updates the UI', async () => {
     const input = document.querySelector('#user-input') as HTMLTextAreaElement;
     const sendBtn = document.querySelector('#send-btn') as HTMLButtonElement;
-    const worker = (app as any).worker as any;
+
+    // Initialise the worker (simulates clicking Load).
+    app.startWithModel('LiquidAI/LFM2.5-1.2B-Thinking-ONNX');
+    const workerRef = (app as any).worker as any;
 
     // Ensure model is marked ready so sendMessage will proceed.
     app.onStatus('ready');
@@ -165,8 +188,8 @@ describe('app.ts helpers and DOM integration', () => {
     expect(sendBtn.disabled).toBe(true);
     expect(sendBtn.classList.contains('hidden')).toBe(true);
 
-    expect(worker.postMessage).toHaveBeenCalled();
-    const lastMessage = worker.postMessage.mock.calls.slice(-1)[0][0];
+    expect(workerRef.postMessage).toHaveBeenCalled();
+    const lastMessage = workerRef.postMessage.mock.calls.slice(-1)[0][0];
     expect(lastMessage).toMatchObject({ type: 'generate' });
 
     // Reset generation state so later tests are not affected by isGenerating.
@@ -193,13 +216,16 @@ describe('app.ts helpers and DOM integration', () => {
 
   it('keydown Enter triggers sendMessage via the key handler', () => {
     const input = document.querySelector('#user-input') as HTMLTextAreaElement;
-    const worker = (app as any).worker as any;
+
+    // Initialise the worker (simulates clicking Load).
+    app.startWithModel('LiquidAI/LFM2.5-1.2B-Thinking-ONNX');
+    const workerRef = (app as any).worker as any;
 
     app.onStatus('ready');
     input.value = 'hey';
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-    expect(worker.postMessage).toHaveBeenCalled();
+    expect(workerRef.postMessage).toHaveBeenCalled();
   });
 
   it('updates display values when range inputs change', () => {
@@ -259,5 +285,55 @@ describe('app.ts helpers and DOM integration', () => {
 
     // Should not throw; coverage is achieved by hitting the early return.
     expect(true).toBe(true);
+  });
+
+  // ─── Model picker tests ───────────────────────────────────────────────────────
+
+  it('CURATED_MODELS contains at least 5 entries with required fields', () => {
+    expect(app.CURATED_MODELS.length).toBeGreaterThanOrEqual(5);
+    for (const m of app.CURATED_MODELS) {
+      expect(typeof m.id).toBe('string');
+      expect(typeof m.label).toBe('string');
+      expect(typeof m.size).toBe('string');
+      expect(Array.isArray(m.tags)).toBe(true);
+    }
+  });
+
+  it('initModelPicker renders model list items into #model-list', () => {
+    // initModelPicker was already called on import; verify list was populated.
+    const items = document.querySelectorAll('.model-item');
+    expect(items.length).toBeGreaterThan(0);
+  });
+
+  it('selectCuratedModel highlights the item and clears custom input', () => {
+    const customInput = document.querySelector('#model-custom-id') as HTMLInputElement;
+    customInput.value = 'some/custom-model';
+
+    app.selectCuratedModel('onnx-community/SmolLM2-135M-Instruct');
+
+    expect(customInput.value).toBe('');
+    const selectedItem = document.querySelector('.model-item.selected') as HTMLElement;
+    expect(selectedItem).toBeTruthy();
+    expect(selectedItem.dataset['modelId']).toBe('onnx-community/SmolLM2-135M-Instruct');
+  });
+
+  it('startWithModel hides model-picker and shows load-progress, then creates worker', () => {
+    const pickerEl = document.querySelector('#model-picker') as HTMLElement;
+    const progressEl = document.querySelector('#load-progress') as HTMLElement;
+
+    expect(pickerEl.classList.contains('hidden')).toBe(false);
+    expect(progressEl.classList.contains('hidden')).toBe(true);
+
+    app.startWithModel('onnx-community/Qwen2.5-0.5B-Instruct');
+
+    expect(pickerEl.classList.contains('hidden')).toBe(true);
+    expect(progressEl.classList.contains('hidden')).toBe(false);
+    expect((app as any).worker).not.toBeNull();
+
+    // The first message sent to the worker should be { type: 'load', modelId }.
+    const workerRef = (app as any).worker as any;
+    expect(workerRef.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen2.5-0.5B-Instruct' }),
+    );
   });
 });

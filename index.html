@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Q² — LFM2.5 Chat</title>
+  <title>Q² — ONNX Chat</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,17 +12,52 @@
   <div id="load-screen">
     <div class="load-card">
       <div class="load-logo">Q²</div>
-      <h1 class="load-title">LFM2.5-1.2B Thinking</h1>
-      <p class="load-subtitle">Quaternary Quantization · ONNX · WASM</p>
 
-      <div id="load-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-        <div id="load-bar-fill"></div>
+      <!-- Phase 1: Model selection ───────────────────────────────────────── -->
+      <div id="model-picker">
+        <h1 class="load-title">Choose a Model</h1>
+        <p class="load-subtitle">Quantized ONNX · Runs entirely in your browser</p>
+
+        <div class="picker-search">
+          <input
+            id="model-search"
+            type="search"
+            placeholder="Filter models…"
+            autocomplete="off"
+            aria-label="Filter models"
+          />
+        </div>
+
+        <ul id="model-list" role="listbox" aria-label="Available models"></ul>
+
+        <div class="picker-divider"><span>or enter a Hugging Face model ID</span></div>
+
+        <input
+          id="model-custom-id"
+          type="text"
+          placeholder="org/model-name"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Custom Hugging Face model ID"
+        />
+
+        <button id="load-btn">Load Model</button>
       </div>
-      <p id="load-status">Initializing…</p>
 
-      <p class="load-note">
-        Weights (~1.2 GB) are cached in your browser after the first download.
-      </p>
+      <!-- Phase 2: Loading progress ──────────────────────────────────────── -->
+      <div id="load-progress" class="hidden">
+        <h1 class="load-title" id="load-model-name">Loading model…</h1>
+
+        <div id="load-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+          <div id="load-bar-fill"></div>
+        </div>
+        <p id="load-status">Initializing…</p>
+
+        <p class="load-note">
+          Weights are cached in your browser after the first download.
+        </p>
+      </div>
+
     </div>
   </div>
 
@@ -33,7 +68,7 @@
     <aside id="sidebar">
       <div class="sidebar-header">
         <span class="logo">Q²</span>
-        <span class="model-tag">LFM2.5-1.2B</span>
+        <span class="model-tag" id="sidebar-model-tag">…</span>
       </div>
 
       <section class="settings-section">
@@ -64,17 +99,17 @@
 
       <div class="sidebar-footer">
         <a
-          href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
+          href="https://huggingface.co/onnx-community"
           target="_blank"
           rel="noopener noreferrer"
-        >Model card ↗</a>
+        >onnx-community ↗</a>
       </div>
     </aside>
 
     <!-- Chat area -->
     <main id="chat-main">
       <header id="chat-header">
-        <span id="header-title">LFM2.5-1.2B Thinking · Q4 ONNX</span>
+        <span id="header-title" class="header-title-text">Q² Chat</span>
         <span id="model-status" class="status-badge">Ready</span>
       </header>
 
@@ -85,7 +120,7 @@
           <textarea
             id="user-input"
             rows="1"
-            placeholder="Message LFM2.5… (Enter to send, Shift+Enter for newline)"
+            placeholder="Message the model… (Enter to send, Shift+Enter for newline)"
             aria-label="Message input"
             autocomplete="off"
             spellcheck="true"

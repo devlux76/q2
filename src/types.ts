@@ -5,6 +5,7 @@
 
 export interface LoadModelMsg {
   type: 'load';
+  modelId: string;
 }
 
 export interface GenerateMsg {
