@@ -1,6 +1,10 @@
 # q2
 Quaternary Quantization
 
+Q2 starts with quaternary quantization of a local model's own native embeddings. This produces something of a fingerprint for the semantic geometry the model is currently evaluating.
+
+This geometry is a product of human language itself. Therefore, we propose that mapping the geometry will produce faster and more accurate embeddings and we believe it most likely solves the incommensurability problem of vector similarity search.
+
 ## Screenshots
 
 ### Loading Screen
