@@ -139,11 +139,18 @@ function onProgress(file: string, loaded: number, total: number): void {
   if (total > 0) {
     const pct = Math.round((loaded / total) * 100);
     loadBar.style.width = `${pct}%`;
-    loadStatus.textContent = file
+    const statusText = file
       ? `Downloading ${file.split('/').pop() ?? file} — ${pct}%`
       : `Downloading… ${pct}%`;
+    loadStatus.textContent = statusText;
+    loadBar.setAttribute('aria-valuenow', String(pct));
+    loadBar.setAttribute('aria-valuetext', statusText);
   } else {
-    loadStatus.textContent = file ? `Loading ${file.split('/').pop() ?? file}…` : 'Loading…';
+    const statusText =
+      file ? `Loading ${file.split('/').pop() ?? file}…` : 'Loading…';
+    loadStatus.textContent = statusText;
+    loadBar.removeAttribute('aria-valuenow');
+    loadBar.setAttribute('aria-valuetext', statusText);
   }
 }
 
