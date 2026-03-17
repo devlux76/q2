@@ -41,7 +41,38 @@
           aria-label="Custom Hugging Face model ID"
         />
 
-        <button id="load-btn">Load Model</button>
+        <!-- Settings toggle -->
+        <button id="settings-toggle" aria-expanded="false" aria-controls="settings-panel">
+          ⚙ Settings
+        </button>
+
+        <!-- Settings panel (collapsed by default) -->
+        <div id="settings-panel" class="hidden" role="region" aria-label="Settings">
+          <div class="settings-group">
+            <div class="settings-group-title">API</div>
+            <label for="hf-token">HF API Token <span class="optional-badge">optional</span></label>
+            <input id="hf-token" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" />
+            <p class="settings-hint">For private models and higher rate limits. Stored locally only.</p>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">Model</div>
+            <label for="model-dtype">ONNX dtype</label>
+            <select id="model-dtype">
+              <option value="q4">q4 — 4-bit quantized</option>
+              <option value="q8">q8 — 8-bit quantized</option>
+              <option value="fp16">fp16 — half precision</option>
+              <option value="fp32">fp32 — full precision</option>
+            </select>
+            <label for="filter-library">Library filter</label>
+            <select id="filter-library">
+              <option value="transformers.js">transformers.js</option>
+              <option value="onnx">onnx</option>
+              <option value="">All text-generation</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="load-btn" disabled>Load Model</button>
       </div>
 
       <!-- Phase 2: Loading progress ──────────────────────────────────────── -->

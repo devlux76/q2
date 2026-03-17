@@ -6,6 +6,10 @@
 export interface LoadModelMsg {
   type: 'load';
   modelId: string;
+  /** ONNX file suffix: 'q4' | 'q8' | 'fp16' | 'fp32'. Default: 'q4'. */
+  dtype: string;
+  /** Optional HuggingFace API token for private models and higher rate limits. */
+  apiToken?: string;
 }
 
 export interface GenerateMsg {

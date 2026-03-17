@@ -2,7 +2,8 @@
  * app.ts — Main-thread entry point
  *
  * Manages:
- *  • Model selection (curated list + custom HuggingFace URN input)
+ *  • Model discovery (live HuggingFace Hub API search + custom HF URN)
+ *  • App settings (API token, ONNX dtype, library filter) persisted to localStorage
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
@@ -24,77 +25,82 @@ import type {
   EmbeddingMsg,
 } from './types.js';
 
-// ─── Model catalogue ───────────────────────────────────────────────────────────
+// ─── HuggingFace Hub API ───────────────────────────────────────────────────────
 
-export interface ModelEntry {
+/** Model record returned by the HF Hub API. */
+export interface HFModel {
   id: string;
-  label: string;
-  size: string;
+  downloads: number;
+  likes: number;
   tags: string[];
 }
 
-export const CURATED_MODELS: ModelEntry[] = [
-  {
-    id: 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
-    label: 'LFM2.5-1.2B Thinking',
-    size: '~1.2 GB',
-    tags: ['thinking'],
-  },
-  {
-    id: 'onnx-community/SmolLM2-135M-Instruct',
-    label: 'SmolLM2-135M Instruct',
-    size: '~90 MB',
-    tags: ['fast'],
-  },
-  {
-    id: 'onnx-community/SmolLM2-360M-Instruct',
-    label: 'SmolLM2-360M Instruct',
-    size: '~200 MB',
-    tags: [],
-  },
-  {
-    id: 'onnx-community/SmolLM2-1.7B-Instruct',
-    label: 'SmolLM2-1.7B Instruct',
-    size: '~1 GB',
-    tags: [],
-  },
-  {
-    id: 'onnx-community/Qwen2.5-0.5B-Instruct',
-    label: 'Qwen2.5-0.5B Instruct',
-    size: '~300 MB',
-    tags: ['fast'],
-  },
-  {
-    id: 'onnx-community/Qwen2.5-1.5B-Instruct',
-    label: 'Qwen2.5-1.5B Instruct',
-    size: '~850 MB',
-    tags: [],
-  },
-  {
-    id: 'onnx-community/Qwen2.5-3B-Instruct',
-    label: 'Qwen2.5-3B Instruct',
-    size: '~1.7 GB',
-    tags: [],
-  },
-  {
-    id: 'onnx-community/Llama-3.2-1B-Instruct',
-    label: 'Llama-3.2-1B Instruct',
-    size: '~580 MB',
-    tags: [],
-  },
-  {
-    id: 'onnx-community/Llama-3.2-3B-Instruct',
-    label: 'Llama-3.2-3B Instruct',
-    size: '~1.7 GB',
-    tags: [],
-  },
-  {
-    id: 'onnx-community/DeepSeek-R1-Distill-Qwen-1.5B',
-    label: 'DeepSeek-R1-Distill 1.5B',
-    size: '~850 MB',
-    tags: ['thinking'],
-  },
-];
+/** Persistent application settings stored in localStorage. */
+export interface AppSettings {
+  /** Optional HuggingFace API token (private models, higher rate limits). */
+  apiToken: string;
+  /** ONNX file suffix: 'q4' | 'q8' | 'fp16' | 'fp32'. */
+  dtype: string;
+  /**
+   * library filter sent to the HF Hub API.
+   * 'transformers.js' — models tagged for the transformers.js runtime (default)
+   * 'onnx'            — all ONNX models
+   * ''                — no filter (all text-generation models)
+   */
+  filterLibrary: string;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  apiToken: '',
+  dtype: 'q4',
+  filterLibrary: 'transformers.js',
+};
+
+const SETTINGS_KEY = 'q2_settings';
+
+export function loadSettings(): AppSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<AppSettings>) };
+  } catch { /* ignore parse/storage errors */ }
+  return { ...DEFAULT_SETTINGS };
+}
+
+export function saveSettings(settings: AppSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch { /* ignore storage errors */ }
+}
+
+/** Format a large number as a compact string (e.g. 1234567 → "1.2M"). */
+export function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+/**
+ * Fetch text-generation models from the HuggingFace Hub API.
+ * No API key is required for public models; providing one enables private
+ * models and increases the rate limit.
+ */
+export async function fetchHFModels(query: string, settings: AppSettings): Promise<HFModel[]> {
+  const params = new URLSearchParams({
+    pipeline_tag: 'text-generation',
+    sort: 'downloads',
+    direction: '-1',
+    limit: '20',
+  });
+  if (query.trim()) params.set('search', query.trim());
+  if (settings.filterLibrary) params.set('library', settings.filterLibrary);
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (settings.apiToken) headers['Authorization'] = `Bearer ${settings.apiToken}`;
+
+  const res = await fetch(`https://huggingface.co/api/models?${params}`, { headers });
+  if (!res.ok) throw new Error(`HF API ${res.status}: ${res.statusText}`);
+  return (await res.json()) as HFModel[];
+}
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -128,7 +134,7 @@ const embeddingPanel = $<HTMLDivElement>('#embedding-panel');
 const embeddingCanvas = $<HTMLCanvasElement>('#embedding-canvas');
 const embeddingStats = $<HTMLParagraphElement>('#embedding-stats');
 
-// Settings controls
+// Generation controls (sidebar)
 const maxTokensEl = $<HTMLInputElement>('#max-tokens');
 const temperatureEl = $<HTMLInputElement>('#temperature');
 const tempValueEl = $<HTMLSpanElement>('#temp-value');
@@ -151,8 +157,14 @@ export let worker: Worker | null = null;
 let modelReady = false;
 let isGenerating = false;
 
-/** The model ID selected in the picker (or entered as a custom ID). */
-export let selectedModelId: string = CURATED_MODELS[0]?.id ?? 'LiquidAI/LFM2.5-1.2B-Thinking-ONNX';
+/** Loaded and applied before the first HF API call or model load. */
+let currentSettings: AppSettings = loadSettings();
+
+/**
+ * The model ID selected in the picker or entered via the custom field.
+ * Empty string means "nothing selected yet" (load button is disabled in that state).
+ */
+export let selectedModelId = '';
 
 /** Persistent conversation history sent to the model each turn. */
 const history: ChatMessage[] = [
@@ -166,51 +178,96 @@ let activeRawText = '';
 
 // ─── Model picker ──────────────────────────────────────────────────────────────
 
-function renderModelList(models: ModelEntry[]): void {
-  modelListEl.innerHTML = '';
-  for (const model of models) {
-    const li = document.createElement('li');
-    li.role = 'option';
-    li.className = 'model-item' + (model.id === selectedModelId ? ' selected' : '');
-    li.setAttribute('aria-selected', model.id === selectedModelId ? 'true' : 'false');
-    li.dataset['modelId'] = model.id;
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const info = document.createElement('div');
-    info.className = 'model-item-info';
+/**
+ * Fetch models from HF Hub and render them into the list.
+ * On the initial (empty-query) load, auto-selects the first result so the
+ * Load button is immediately enabled.
+ */
+async function refreshModelList(query: string, autoSelectFirst = false): Promise<void> {
+  modelListEl.innerHTML = '<li class="model-list-status">Searching models…</li>';
 
-    const labelEl = document.createElement('span');
-    labelEl.className = 'model-item-label';
-    labelEl.textContent = model.label;
+  try {
+    const models = await fetchHFModels(query, currentSettings);
 
-    const sizeEl = document.createElement('span');
-    sizeEl.className = 'model-item-size';
-    sizeEl.textContent = model.size;
-
-    info.appendChild(labelEl);
-    info.appendChild(sizeEl);
-    li.appendChild(info);
-
-    if (model.tags.length > 0) {
-      const tagsEl = document.createElement('div');
-      tagsEl.className = 'model-item-tags';
-      for (const tag of model.tags) {
-        const tagEl = document.createElement('span');
-        tagEl.className = 'model-item-tag';
-        tagEl.textContent = tag;
-        tagsEl.appendChild(tagEl);
-      }
-      li.appendChild(tagsEl);
+    if (models.length === 0) {
+      modelListEl.innerHTML =
+        '<li class="model-list-status">No models found. Try a different search.</li>';
+      return;
     }
 
-    li.addEventListener('click', () => {
-      selectCuratedModel(model.id);
-    });
+    modelListEl.innerHTML = '';
+    for (const model of models) {
+      renderModelItem(model);
+    }
 
+    // Auto-select the top result on the initial load so the Load button
+    // is immediately usable without requiring an explicit click.
+    if (autoSelectFirst && !selectedModelId && models[0]) {
+      selectModel(models[0].id);
+    }
+  } catch (err) {
+    const li = document.createElement('li');
+    li.className = 'model-list-status model-list-error';
+    li.textContent = String(err);
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'model-list-retry';
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', () => void refreshModelList(query, autoSelectFirst));
+    li.appendChild(retryBtn);
+    modelListEl.innerHTML = '';
     modelListEl.appendChild(li);
   }
 }
 
-export function selectCuratedModel(modelId: string): void {
+function renderModelItem(model: HFModel): void {
+  const li = document.createElement('li');
+  li.role = 'option';
+  li.className = 'model-item' + (model.id === selectedModelId ? ' selected' : '');
+  li.setAttribute('aria-selected', model.id === selectedModelId ? 'true' : 'false');
+  li.dataset['modelId'] = model.id;
+
+  const slashIdx = model.id.indexOf('/');
+  const author = slashIdx !== -1 ? model.id.slice(0, slashIdx) : '';
+  const name = slashIdx !== -1 ? model.id.slice(slashIdx + 1) : model.id;
+
+  const info = document.createElement('div');
+  info.className = 'model-item-info';
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'model-item-label';
+  labelEl.textContent = name;
+
+  const authorEl = document.createElement('span');
+  authorEl.className = 'model-item-author';
+  authorEl.textContent = author;
+
+  info.appendChild(labelEl);
+  info.appendChild(authorEl);
+
+  const stats = document.createElement('div');
+  stats.className = 'model-item-stats';
+
+  const dlEl = document.createElement('span');
+  dlEl.className = 'model-item-stat';
+  dlEl.title = 'Downloads';
+  dlEl.textContent = `↓ ${formatCount(model.downloads)}`;
+
+  const likeEl = document.createElement('span');
+  likeEl.className = 'model-item-stat';
+  likeEl.title = 'Likes';
+  likeEl.textContent = `♥ ${formatCount(model.likes)}`;
+
+  stats.appendChild(dlEl);
+  stats.appendChild(likeEl);
+  li.appendChild(info);
+  li.appendChild(stats);
+  li.addEventListener('click', () => selectModel(model.id));
+  modelListEl.appendChild(li);
+}
+
+export function selectModel(modelId: string): void {
   selectedModelId = modelId;
   modelCustomIdEl.value = '';
   document.querySelectorAll<HTMLLIElement>('.model-item').forEach((item) => {
@@ -222,23 +279,20 @@ export function selectCuratedModel(modelId: string): void {
 }
 
 export function initModelPicker(): void {
-  renderModelList(CURATED_MODELS);
+  // Kick off the initial model list fetch from HF Hub.
+  void refreshModelList('', true);
 
-  // Filter the list as the user types in the search box.
+  // Debounced live search as the user types.
   modelSearchEl.addEventListener('input', () => {
-    const q = modelSearchEl.value.toLowerCase().trim();
-    const filtered = q
-      ? CURATED_MODELS.filter(
-          (m) =>
-            m.label.toLowerCase().includes(q) ||
-            m.id.toLowerCase().includes(q) ||
-            m.tags.some((t) => t.includes(q)),
-        )
-      : CURATED_MODELS;
-    renderModelList(filtered);
+    const q = modelSearchEl.value;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      void refreshModelList(q);
+      searchTimer = null;
+    }, 400);
   });
 
-  // Typing in the custom field clears the curated selection.
+  // Typing a custom ID clears the list selection.
   modelCustomIdEl.addEventListener('input', () => {
     const val = modelCustomIdEl.value.trim();
     if (val) {
@@ -248,13 +302,10 @@ export function initModelPicker(): void {
       });
       loadBtnEl.disabled = false;
     } else {
-      // Restore curated selection if the custom field is cleared.
-      renderModelList(CURATED_MODELS);
-      loadBtnEl.disabled = false;
+      loadBtnEl.disabled = !selectedModelId;
     }
   });
 
-  // Allow pressing Enter in the custom field to trigger loading.
   modelCustomIdEl.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -263,6 +314,43 @@ export function initModelPicker(): void {
   });
 
   loadBtnEl.addEventListener('click', triggerLoad);
+  initSettingsPanel();
+}
+
+/** Wire up the collapsible settings panel and persist changes to localStorage. */
+function initSettingsPanel(): void {
+  const toggleBtn = $<HTMLButtonElement>('#settings-toggle');
+  const panel = $<HTMLDivElement>('#settings-panel');
+  const tokenEl = $<HTMLInputElement>('#hf-token');
+  const dtypeEl = $<HTMLSelectElement>('#model-dtype');
+  const libraryEl = $<HTMLSelectElement>('#filter-library');
+
+  // Restore persisted values into the form.
+  tokenEl.value = currentSettings.apiToken;
+  dtypeEl.value = currentSettings.dtype;
+  libraryEl.value = currentSettings.filterLibrary;
+
+  toggleBtn.addEventListener('click', () => {
+    const isHidden = panel.classList.toggle('hidden');
+    toggleBtn.setAttribute('aria-expanded', String(!isHidden));
+  });
+
+  tokenEl.addEventListener('change', () => {
+    currentSettings.apiToken = tokenEl.value.trim();
+    saveSettings(currentSettings);
+  });
+
+  dtypeEl.addEventListener('change', () => {
+    currentSettings.dtype = dtypeEl.value;
+    saveSettings(currentSettings);
+  });
+
+  libraryEl.addEventListener('change', () => {
+    currentSettings.filterLibrary = libraryEl.value;
+    saveSettings(currentSettings);
+    // Re-fetch the model list with the updated library filter.
+    void refreshModelList(modelSearchEl.value);
+  });
 }
 
 function triggerLoad(): void {
@@ -305,7 +393,10 @@ export function initWorker(modelId: string): void {
     showError(`Worker error: ${e.message}`);
   });
 
-  postToWorker({ type: 'load', modelId });
+  const loadMsg: WorkerInMsg = currentSettings.apiToken
+    ? { type: 'load', modelId, dtype: currentSettings.dtype, apiToken: currentSettings.apiToken }
+    : { type: 'load', modelId, dtype: currentSettings.dtype };
+  postToWorker(loadMsg);
 }
 
 function postToWorker(msg: WorkerInMsg): void {
@@ -358,10 +449,8 @@ export function onStatus(
     chatApp.classList.remove('hidden');
 
     // Update model name in the header and sidebar.
-    const entry = CURATED_MODELS.find((m) => m.id === selectedModelId);
-    // For custom model IDs like "org/model-name", use only the part after the slash.
-    const displayName = entry?.label ?? selectedModelId.split('/').at(-1) ?? selectedModelId;
-    headerTitleEl.textContent = `${displayName} · Q4 ONNX`;
+    const displayName = selectedModelId.split('/').at(-1) ?? selectedModelId;
+    headerTitleEl.textContent = `${displayName} · ${currentSettings.dtype.toUpperCase()} ONNX`;
     sidebarModelTagEl.textContent = displayName;
 
     inputEl.focus();

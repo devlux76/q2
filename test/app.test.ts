@@ -1,7 +1,10 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Ensure our test environment has the minimal DOM needed by app.ts.
 function setupDom() {
+  // Reset persisted settings between tests.
+  localStorage.clear();
+
   document.body.innerHTML = `
     <div id="load-screen">
       <p id="load-status"></p>
@@ -10,7 +13,22 @@ function setupDom() {
         <input id="model-search" type="search" />
         <ul id="model-list"></ul>
         <input id="model-custom-id" type="text" />
-        <button id="load-btn">Load</button>
+        <button id="settings-toggle" aria-expanded="false">⚙ Settings</button>
+        <div id="settings-panel" class="hidden">
+          <input id="hf-token" type="password" />
+          <select id="model-dtype">
+            <option value="q4" selected>q4</option>
+            <option value="q8">q8</option>
+            <option value="fp16">fp16</option>
+            <option value="fp32">fp32</option>
+          </select>
+          <select id="filter-library">
+            <option value="transformers.js" selected>transformers.js</option>
+            <option value="onnx">onnx</option>
+            <option value="">All</option>
+          </select>
+        </div>
+        <button id="load-btn" disabled>Load</button>
       </div>
       <div id="load-progress" class="hidden"></div>
     </div>
@@ -60,6 +78,15 @@ function setupDom() {
   // @ts-expect-error
   globalThis.Worker = FakeWorker;
 
+  // Mock fetch so initModelPicker doesn't hit the real HF Hub API.
+  globalThis.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'test-org/model-alpha', downloads: 10_000, likes: 100, tags: ['transformers.js'] },
+      { id: 'test-org/model-beta', downloads: 5_000, likes: 50, tags: [] },
+    ],
+  } as any);
+
   // Stub canvas 2D context.
   const canvas = document.querySelector('#embedding-canvas') as HTMLCanvasElement;
   if (canvas) {
@@ -84,6 +111,10 @@ describe('app.ts helpers and DOM integration', () => {
 
     // Re-import app.ts for this test.
     app = await import('../src/app.ts');
+
+    // Flush the async fetch triggered by initModelPicker() on module load,
+    // so the model list is populated before individual tests run.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   it('splitThinkBlocks handles various tag cases', () => {
@@ -138,14 +169,15 @@ describe('app.ts helpers and DOM integration', () => {
   });
 
   it('onStatus ready updates header-title and sidebar-model-tag', () => {
-    // Use a curated model so the display name is looked up from CURATED_MODELS.
-    app.selectCuratedModel('onnx-community/SmolLM2-135M-Instruct');
+    // Use a model from the mocked API response to set selectedModelId.
+    app.selectModel('test-org/model-alpha');
     app.onStatus('ready');
 
     const headerTitle = document.querySelector('#header-title') as HTMLElement;
     const sidebarTag = document.querySelector('#sidebar-model-tag') as HTMLElement;
-    expect(headerTitle.textContent).toContain('SmolLM2-135M Instruct');
-    expect(sidebarTag.textContent).toContain('SmolLM2-135M Instruct');
+    // Display name is the part after the slash in the model ID.
+    expect(headerTitle.textContent).toContain('model-alpha');
+    expect(sidebarTag.textContent).toContain('model-alpha');
   });
 
   it('onProgress updates the progress bar and status text', () => {
@@ -287,34 +319,79 @@ describe('app.ts helpers and DOM integration', () => {
     expect(true).toBe(true);
   });
 
-  // ─── Model picker tests ───────────────────────────────────────────────────────
+  // ─── HF API + settings tests ─────────────────────────────────────────────────
 
-  it('CURATED_MODELS contains exactly 10 entries with required fields', () => {
-    expect(app.CURATED_MODELS.length).toBe(10);
-    for (const m of app.CURATED_MODELS) {
-      expect(typeof m.id).toBe('string');
-      expect(typeof m.label).toBe('string');
-      expect(typeof m.size).toBe('string');
-      expect(Array.isArray(m.tags)).toBe(true);
-    }
+  it('fetchHFModels builds correct URL and returns parsed models', async () => {
+    const settings = app.loadSettings();
+    const models = await app.fetchHFModels('smollm', settings);
+    expect(Array.isArray(models)).toBe(true);
+    expect(models.length).toBeGreaterThan(0);
+
+    // Verify the fetch was called with the right URL shape.
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const url = fetchMock.mock.calls[fetchMock.mock.calls.length - 1][0] as string;
+    expect(url).toContain('pipeline_tag=text-generation');
+    expect(url).toContain('search=smollm');
+    expect(url).toContain('library=transformers.js');
   });
 
-  it('initModelPicker renders model list items into #model-list', () => {
-    // initModelPicker was already called on import; verify list was populated.
+  it('fetchHFModels includes Authorization header when apiToken is set', async () => {
+    const settings = { ...app.loadSettings(), apiToken: 'hf_test_token_123' };
+    await app.fetchHFModels('', settings);
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const [, opts] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit];
+    expect((opts?.headers as Record<string, string>)?.['Authorization']).toBe('Bearer hf_test_token_123');
+  });
+
+  it('fetchHFModels throws on non-OK response', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+    } as any);
+    await expect(app.fetchHFModels('', app.loadSettings())).rejects.toThrow('429');
+  });
+
+  it('formatCount formats numbers correctly', () => {
+    expect(app.formatCount(500)).toBe('500');
+    expect(app.formatCount(1500)).toBe('1.5K');
+    expect(app.formatCount(1_500_000)).toBe('1.5M');
+  });
+
+  it('loadSettings returns defaults when localStorage is empty', () => {
+    const s = app.loadSettings();
+    expect(s.dtype).toBe('q4');
+    expect(s.filterLibrary).toBe('transformers.js');
+    expect(s.apiToken).toBe('');
+  });
+
+  it('saveSettings persists and loadSettings restores values', () => {
+    app.saveSettings({ apiToken: 'tok', dtype: 'q8', filterLibrary: 'onnx' });
+    const s = app.loadSettings();
+    expect(s.dtype).toBe('q8');
+    expect(s.filterLibrary).toBe('onnx');
+    expect(s.apiToken).toBe('tok');
+  });
+
+  it('initModelPicker renders model list items from the mocked HF API', () => {
+    // The beforeEach flush (setTimeout 0) ensures the async fetch has resolved.
     const items = document.querySelectorAll('.model-item');
-    expect(items.length).toBeGreaterThan(0);
+    expect(items.length).toBe(2); // two items from the mock response
   });
 
-  it('selectCuratedModel highlights the item and clears custom input', () => {
+  it('selectModel highlights the item, clears custom input, and enables load btn', () => {
     const customInput = document.querySelector('#model-custom-id') as HTMLInputElement;
+    const loadBtn = document.querySelector('#load-btn') as HTMLButtonElement;
     customInput.value = 'some/custom-model';
 
-    app.selectCuratedModel('onnx-community/SmolLM2-135M-Instruct');
+    // Pick a model that is in the mocked list.
+    app.selectModel('test-org/model-alpha');
 
     expect(customInput.value).toBe('');
+    expect(loadBtn.disabled).toBe(false);
     const selectedItem = document.querySelector('.model-item.selected') as HTMLElement;
     expect(selectedItem).toBeTruthy();
-    expect(selectedItem.dataset['modelId']).toBe('onnx-community/SmolLM2-135M-Instruct');
+    expect(selectedItem.dataset['modelId']).toBe('test-org/model-alpha');
   });
 
   it('startWithModel hides model-picker and shows load-progress, then creates worker', () => {
@@ -330,10 +407,22 @@ describe('app.ts helpers and DOM integration', () => {
     expect(progressEl.classList.contains('hidden')).toBe(false);
     expect((app as any).worker).not.toBeNull();
 
-    // The first message sent to the worker should be { type: 'load', modelId }.
+    // The first message sent to the worker should include modelId and dtype.
     const workerRef = (app as any).worker as any;
     expect(workerRef.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen2.5-0.5B-Instruct' }),
+      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen2.5-0.5B-Instruct', dtype: 'q4' }),
+    );
+  });
+
+  it('changing model-dtype updates currentSettings and is passed to the worker', () => {
+    const dtypeEl = document.querySelector('#model-dtype') as HTMLSelectElement;
+    dtypeEl.value = 'q8';
+    dtypeEl.dispatchEvent(new Event('change'));
+
+    app.startWithModel('test/some-model');
+    const workerRef = (app as any).worker as any;
+    expect(workerRef.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'load', dtype: 'q8' }),
     );
   });
 });

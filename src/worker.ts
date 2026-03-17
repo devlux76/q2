@@ -45,8 +45,8 @@ interface DownloadProgress {
 /**
  * dtype: 'q4' → loads model_q4.onnx
  * Most onnx-community models ship a q4-quantised file.
+ * The dtype is now passed dynamically from the load message.
  */
-const MODEL_DTYPE = 'q4' as const;
 
 /**
  * Preferred inference backends in priority order.
@@ -78,7 +78,12 @@ function send(msg: WorkerOutMsg): void {
 
 // ─── Model loading ────────────────────────────────────────────────────────────
 
-async function loadModel(modelId: string): Promise<void> {
+async function loadModel(modelId: string, dtype: string, apiToken?: string): Promise<void> {
+  // Apply the API token before any network requests (used by the Hub client).
+  if (apiToken) {
+    (env as unknown as Record<string, unknown>).accessToken = apiToken;
+  }
+
   send({ type: 'status', status: 'loading', detail: 'Fetching model weights…' });
 
   let lastErr: unknown;
@@ -87,7 +92,7 @@ async function loadModel(modelId: string): Promise<void> {
       send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pipe = (await (pipeline as any)('text-generation', modelId, {
-        dtype: MODEL_DTYPE,
+        dtype,
         device,
         progress_callback: (p: DownloadProgress) => {
           send({
@@ -185,7 +190,7 @@ async function generateResponse(
     const msg = e.data;
     switch (msg.type) {
       case 'load':
-        void loadModel(msg.modelId);
+        void loadModel(msg.modelId, msg.dtype, msg.apiToken);
         break;
       case 'generate':
         void generateResponse(msg.messages, msg.config);
