@@ -13,15 +13,12 @@
   --bg-surface:   #1a1d27;
   --bg-hover:     #22263a;
   --border:       #2a2f45;
-
   --text-primary:  #e4e8f0;
   --text-secondary:#8892a4;
   --text-muted:    #50596a;
-
   --accent:        #5b8af7;
   --accent-dim:    #2a3e7a;
   --accent-hover:  #7aa3ff;
-
   --red:           #f27c7c;
   --green:         #5bdf9c;
   --yellow:        #f5c842;
@@ -72,7 +69,7 @@ html, body {
   border-radius: 16px;
   padding: 40px 36px;
   text-align: center;
-  box-shadow: 0 24px 64px rgba(0,0,0,.6);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 60%);
 }
 
 .load-logo {
@@ -586,7 +583,7 @@ input[type="range"]:focus {
   font-size: 0.7rem;
   padding: 3px 10px;
   border-radius: 99px;
-  background: rgba(91, 223, 156, 0.15); /* fallback for older browsers */
+  background: rgb(91 223 156 / 15%); /* fallback for older browsers */
   background: color-mix(in srgb, var(--green) 15%, transparent);
   color: var(--green);
   letter-spacing: 0.04em;
@@ -834,7 +831,7 @@ input[type="range"]:focus {
 
 /* ─── Responsive ────────────────────────────────────────────────────────────── */
 
-@media (max-width: 640px) {
+@media (width <= 640px) {
   :root {
     --sidebar-w: 0px;
   }

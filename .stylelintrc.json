@@ -1,6 +1,7 @@
 {
   "extends": "stylelint-config-standard",
   "ignoreFiles": ["dist/**", "node_modules/**", "coverage/**"],
+  "customSyntax": "postcss-html",
   "rules": {
     "indentation": 2
   }

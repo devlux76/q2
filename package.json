@@ -54,6 +54,7 @@
     "jsdom": "latest",
     "lint-staged": "^16.4.0",
     "playwright": "latest",
+    "postcss-html": "^1.8.1",
     "stylelint": "latest",
     "stylelint-config-standard": "latest",
     "typescript": "latest",
