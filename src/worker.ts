@@ -19,6 +19,7 @@
 import {
   pipeline,
   TextStreamer,
+  InterruptableStoppingCriteria,
   env,
   type TextGenerationPipeline,
 } from '@huggingface/transformers';
@@ -57,7 +58,7 @@ env.useBrowserCache = true;   // Cache model shards in the Cache API (IndexedDB)
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let pipe: TextGenerationPipeline | null = null;
-let abortController: AbortController | null = null;
+let stoppingCriteria: InterruptableStoppingCriteria | null = null;
 
 // ─── Messaging helpers ────────────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ async function generateResponse(
   }
 
   send({ type: 'status', status: 'generating' });
-  abortController = new AbortController();
+  stoppingCriteria = new InterruptableStoppingCriteria();
 
   // TextStreamer pushes decoded token text fragments to the main thread.
   const streamer = new TextStreamer(pipe.tokenizer, {
@@ -125,6 +126,7 @@ async function generateResponse(
       do_sample: config.temperature > 0,
       repetition_penalty: config.repetition_penalty,
       streamer,
+      stopping_criteria: stoppingCriteria,
       // ── Embedding hook ───────────────────────────────────────────────────
       // output_hidden_states: true will be activated once the model's ONNX
       // export confirms hidden-state outputs and the Q² WAT kernel is ready.
@@ -145,14 +147,14 @@ async function generateResponse(
     send({ type: 'done' });
   } catch (err) {
     const msg = String(err);
-    // AbortError is expected when the user cancels generation.
-    if (!msg.includes('AbortError')) {
+    // InterruptableStoppingCriteria sets interrupted = true; treat as user cancel.
+    if (!stoppingCriteria?.interrupted) {
       send({ type: 'error', message: msg });
     } else {
       send({ type: 'done' });
     }
   } finally {
-    abortController = null;
+    stoppingCriteria = null;
     send({ type: 'status', status: 'idle' });
   }
 }
@@ -171,7 +173,7 @@ async function generateResponse(
         void generateResponse(msg.messages, msg.config);
         break;
       case 'abort':
-        abortController?.abort();
+        stoppingCriteria?.interrupt();
         break;
     }
   },

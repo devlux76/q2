@@ -197,10 +197,11 @@ function onEmbedding(msg: EmbeddingMsg): void {
   // Display the last-LIV-layer embedding as a heat-map preview.
   // The actual Q² WASM quantisation kernel will be wired here.
   embeddingPanel.classList.remove('hidden');
-  renderEmbeddingHeatmap(msg.data, msg.seqLen, msg.hiddenDim);
+  const floats = new Float32Array(msg.data);
+  renderEmbeddingHeatmap(floats, msg.seqLen, msg.hiddenDim);
   embeddingStats.textContent =
     `Shape: [${msg.seqLen} × ${msg.hiddenDim}]  ` +
-    `min=${min(msg.data).toFixed(3)}  max=${max(msg.data).toFixed(3)}`;
+    `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
 }
 
 function onDone(): void {
