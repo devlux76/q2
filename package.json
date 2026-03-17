@@ -12,7 +12,8 @@
     "typecheck": "bun x tsc --noEmit",
     "test": "vitest run --coverage",
     "test:browser": "vitest run --browser",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "deploy": "bun run build && cp index.html style.css dist/"
   },
   "repository": {
     "type": "git",

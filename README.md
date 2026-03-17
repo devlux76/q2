@@ -64,3 +64,40 @@ bun run test:browser
 > ```bash
 > bun x playwright install
 > ```
+
+## Deploy (GitHub Pages)
+
+This project is a static browser app (HTML + JS bundle). To host it on GitHub Pages, build the bundle and publish the `dist/` output as the Pages site.
+
+1. **Build** (produces `dist/app.js`):
+
+```bash
+bun run build
+```
+
+2. **Copy the static entrypoints into `dist/`** so `index.html` can reference `dist/app.js` correctly:
+
+```bash
+cp index.html style.css dist/
+```
+
+3. **Publish `dist/` to GitHub Pages** (push to the `gh-pages` branch):
+
+```bash
+git add dist/index.html dist/style.css
+git commit -m "chore: build for gh-pages"
+# Push dist/ as the root of the gh-pages branch
+git subtree push --prefix dist origin gh-pages
+```
+
+4. In your repo settings, enable GitHub Pages and set the source to the `gh-pages` branch (root).
+
+### Optional local sanity check
+
+To verify the built site loads before deploying, serve `dist/` locally with a static server (this is just for local testing):
+
+```bash
+npx serve dist
+```
+
+Then open the URL it prints (e.g. `http://localhost:3000`).
