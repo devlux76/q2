@@ -314,9 +314,9 @@ function renderBubble(bubble: HTMLDivElement, raw: string): void {
       details.appendChild(pre);
       bubble.appendChild(details);
     } else {
-      const span = document.createElement('span');
-      span.innerHTML = escapeAndFormatText(part.text);
-      bubble.appendChild(span);
+      const div = document.createElement('div');
+      div.innerHTML = escapeAndFormatText(part.text);
+      bubble.appendChild(div);
     }
   }
 
