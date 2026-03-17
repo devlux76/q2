@@ -1,5 +1,240 @@
 # Design: Quaternary Semantic Quantization
 
+## The Embedding Problem
+
+### 0.0 What an Embedding Is
+
+A transformer model maps a document — a sequence of tokens — to a vector in
+$\mathbb{R}^n$ by passing it through the network and reading off activations, typically
+mean-pooled over token positions and then L2-normalised. The result is a point on the
+unit hypersphere:
+
+$$e \in S^{n-1} = \left\{ x \in \mathbb{R}^n : \|x\| = 1 \right\}$$
+
+Each coordinate $e_i$ is a real number constrained by $\sum_i e_i^2 = 1$. The natural
+distance measure on this space is cosine similarity — equivalently, the dot product
+between normalised vectors:
+
+$$\text{sim}(u, v) = u \cdot v = \cos\theta_{uv}$$
+
+where $\theta_{uv}$ is the angle subtended at the origin. Two documents are semantically
+similar if and only if their embeddings are close on $S^{n-1}$; dissimilar if their
+embeddings are far apart.
+
+This geometric picture is complete and clean. The problem begins when you ask: similar
+*according to whom*?
+
+---
+
+### 0.1 The Incommensurability Problem
+
+The sphere $S^{n-1}$ has no preferred orientation. Every rotation $Q \in O(n)$ is an
+isometry of the sphere: it maps $S^{n-1}$ to itself and preserves all pairwise angles.
+The dot product between any two points is unchanged:
+
+$$u \cdot v = (Qu) \cdot (Qv)$$
+
+This is not a technical nuance; it is a structural obstruction. A model trained on a
+corpus learns to place semantically similar documents near each other on the sphere, but
+the *absolute position* of any concept — which hemisphere it inhabits, which axis it is
+close to — is determined entirely by the random initialisation and the order in which
+the training data arrived. A second model trained on the same corpus will produce an
+embedding space related to the first by some unknown rotation $Q \in O(n)$:
+
+$$e_B(x) \approx Q \cdot e_A(x)$$
+
+where $Q$ encodes every accident of initialisation and training order. $Q$ is not
+available. There is no way to recover it from the models' weights, and it cannot be
+computed without a large set of paired examples and a Procrustes alignment procedure.
+
+**The consequence.** For any two documents $x, y$ embedded by different models:
+
+$$e_A(x) \cdot e_B(y) = e_A(x)^T e_B(y)$$
+
+is a number whose sign and magnitude depend entirely on $Q$, which is arbitrary. The
+dot product is not a measure of semantic similarity; it is a measurement of how a
+random rotation happens to align two points from two unrelated coordinate systems. It
+is, for all retrieval purposes, noise.
+
+This is the incommensurability of embeddings: two embedding spaces that are both
+internally coherent and semantically organised are mutually unintelligible without
+explicit alignment. An index built from embeddings of one model cannot be queried with
+embeddings from another.
+
+**Incommensurability also applies to untrained models.** An untrained transformer
+projects documents onto $\mathbb{R}^n$ using random weight matrices. The resulting
+vectors cluster near the equator of $S^{n-1}$ by the central limit theorem — each
+coordinate is a sum of many random terms — but the geometry encodes no semantic
+content. There is no training signal that has pushed similar documents together, so
+similar and dissimilar documents are geometrically indistinguishable. The activations
+are noise, uniformly distributed on $S^{n-1}$ from the retrieval system's perspective.
+An embedding is only meaningful as a retrieval key after the model has been trained to
+make it so.
+
+---
+
+### 0.2 The Hypersphere: Curse of Dimensionality
+
+The space on which embeddings live — $S^{n-1}$ — behaves increasingly pathologically
+as $n$ grows. Understanding this geometry is prerequisite to understanding why the
+quantization scheme in the following sections is the right answer.
+
+**Volume of the $n$-ball.** The $n$-dimensional ball of radius $R$:
+
+$$V_n(R) = \frac{\pi^{n/2}}{\Gamma\!\left(\tfrac{n}{2}+1\right)} R^n$$
+
+For large $n$, $\Gamma(n/2+1) \approx \sqrt{\pi n}\,(n/2e)^{n/2}$ by Stirling, so:
+
+$$V_n(1) \sim \frac{1}{\sqrt{\pi n}}\left(\frac{2\pi e}{n}\right)^{n/2} \to 0 \quad \text{as } n \to \infty$$
+
+The unit ball *collapses in volume* as dimension grows. Simultaneously the surface area
+$\mathcal{A}_{n-1}(R) = n V_n(R) / R$ also collapses. The sphere becomes an
+infinitesimally thin skin around nothing.
+
+**Shell concentration.** The fraction of the ball's volume contained in the outer shell
+of thickness $\epsilon$ is:
+
+$$f_{\text{shell}}(n,\,\epsilon) = \frac{V_n(R) - V_n(R-\epsilon)}{V_n(R)}
+= 1 - \left(1 - \frac{\epsilon}{R}\right)^n$$
+
+For the unit ball ($R = 1$):
+
+$$f_{\text{shell}}(n,\,\epsilon) = 1 - (1-\epsilon)^n$$
+
+As $n \to \infty$ for any fixed $\epsilon > 0$:
+
+$$f_{\text{shell}}(n,\,\epsilon) \to 1$$
+
+Every scrap of volume migrates to the surface. For small $\epsilon$ the exponential
+form is revealing:
+
+$$f_{\text{shell}}(n,\,\epsilon) \approx 1 - e^{-n\epsilon}$$
+
+The shell thickness $\epsilon^*$ required to capture fraction $f$ of the total volume is:
+
+$$\epsilon^*(f,\,n) = 1 - (1-f)^{1/n} \approx \frac{-\ln(1-f)}{n}$$
+
+| Fraction captured | Shell thickness |
+|-------------------|----------------|
+| 63.2% | $1/n$ |
+| 86.5% | $2/n$ |
+| 95.0% | $3/n$ |
+| 99.0% | $4.605/n$ |
+| 99.9% | $6.908/n$ |
+
+The shell containing 63% of the volume has radial thickness exactly $1/n$. The shell
+containing 99% has thickness $\approx 4.6/n$. In 256 dimensions, 99% of the ball's
+volume lies within a shell of radial thickness $4.6/256 \approx 0.018$ — less than 2%
+of the radius.
+
+**Random vectors are nearly orthogonal.** For $u, v \sim \text{Uniform}(S^{n-1})$:
+
+$$\mathbb{E}[u \cdot v] = 0 \qquad \text{Var}(u \cdot v) = \frac{1}{n}$$
+
+The standard deviation of the dot product between two random unit vectors is
+$1/\sqrt{n}$. For $n = 256$ this is $\approx 0.063$. The entire range of cosine
+similarity $[-1, +1]$ is compressed into fluctuations of order $\pm 0.06$. A trained
+model must place semantically similar documents closer than this noise floor; without
+training, no signal is detectable.
+
+Each coordinate of a random unit vector satisfies:
+
+$$\mathbb{E}[e_i] = 0 \qquad \mathbb{E}[e_i^2] = \frac{1}{n} \qquad \text{Var}(e_i^2) = \frac{2}{n^2(n+2)}$$
+
+The expected squared magnitude of each coordinate is $1/n$, and the fluctuations
+around this are $O(n^{-3/2})$ — tightly concentrated. In high dimensions, the
+coordinates of a random unit vector are essentially i.i.d. $\mathcal{N}(0, 1/n)$.
+
+---
+
+### 0.3 The Planck Limit and the Holographic Analogy
+
+The shell thickness $\epsilon^*(n) \sim c/n$ (where $c = O(1)$ sets the captured
+fraction) shrinks without bound as dimension grows. This is a purely geometric
+statement. But it has a physical corollary that illuminates why embedding dimension
+cannot simply be made arbitrarily large.
+
+**The crust thickness in absolute units.** Suppose the semantic space has a
+characteristic physical scale $L$ — the radius of the meaningful region of $S^{n-1}$
+in some ambient metric. The absolute thickness of the shell is:
+
+$$\delta(n) = \frac{c \cdot L}{n}$$
+
+There is a physical floor below which no distinction is resolvable: the Planck length,
+
+$$\ell_P = \sqrt{\frac{\hbar G}{c^3}} \approx 1.616 \times 10^{-35} \;\text{m}$$
+
+Below $\ell_P$, the concepts of distance and position lose operational meaning.
+Setting $\delta(n_{\max}) = \ell_P$:
+
+$$n_{\max} = \frac{c \cdot L}{\ell_P}$$
+
+Beyond $n_{\max}$ dimensions, the radial distinctions implied by additional coordinates
+are finer than Planck-scale resolution. Adding dimensions does not add information;
+it subdivides already-indistinguishable states.
+
+**The holographic analogy.** The Bekenstein-Hawking bound states that the maximum
+entropy (information content) of any physical system enclosed by a surface of area $A$
+is bounded by:
+
+$$S_{\max} = \frac{A}{4\,\ell_P^2}$$
+
+Information is bounded by *surface area*, not volume. The same structure emerges
+geometrically from the hypersphere as $n$ grows:
+
+1. All volume concentrates at the surface: $f_{\text{shell}} \to 1$.
+2. The interior contributes negligible measure.
+3. All distinguishable states live on $S^{n-1}$, not in the ball.
+4. The capacity of the space is determined by how finely $S^{n-1}$ can be
+   partitioned, which is a surface quantity — not a volume quantity.
+
+The surface area of $S^{n-1}$ is:
+
+$$\mathcal{A}_{n-1}(1) = \frac{2\pi^{n/2}}{\Gamma(n/2)}$$
+
+This grows with $n$, but the minimum distinguishable angular separation between two
+points also grows (as $\sim 1/\sqrt{n}$ from the concentration result above). The
+effective number of distinguishable directions — the packing number of $S^{n-1}$ at
+angular resolution $\Delta\theta$ — grows, but the *marginal* information per additional
+dimension decreases as the already-thin shell continues to compress.
+
+The holographic analogy is this: the semantic content of a document is encoded in
+*which region of the sphere surface* its embedding occupies, not in its distance from
+the origin. The sphere is already the hologram of the document. The quantization
+problem — which is the subject of the remainder of this document — is the problem of
+discretizing that hologram efficiently.
+
+---
+
+### 0.4 Implications for Retrieval System Design
+
+Three conclusions follow from the geometry above.
+
+**First:** An embedding is only a retrieval key relative to the model that produced it.
+Cross-model comparison without explicit Procrustes alignment is undefined. A retrieval
+index built from the embeddings of one model must be rebuilt entirely if the model
+changes.
+
+**Second:** The on-device constraint described in Section 1.1 is not merely an
+engineering inconvenience. Running a second embedding model alongside an LLM to
+re-encode documents in a new model's coordinate system is geometrically necessary if
+you change models — but it is thermally impossible on constrained hardware. The
+design consequence is that the retrieval index must be derived from the LLM's own
+activations, so that when the model updates, the index can be reconstructed from the
+same computational work the model was already doing.
+
+**Third:** The relevant geometric object is the surface $S^{n-1}$, and the relevant
+operation is partitioning that surface into discrete cells. Each coordinate $e_i$ of the
+embedding vector encodes which side of a hyperplane the document falls on in one
+dimension of the sphere. The quantization problem is: how many bits per dimension are
+needed to represent that cell membership faithfully enough that the Lee distance
+between cell assignments approximates the angular distance between points on the
+sphere?
+
+The answer — quaternary, two bits per dimension — is derived in the following section.
+
+---
+
 ## The Quantization Problem
 
 ### 0.1 Motivation: The On-Device Thermal Constraint
