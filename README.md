@@ -35,3 +35,15 @@ bun run typecheck
 ```bash
 bun run test
 ```
+
+- **Browser tests** (runs tests in a real browser via Playwright):
+
+```bash
+bun run test:browser
+```
+
+> If Playwright browsers are not yet installed, run:
+>
+> ```bash
+> bun x playwright install
+> ```
