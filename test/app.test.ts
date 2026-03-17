@@ -289,8 +289,8 @@ describe('app.ts helpers and DOM integration', () => {
 
   // ─── Model picker tests ───────────────────────────────────────────────────────
 
-  it('CURATED_MODELS contains at least 5 entries with required fields', () => {
-    expect(app.CURATED_MODELS.length).toBeGreaterThanOrEqual(5);
+  it('CURATED_MODELS contains exactly 10 entries with required fields', () => {
+    expect(app.CURATED_MODELS.length).toBe(10);
     for (const m of app.CURATED_MODELS) {
       expect(typeof m.id).toBe('string');
       expect(typeof m.label).toBe('string');

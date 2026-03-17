@@ -359,7 +359,8 @@ export function onStatus(
 
     // Update model name in the header and sidebar.
     const entry = CURATED_MODELS.find((m) => m.id === selectedModelId);
-    const displayName = entry ? entry.label : selectedModelId.split('/').pop() ?? selectedModelId;
+    // For custom model IDs like "org/model-name", use only the part after the slash.
+    const displayName = entry?.label ?? selectedModelId.split('/').at(-1) ?? selectedModelId;
     headerTitleEl.textContent = `${displayName} · Q4 ONNX`;
     sidebarModelTagEl.textContent = displayName;
 
