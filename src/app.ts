@@ -57,7 +57,8 @@ const repValueEl = $<HTMLSpanElement>('#rep-value');
 
 // ─── Application state ─────────────────────────────────────────────────────────
 
-export let worker: Worker | null = null;
+let worker: Worker | null = null;
+export const getWorker = () => worker;
 let modelReady = false;
 let isGenerating = false;
 
