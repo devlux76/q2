@@ -46,13 +46,19 @@ export interface TokenMsg {
  * Shape: [batch=1, seq_len, hidden_dim]
  *
  * This data is the input to the quaternary quantization (Q²) WASM kernel.
- * The kernel receives this Float32Array and writes back a compact Uint8Array
- * where each byte encodes four 2-bit quaternary symbols.
+ * The kernel receives this data as a Float32Array view over the provided
+ * ArrayBuffer and writes back a compact Uint8Array where each byte encodes
+ * four 2-bit quaternary symbols.
  */
 export interface EmbeddingMsg {
   type: 'embedding';
-  /** Raw float32 values, shape [seq_len × hidden_dim] */
-  data: Float32Array;
+  /**
+   * Transferable buffer containing float32 values laid out as
+   * [seq_len × hidden_dim]. The sender should transfer this buffer via
+   * postMessage(msg, [data]) to avoid structured-clone copying, and the
+   * receiver should construct a Float32Array view as needed.
+   */
+  data: ArrayBuffer;
   seqLen: number;
   hiddenDim: number;
 }
