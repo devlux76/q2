@@ -75,31 +75,6 @@ describe('app.ts helpers and DOM integration', () => {
 
     // Re-import app.ts for this test.
     app = await import('../src/app.ts');
-
-  beforeAll(async () => {
-    setupDom();
-    app = await import('../src/app.ts');
-  });
-
-  beforeEach(() => {
-    // Reset the DOM state between tests.
-    const loadScreen = document.querySelector('#load-screen') as HTMLElement;
-    const chatApp = document.querySelector('#chat-app') as HTMLElement;
-    loadScreen.classList.remove('hidden');
-    chatApp.classList.add('hidden');
-    (document.querySelector('#messages') as HTMLElement).textContent = '';
-    (document.querySelector('#user-input') as HTMLTextAreaElement).value = '';
-
-    // Reset send/stop button state.
-    const sendBtn = document.querySelector('#send-btn') as HTMLButtonElement;
-    const stopBtn = document.querySelector('#stop-btn') as HTMLButtonElement;
-    sendBtn.disabled = false;
-    sendBtn.classList.remove('hidden');
-    stopBtn.classList.add('hidden');
-
-    // Reset embedding panel.
-    const embeddingPanel = document.querySelector('#embedding-panel') as HTMLElement;
-    embeddingPanel.classList.add('hidden');
   });
 
   it('splitThinkBlocks handles various tag cases', () => {
