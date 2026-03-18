@@ -845,6 +845,206 @@ semantic path as the query.
 
 ---
 
+### 2.7 Codon Palindromes as Hairpin Turns in Concept Space
+
+A **codon** is any triplet of consecutive symbols in a transition sequence
+$R = (r_0, r_1, \ldots, r_{k-1})$. Because $R$ is a transition sequence, adjacent
+symbols are always distinct: $r_i \neq r_{i+1}$ for all $i$.
+
+**Definition.** A codon $(r_i, r_{i+1}, r_i)$ is a *palindrome*. Because adjacent
+symbols are distinct, a palindrome codon represents a trajectory that leaves some
+state, visits an intermediate state, and returns to the origin.
+
+Three types of palindrome differ by the Lee distance of the intermediate step:
+
+| Codon form | Example | Intermediate Lee dist | Character |
+|------------|---------|----------------------|-----------|
+| Adjacent palindrome | $(A, B, A)$ | 1 | Narrow excursion; returns from neighbour |
+| Cyclic-wrap palindrome | $(A, D, A)$ | 1 | Pole-to-pole adjacent; metrically cheap |
+| **Complement palindrome** | $(A, C, A)$, $(B, D, B)$ | **2** | **Semantic hairpin: visits antipode and returns** |
+
+**The complement palindrome is the hairpin.** Recall the complement involution
+$\theta(x) = x + 2 \pmod 4$ from Section 1.8: $\theta(A)=C$, $\theta(B)=D$,
+$\theta(C)=A$, $\theta(D)=B$. A complement palindrome is exactly $(x, \theta(x), x)$:
+the trajectory crosses the semantic axis to its antipode and returns. In the Gray
+encoding, $\phi(\theta(x)) = \overline{\phi(x)}$ — the intermediate codon has all
+bits flipped. The biological analogy is precise: an RNA hairpin loop forms where a
+strand is self-complementary, folding back on itself via the complement base-pairing
+rules. Here the fold is in concept space, and the complementarity is the algebraic
+involution $\theta$.
+
+**Hairpin density.** Define the complement-palindrome density of a transition
+sequence $R$ as:
+
+$$\rho_{\text{hp}}(R) =
+\frac{\bigl|\{i : r_{i+1} = \theta(r_i) \text{ and } r_{i+2} = r_i\}\bigr|}{|R| - 2}$$
+
+for $|R| \geq 3$, and $0$ otherwise.
+
+**Testable prediction.** Under the semantic interpretation of Section 1.5, a complement
+palindrome codon in a document's transition sequence is a signature of a concept that
+was *visited in opposition and returned from*: the document engaged with the semantic
+antipode of some dimension — a negation, a qualification, a dialectical reversal —
+before settling back in the original region. Documents with high $\rho_{\text{hp}}$
+should therefore be enriched for hedged, contrastive, or dialectical language relative
+to documents with the same net semantic position but low $\rho_{\text{hp}}$.
+
+Three document classes make the prediction sharp:
+
+1. **Direct** — single semantic direction, no hedge.
+   *Example:* "Optimism is warranted."
+   Expected: $\rho_{\text{hp}} \approx$ null baseline.
+
+2. **Dialectical** — explicit opposition followed by return.
+   *Example:* "Optimism is warranted; one could argue for pessimism, yet on balance
+   optimism prevails."
+   Expected: $\rho_{\text{hp}} > $ null baseline.
+
+3. **Negated** — moves to the complement and stays.
+   *Example:* "Optimism is not warranted."
+   Expected: $\rho_{\text{hp}} < $ null baseline (the sequence reaches the antipode
+   but does not return; no hairpin is formed).
+
+The ordering prediction is:
+
+$$\rho_{\text{hp}}(\text{Dialectical}) > \rho_{\text{hp}}(\text{Direct})
+\approx \rho_{\text{hp}}(\text{Random baseline}) > \rho_{\text{hp}}(\text{Negated})$$
+
+**Antonym retrieval corollary.** Two documents about semantically opposed concepts
+(e.g. *optimism* and *pessimism*) should share a higher proportion of complement
+palindrome codons in their transition sequences than two unrelated documents, because
+both traverse the same semantic axis — one going out and back from $A$ via $C$, the
+other from $C$ via $A$. The hairpin codon set is the algebraic fingerprint of the
+shared axis. This is a retrieval-level prediction: complement-palindrome overlap
+between query and candidate transition sequences should be a stronger signal of
+semantic opposition than Lee distance alone, and orthogonal to it.
+
+---
+
+## Empirical Validation
+
+The predictions of the preceding sections are falsifiable. This section defines a
+four-phase experimental programme designed to establish the null distribution,
+validate the encoding on structured data, and then measure its contribution across
+increasingly unconstrained models.
+
+---
+
+### 3.1 Phase 1 — Random Text Baseline (Null Distribution)
+
+**Goal.** Establish the distribution of transition sequence statistics — including
+$\rho_{\text{hp}}$ — that arise from stochastic character sequences with no semantic
+structure.
+
+**Method.** Generate documents by sampling characters i.i.d. from a distribution
+matching empirical English character frequencies (a Gaussian-weighted approximation
+over the 26-letter alphabet plus common punctuation). Apply the full Q² pipeline:
+embed with the target model, quantize, run-reduce to a transition sequence, compute
+$\rho_{\text{hp}}$ and the 64-bit key. No LLM is involved in generating the text;
+the model serves only as a deterministic function of the input.
+
+**Null distribution.** For a uniformly random quaternary sequence of length $n$, the
+expected complement-palindrome density is:
+
+$$\mathbb{E}[\rho_{\text{hp}}] = P(r_{i+1} = \theta(r_i)) \cdot P(r_{i+2} = r_i \mid r_{i+1} = \theta(r_i))$$
+
+Since adjacent symbols in a transition sequence are distinct and drawn from $\{A,B,C,D\}$,
+conditioning on $r_i = x$ gives $r_{i+1}$ uniform over $\{A,B,C,D\} \setminus \{x\}$,
+so $P(r_{i+1} = \theta(r_i)) = 1/3$. Given $r_{i+1} = \theta(r_i)$, $r_{i+2}$ is
+uniform over the three remaining values excluding $r_{i+1}$, and exactly one of those
+values equals $r_i$, so $P(r_{i+2} = r_i) = 1/3$. The null expectation is therefore:
+
+$$\mathbb{E}[\rho_{\text{hp}}]_{\text{null}} = \frac{1}{3} \cdot \frac{1}{3} = \frac{1}{9} \approx 0.111$$
+
+Any $\rho_{\text{hp}}$ significantly above $1/9$ in a real corpus indicates that
+semantic structure in the text is inducing hairpin patterns. Any value significantly
+below $1/9$ indicates that the model is pushing transition sequences away from
+reversals — a form of semantic commitment.
+
+**Hypothesis.** Retrieval precision on random-text corpora should hover near chance.
+Deviations indicate bias or artifacts in the encoding itself, which must be diagnosed
+before proceeding to structured phases.
+
+---
+
+### 3.2 Phase 2 — Structured Code Corpus
+
+**Goal.** Validate the system on a corpus with rigidly deterministic semantic
+structure using a code-specialised model.
+
+**Method.** Index a corpus of short, well-typed functions from a single programming
+language. Use a code-specialised embedding model (e.g. a StarCoder- or CodeBERT-class
+model exported to ONNX). Retrieval tasks: given a function signature, retrieve the
+implementation; given a call site, retrieve the called function.
+
+**Hairpin sub-test.** Code has natural hairpin structure: a function that calls a
+helper and returns to the caller traverses the helper's semantic region and returns.
+Predict that call-and-return patterns in source code produce elevated $\rho_{\text{hp}}$
+relative to linear (non-calling) functions of similar length. This is mechanically
+verifiable from the AST without any subjective annotation.
+
+**Hypothesis.** Retrieval should reach near-perfect accuracy. This validates that the
+Q² pipeline can represent highly deterministic patterns and that the 64-bit key space
+partitions a structured corpus correctly.
+
+---
+
+### 3.3 Phase 3 — Matryoshka and Dedicated Embedding Models
+
+**Goal.** Measure the contribution of quaternary encoding relative to
+state-of-the-art dedicated embedding models, including matryoshka (multi-scale
+nested) embeddings.
+
+**Method.** Evaluate four configurations:
+
+| Configuration | Encoding | Model type |
+|---------------|----------|------------|
+| A | None (float cosine) | Standard embedding model |
+| B | Q² + Lee | Standard embedding model |
+| C | None (float cosine) | Matryoshka embedding model |
+| D | Q² + Lee | Matryoshka embedding model |
+
+**Hairpin sub-test.** Apply the synthetic probe corpus from Section 2.7 (Direct /
+Dialectical / Negated) to configurations B and D. Measure $\rho_{\text{hp}}$ for
+each document class and test the ordering prediction. This is the first phase where
+the hairpin hypothesis can be tested against models optimised for semantic retrieval.
+
+**Hypothesis.** The performance ordering should be $D > C \geq B > A$. The encoding
+should add measurable value even for matryoshka embeddings because it compresses the
+L1 structure of the embedding space that float cosine distance does not exploit
+directly.
+
+---
+
+### 3.4 Phase 4 — Standard Local LLMs
+
+**Goal.** Establish the floor: what does Q² encoding contribute when the activations
+come from a general-purpose LLM rather than a retrieval-optimised model?
+
+**Method.** Extract last-LIV-layer activations from a standard local model (e.g.
+LFM2.5-1.2B or a Qwen2.5 variant) for the same retrieval benchmark used in Phase 3.
+Compare:
+
+- Raw LLM activations, float cosine similarity (no encoding)
+- LLM activations, Q² + Lee encoded
+
+**Hairpin sub-test.** Repeat the probe corpus test. The prediction at this phase is
+weaker: a general-purpose LLM may not produce activations that are as semantically
+organised as a dedicated embedding model, so the hairpin signal may be noisier. A
+statistically significant enrichment of $\rho_{\text{hp}}$ in the Dialectical class
+relative to the null baseline ($1/9$) would still confirm the hypothesis in this
+setting.
+
+**Hypothesis.** Encoding should raise retrieval from near-random to a meaningful
+level, likely below unencoded matryoshka but possibly approaching it. The expected
+performance ladder across all phases:
+
+$$\text{Phase 1 (random)} \ll \text{Phase 4 (LLM, no enc)}
+< \text{Phase 4 (LLM + enc)} \lesssim \text{Phase 3 (matryoshka, no enc)}
+\leq \text{Phase 3 (matryoshka + enc)} \ll \text{Phase 2 (code + enc)}$$
+
+---
+
 [^1]: The $1/n_s$ variance normalisation ensures that the dot product of two random unit
 vectors has bounded variance regardless of dimension. This is the same normalisation used
 in transformer attention ($1/\sqrt{d_k}$) and is standard for high-dimensional embeddings.
