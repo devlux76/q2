@@ -82,16 +82,20 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
 // ─── Model loading ────────────────────────────────────────────────────────────
 
 /**
- * Maps an ONNX dtype string to the EmbeddingMsg dtype used by the Q² kernel.
- * The ONNX runtime (transformers.js) typically returns hidden-state tensors as
- * fp32 even when model weights are quantised (q4/q8/fp16), so 'fp32' is the
- * safe default.  Override only if the runtime exposes sub-fp32 activation
- * tensors for the loaded dtype.
+ * Returns the EmbeddingMsg dtype used by the Q² kernel.
+ *
+ * Note: transformers.js typically returns hidden-state tensors as Float32Array
+ * (fp32) even when model weights are quantised (q4/q8/fp16). Since the
+ * extracted activations are currently handled as fp32 and forwarded as raw
+ * bytes without conversion, we must advertise them as 'fp32' to avoid the
+ * main thread / Q² kernel misinterpreting the buffer with the wrong element
+ * width.
+ *
+ * If the runtime is ever extended to expose sub-fp32 activation tensors, this
+ * function should be updated to derive the dtype from the actual tensor data
+ * type rather than the model weight dtype.
  */
-function toEmbeddingDtype(dtype: string): EmbeddingMsg['dtype'] {
-  if (dtype === 'fp16') return 'fp16';
-  if (dtype === 'q8')   return 'q8';
-  if (dtype === 'q4')   return 'fp32'; // q4 weights: transformers.js dequantises at runtime, activations are fp32
+function toEmbeddingDtype(_dtype: string): EmbeddingMsg['dtype'] {
   return 'fp32';
 }
 
