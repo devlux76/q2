@@ -12,8 +12,16 @@ describe('opfs storage layer', () => {
   beforeEach(() => {
     localStorage.clear();
     // Ensure test environment has no OPFS API by default.
-    delete (navigator as any).storage;
-    delete (window as any).originPrivateFileSystem;
+    Object.defineProperty(navigator, 'storage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(window as any, 'originPrivateFileSystem', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
   });
 
   it('reports OPFS availability correctly when APIs are missing', () => {

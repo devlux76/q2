@@ -101,6 +101,16 @@ async function readOpfsFile(path: string): Promise<Uint8Array> {
   return new Uint8Array(await file.arrayBuffer());
 }
 
+interface FileSystemDirectoryHandleWithRemoveEntry extends FileSystemDirectoryHandle {
+  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
+}
+
+function hasRemoveEntry(
+  dir: FileSystemDirectoryHandle,
+): dir is FileSystemDirectoryHandleWithRemoveEntry {
+  return typeof (dir as any).removeEntry === 'function';
+}
+
 async function deleteOpfsFile(path: string): Promise<void> {
   const dir = await ensureDir([OPFS_DIR]);
   if (!dir) throw new Error('OPFS is not available in this environment');
@@ -125,7 +135,7 @@ export async function storeFile(
   name?: string,
   url?: string,
 ): Promise<StoredFileMeta> {
-  const buffer = await (file instanceof File ? file.arrayBuffer() : file.arrayBuffer());
+  const buffer = await file.arrayBuffer();
   const hash = await digestHex(buffer);
   const primaryName = ensureName(name, (file as File).name ?? hash);
   const mapping = loadMapping();

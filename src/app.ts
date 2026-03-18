@@ -389,7 +389,7 @@ function renderLocalFileList(): void {
       a.href = url;
       a.download = file.name || file.hash;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     });
 
     const deleteBtn = document.createElement('button');
@@ -420,7 +420,7 @@ async function handleLocalFile(file: File): Promise<void> {
   }
 }
 
-async function handleLocalUrl(rawUrl: string): Promise<void> {
+export async function handleLocalUrl(rawUrl: string): Promise<void> {
   const url = rawUrl.trim();
   if (!url) return;
   try {
@@ -432,7 +432,7 @@ async function handleLocalUrl(rawUrl: string): Promise<void> {
   }
 }
 
-function initLocalFileStore(): void {
+export function initLocalFileStore(): void {
   if (!isOpfsAvailable()) {
     // Not supported in this environment; show a hint.
     setLocalFileStatus('OPFS not supported in this browser.');
@@ -451,6 +451,12 @@ function initLocalFileStore(): void {
   document.body.appendChild(fileInput);
 
   localFileDrop.addEventListener('click', () => fileInput.click());
+  localFileDrop.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      fileInput.click();
+    }
+  });
 
   localFileDrop.addEventListener('dragover', (e) => {
     e.preventDefault();
