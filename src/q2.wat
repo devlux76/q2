@@ -1,6 +1,6 @@
 (module
   ;; ─────────────────────────────────────────────────────────────────────────────
-  ;; Q² — Quaternary Semantic Quantisation Kernel
+  ;; Q² — Quaternary Quantisation Kernel
   ;; Source:        src/q2.wat
   ;; Specification: DESIGN.md §1.5 – §2.2
   ;;

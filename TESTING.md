@@ -36,6 +36,24 @@ sub-tests** tied to specific claims in [PREDICTIONS.md](PREDICTIONS.md). The
 prediction sub-tests are independent of the retrieval benchmark: they can confirm
 or falsify a prediction even when retrieval accuracy is at chance.
 
+## T0 — Unit tests and invariants
+
+These are lightweight tests that should pass locally without large corpora or
+model downloads. They validate the core Q² pipeline invariants and the algebraic
+properties underpinning the predictions.
+
+- **CGAT mapping / complement involution (P1).** Verify the Gray encoding and
+  complement operation ($\theta$) satisfy the required symmetry: the complement of
+  each symbol is the symbol with all Gray bits flipped, and the mapping exposes the
+  two chemical axes (purine/pyrimidine and keto/amino).
+- **Quantisation and packing invariants.** The existing unit tests in `test/q2.test.ts`
+  cover these, but add a smoke test that random normal vectors always produce a valid
+  64-bit key and that the key is stable for the same input.
+- **Key entropy and collision rate (P10).** A small synthetic corpus (e.g. 10k random
+  embeddings) should produce a key collision rate close to the uniform baseline.
+
+These tests are quick and form the foundation for the higher-level phases.
+
 ---
 
 ## T1 — Random text null distribution
@@ -107,6 +125,7 @@ pipeline.
 | §P-2 | $\rho_{\text{hp}}$ for call-and-return functions vs. linear functions | Elevated $\rho_{\text{hp}}$ for functions that call helpers and return, relative to linear (no-call) functions of similar length |
 | §P-3 | Complement-bigram frequency | $< 1/3$ if the code embedding model suppresses complement transitions |
 | §P-8 | Triplet frequency distribution | Non-uniform; high-frequency triplets correspond to common code patterns (loop, branch, return) |
+| §P-10 | 64-bit key collision rate | Collision rate close to the random-hash baseline; collisions should preferentially occur between semantically similar functions |
 
 **AST ground truth for §P-2.** A function that calls one or more helpers and returns
 to the caller has a call-and-return structure verifiable from the AST. No subjective
@@ -150,6 +169,17 @@ NQ). Metrics: nDCG@10, Recall@100. Expected ordering: $E \geq D > C \geq B > A$.
 | §P-6 | Two-stage (hash + Lee) vs. flat Lee search, latency-matched | B, D | Two-stage $\geq$ flat on precision at equal latency |
 | §P-7 | Secondary structure complexity vs. human rhetorical complexity annotation | B, D | Positive correlation; nested-argument documents score higher |
 | §P-9 | $\mathbb{Z}_8$ vs. $\mathbb{Z}_4$ retrieval | B (Z₄), B′ (Z₈) | No significant improvement for Z₈ |
+| §P-10 | 64-bit key collision rate | B, D | Collision rate close to random-hash baseline; collisions correlate with semantic similarity |
+
+To keep the P6 measurements tractable, limit the two-stage search experiments to a
+fixed prefix length (e.g. top 12–16 bits) and a manageable subset of queries, and
+compare the precision/recall of the two-stage pipeline against a brute-force Lee
+scan on the same candidate set.
+
+For §P-4 (weighted Lee), estimate weights from observed bigram frequencies in the
+corpus: compute empirical frequencies for transition (Ti) and transversion (Tv1/Tv2)
+bigram types, then set weights proportional to the inverse frequency or log-odds
+(relative to the uniform null). Evaluate a small grid around the estimated weights.
 
 **Probe corpus for §P-2.** Construct 30–100 sentence triplets, one from each class
 (Direct, Dialectical, Negated), on diverse topics. Triplets are matched by topic so
@@ -167,6 +197,11 @@ Essays (PE) or IBM Claim Stance). Compute the secondary structure of each docume
 transition sequence using the Nussinov algorithm (§P-7), and measure Spearman rank
 correlation between the number of nested complement pairs and the human-annotated
 rhetorical complexity score.
+
+> **Tractability note:** Nussinov is $O(n^3)$, so cap analysis at a fixed window size
+> (e.g. the first 1k–2k transition symbols) or analyse a random 1k-symbol subsequence
+> per document. For longer texts, a greedy heuristic (pairing the first valid complement
+> in a sliding window) can provide an approximate secondary-structure score.
 
 ---
 
@@ -226,6 +261,7 @@ optimisation.
 | §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) |
 | §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — |
 | §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — |
+| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — |
 
 Tests in the T1 column establish baseline distributions. A prediction is
 **confirmed** when the T3 or T4 result is statistically significant relative to the

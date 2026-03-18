@@ -5,7 +5,7 @@
  * Provides the quaternary semantic quantisation algorithm described in
  * DESIGN.md §1.5 – §2.2 for any model dimension n (a power of 2).
  *
- * Build note: `npm run build:wat` recompiles src/q2.wat → src/q2.wasm and
+ * Build note: `bun run build:wat` recompiles src/q2.wat → src/q2.wasm and
  * updates the WASM_B64 constant below via `scripts/embed-wat.mjs`.
  */
 

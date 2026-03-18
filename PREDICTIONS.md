@@ -421,6 +421,24 @@ Test protocol: §T-3 (embedding models).
 
 ---
 
+## P10 — Key entropy and collision rate
+
+The 64-bit transition key is intended as a compact semantic address: most distinct
+documents should map to distinct keys, and collisions should occur mainly between
+semantically similar documents.
+
+**Prediction.** For a corpus of size $N$ (e.g., 10k–100k documents), the empirical
+collision rate of 64‑bit keys should be close to the random-hash expectation
+$O(N^2 / 2^{65})$, and collision pairs should be more semantically similar (lower Lee
+distance) than random pairs. A collision rate substantially higher than the null
+expectation indicates loss of discriminative power in the key.
+
+**Test protocol.** §T-2, §T-3. Compute key frequencies and estimate collision rate.
+Compare against the theoretical baseline for uniform 64-bit keys, and inspect the
+semantic similarity of collided pairs.
+
+---
+
 ## Summary table
 
 | ID | Prediction | From | Tested in | Effort |
@@ -434,6 +452,7 @@ Test protocol: §T-3 (embedding models).
 | P7 | Secondary structure complexity correlates with rhetorical complexity | RNA folding | §T-3, §T-4 | High |
 | P8 | Triplet frequency distribution shows codon-usage-bias pattern | Genetic code degeneracy | §T-2, §T-3 | Low |
 | P9 | $\mathbb{Z}_8$ encoding yields no significant retrieval improvement | Kerdock/Preparata | §T-3 | Medium |
+| P10 | Key collision rate is low and correlates with semantic similarity | Key design | §T-2, §T-3 | Low |
 
 P3 requires only a frequency count on quantizer output and can be run immediately once
 the quantizer from [PR #9](https://github.com/devlux76/q2/pull/9) is merged. P2 and

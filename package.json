@@ -22,16 +22,13 @@
   },
   "lint-staged": {
     "*.{js,ts}": [
-      "eslint --fix",
-      "git add"
+      "eslint --fix"
     ],
     "*.{html,yml,yaml}": [
-      "eslint --fix",
-      "git add"
+      "eslint --fix"
     ],
     "*.{css,html}": [
-      "stylelint --fix",
-      "git add"
+      "stylelint --fix"
     ]
   },
   "repository": {
