@@ -77,8 +77,8 @@ function setupDom() {
       const handler = this.listeners.get(type);
       if (typeof handler === 'function') {
         handler({ data } as unknown as Event);
-      } else if (handler && typeof (handler as any).handleEvent === 'function') {
-        (handler as any).handleEvent({ data });
+      } else if (handler && 'handleEvent' in handler && typeof handler.handleEvent === 'function') {
+        handler.handleEvent({ data } as Event);
       }
     }
   }
@@ -93,16 +93,16 @@ function setupDom() {
       { id: 'test-org/model-alpha', downloads: 10_000, likes: 100, tags: ['transformers.js'] },
       { id: 'test-org/model-beta', downloads: 5_000, likes: 50, tags: [] },
     ],
-  } as any);
+  } as Partial<Response>);
 
   // Stub canvas 2D context.
   const canvas = document.querySelector('#embedding-canvas') as HTMLCanvasElement;
   if (canvas) {
     Object.defineProperty(canvas, 'clientWidth', { value: 280, configurable: true });
-    canvas.getContext = () => ({
+    canvas.getContext = (() => ({
       fillStyle: '',
       fillRect: vi.fn(),
-    } as any);
+    } as Partial<CanvasRenderingContext2D>)) as typeof canvas.getContext;
   }
 }
 
@@ -218,7 +218,7 @@ describe('app.ts helpers and DOM integration', () => {
 
     // Initialise the worker (simulates clicking Load).
     app.startWithModel('LiquidAI/LFM2.5-1.2B-Thinking-ONNX');
-    const workerRef = (app as any).worker as any;
+    const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
 
     // Ensure model is marked ready so sendMessage will proceed.
     app.onStatus('ready');
@@ -260,7 +260,7 @@ describe('app.ts helpers and DOM integration', () => {
 
     // Initialise the worker (simulates clicking Load).
     app.startWithModel('LiquidAI/LFM2.5-1.2B-Thinking-ONNX');
-    const workerRef = (app as any).worker as any;
+    const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
 
     app.onStatus('ready');
     input.value = 'hey';
@@ -369,7 +369,7 @@ describe('app.ts helpers and DOM integration', () => {
       ok: false,
       status: 429,
       statusText: 'Too Many Requests',
-    } as any);
+    } as Partial<Response>);
     await expect(app.fetchHFModels('', app.loadSettings())).rejects.toThrow('429');
   });
 
@@ -426,10 +426,10 @@ describe('app.ts helpers and DOM integration', () => {
 
     expect(pickerEl.classList.contains('hidden')).toBe(true);
     expect(progressEl.classList.contains('hidden')).toBe(false);
-    expect((app as any).worker).not.toBeNull();
+    expect(app.worker).not.toBeNull();
 
     // The first message sent to the worker should include modelId and dtype.
-    const workerRef = (app as any).worker as any;
+    const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
     expect(workerRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen2.5-0.5B-Instruct', dtype: 'q4' }),
     );
@@ -441,7 +441,7 @@ describe('app.ts helpers and DOM integration', () => {
     dtypeEl.dispatchEvent(new Event('change'));
 
     app.startWithModel('test/some-model');
-    const workerRef = (app as any).worker as any;
+    const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
     expect(workerRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'load', dtype: 'q8' }),
     );

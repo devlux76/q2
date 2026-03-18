@@ -56,14 +56,17 @@ async function digestHex(data: ArrayBuffer | Uint8Array): Promise<string> {
 async function getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
   // Modern browsers: navigator.storage.getDirectory()
   // Chrome/Edge: self.originPrivateFileSystem
-  const nav = (navigator as any) as { storage?: unknown };
-  if (nav.storage && typeof (nav.storage as any).getDirectory === 'function') {
-    return await (nav.storage as any).getDirectory() as FileSystemDirectoryHandle;
+  interface StorageWithOPFS { getDirectory(): Promise<FileSystemDirectoryHandle> }
+  interface NavigatorWithOPFS { storage?: StorageWithOPFS }
+  const nav = navigator as NavigatorWithOPFS;
+  if (nav.storage && typeof nav.storage.getDirectory === 'function') {
+    return await nav.storage.getDirectory();
   }
   // Some environments expose originPrivateFileSystem directly.
-  const win = window as any;
+  interface WindowWithOPFS { originPrivateFileSystem?: FileSystemDirectoryHandle }
+  const win = window as WindowWithOPFS;
   if (win.originPrivateFileSystem) {
-    return win.originPrivateFileSystem as FileSystemDirectoryHandle;
+    return win.originPrivateFileSystem;
   }
   return null;
 }
@@ -84,7 +87,11 @@ async function writeOpfsFile(path: string, data: Uint8Array | ArrayBuffer): Prom
   const name = path.replace(/^\/+|\/+$/g, '');
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  const buf: BufferSource = data as BufferSource;
+  // Normalise to Uint8Array<ArrayBuffer>: FileSystemWritableFileStream.write()
+  // requires BufferSource which excludes SharedArrayBuffer-backed typed arrays.
+  const buf: Uint8Array<ArrayBuffer> = data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : new Uint8Array(data); // copy via ArrayLike<number> constructor → ArrayBuffer-backed
   await writable.write(buf);
   await writable.close();
 }
@@ -105,7 +112,7 @@ interface FileSystemDirectoryHandleWithRemoveEntry extends FileSystemDirectoryHa
 function hasRemoveEntry(
   dir: FileSystemDirectoryHandle,
 ): dir is FileSystemDirectoryHandleWithRemoveEntry {
-  return typeof (dir as any).removeEntry === 'function';
+  return typeof (dir as FileSystemDirectoryHandleWithRemoveEntry).removeEntry === 'function';
 }
 
 async function deleteOpfsFile(path: string): Promise<void> {
@@ -115,10 +122,16 @@ async function deleteOpfsFile(path: string): Promise<void> {
   if (hasRemoveEntry(dir)) {
     // spec: removeEntry(name, { recursive: false })
     await dir.removeEntry(name, { recursive: false });
-  } else if (typeof (dir as any).remove === 'function') {
-    await (dir as any).remove(name);
   } else {
-    // No deletion support; ignore.
+    // Legacy non-standard `.remove(name)` API present in some early Chrome builds.
+    interface FileSystemDirectoryHandleWithRemove extends FileSystemDirectoryHandle {
+      remove(name: string): Promise<void>;
+    }
+    const legacyDir = dir as FileSystemDirectoryHandleWithRemove;
+    if (typeof legacyDir.remove === 'function') {
+      await legacyDir.remove(name);
+    }
+    // No deletion support in this environment; ignore.
   }
 }
 
@@ -204,8 +217,11 @@ export async function deleteStoredFile(hash: string): Promise<void> {
 }
 
 export function isOpfsAvailable(): boolean {
-  const nav = (navigator as any) as { storage?: unknown };
-  if (nav.storage && typeof (nav.storage as any).getDirectory === 'function') return true;
-  const win = window as any;
+  interface StorageWithOPFS { getDirectory(): Promise<FileSystemDirectoryHandle> }
+  interface NavigatorWithOPFS { storage?: StorageWithOPFS }
+  interface WindowWithOPFS { originPrivateFileSystem?: FileSystemDirectoryHandle }
+  const nav = navigator as NavigatorWithOPFS;
+  if (nav.storage && typeof nav.storage.getDirectory === 'function') return true;
+  const win = window as WindowWithOPFS;
   return Boolean(win.originPrivateFileSystem);
 }

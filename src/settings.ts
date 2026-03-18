@@ -5,18 +5,15 @@
  * leave the user's device.
  */
 
+import type { Dtype, FilterLibrary } from './types.js';
+
 export interface AppSettings {
   /** Optional HuggingFace API token (private models, higher rate limits). */
   apiToken: string;
-  /** ONNX file suffix: 'q4' | 'q8' | 'fp16' | 'fp32'. */
-  dtype: string;
-  /**
-   * library filter sent to the HF Hub API.
-   * 'transformers.js' — models tagged for the transformers.js runtime (default)
-   * 'onnx'            — all ONNX models
-   * ''                — no filter (all text-generation models)
-   */
-  filterLibrary: string;
+  /** ONNX file suffix. */
+  dtype: Dtype;
+  /** Library filter tag sent to the HF Hub API. */
+  filterLibrary: FilterLibrary;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

@@ -1,13 +1,26 @@
 // Shared message types between the main thread and the inference Web Worker.
 // All communication uses structured-clone-compatible payloads.
 
+// ─── Shared primitive types ───────────────────────────────────────────────────
+
+/** ONNX model weight dtype strings understood by transformers.js. */
+export type Dtype = 'q4' | 'q8' | 'fp16' | 'fp32';
+
+/**
+ * Library filter tag sent to the HuggingFace Hub API.
+ * 'transformers.js' — models tagged for the transformers.js runtime (default)
+ * 'onnx'            — all ONNX models
+ * ''                — no filter (all text-generation models)
+ */
+export type FilterLibrary = 'transformers.js' | 'onnx' | '';
+
 // ─── Main thread → Worker ────────────────────────────────────────────────────
 
 export interface LoadModelMsg {
   type: 'load';
   modelId: string;
-  /** ONNX file suffix: 'q4' | 'q8' | 'fp16' | 'fp32'. Default: 'q4'. */
-  dtype: string;
+  /** ONNX file suffix. Default: 'q4'. */
+  dtype: Dtype;
   /** Optional HuggingFace API token for private models and higher rate limits. */
   apiToken?: string;
 }

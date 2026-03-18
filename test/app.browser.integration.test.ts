@@ -34,7 +34,7 @@ describe('app.ts browser integration (real Worker)', () => {
     setupDom();
     // Prevent auto-init so we can set up the worker URL and assertions first.
     // This is only required for tests; production still auto-starts.
-    (globalThis as any).__Q2_SKIP_AUTO_INIT__ = true;
+    (globalThis as { __Q2_SKIP_AUTO_INIT__?: boolean }).__Q2_SKIP_AUTO_INIT__ = true;
   });
 
   it('initializes a real worker and streams tokens into the UI', async () => {
@@ -61,7 +61,7 @@ describe('app.ts browser integration (real Worker)', () => {
 
     const blob = new Blob([workerSource], { type: 'application/javascript' });
     const url = URL.createObjectURL(blob);
-    (globalThis as any).__Q2_WORKER_URL__ = url;
+    (globalThis as { __Q2_WORKER_URL__?: string }).__Q2_WORKER_URL__ = url;
 
     const app = await import('../src/app.ts');
 
