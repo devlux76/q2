@@ -657,7 +657,7 @@ The block index for a key $K$ is the top 3 bits: $b(K) = K \gg 61$.
 | 7 | `0xE000000000000000` – `0xFFFFFFFFFFFFFFFF` |
 
 Within each block file, keys are stored sorted. A block file is a sorted sequence of
-$(K, \textit{doc\_id})$ pairs. Range queries reduce to a binary-search lower bound
+$(K, \text{doc\_id})$ pairs. Range queries reduce to a binary-search lower bound
 followed by a sequential scan to the upper bound.
 
 **Block count.** $N_b = 8$ balances two constraints:
