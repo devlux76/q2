@@ -81,22 +81,21 @@ async function ensureDir(pathSegments: string[]): Promise<FileSystemDirectoryHan
   return dir;
 }
 
-async function writeOpfsFile(path: string, data: Uint8Array | ArrayBuffer): Promise<void> {
+async function writeOpfsFile(path: string, data: ArrayBuffer): Promise<void> {
   const dir = await ensureDir([OPFS_DIR]);
   if (!dir) throw new Error('OPFS is not available in this environment');
   const name = path.replace(/^\/+|\/+$/g, '');
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  // Normalise to Uint8Array<ArrayBuffer>: FileSystemWritableFileStream.write()
-  // requires BufferSource which excludes SharedArrayBuffer-backed typed arrays.
-  const buf: Uint8Array<ArrayBuffer> = data instanceof ArrayBuffer
-    ? new Uint8Array(data)
-    : new Uint8Array(data); // copy via ArrayLike<number> constructor → ArrayBuffer-backed
-  await writable.write(buf);
+  // TypeScript's strict overloads for FileSystemWritableFileStream.write()
+  // require an ArrayBufferView<ArrayBuffer>, not ArrayBufferLike.  Both callers
+  // provide a plain ArrayBuffer (from file.arrayBuffer() / res.arrayBuffer()),
+  // so this Uint8Array constructor produces a correctly-typed view without copy.
+  await writable.write(new Uint8Array(data));
   await writable.close();
 }
 
-async function readOpfsFile(path: string): Promise<Uint8Array> {
+async function readOpfsFile(path: string): Promise<Uint8Array<ArrayBuffer>> {
   const dir = await ensureDir([OPFS_DIR]);
   if (!dir) throw new Error('OPFS is not available in this environment');
   const name = path.replace(/^\/+|\/+$/g, '');
@@ -196,7 +195,7 @@ export function listStoredFiles(): StoredFileMeta[] {
   return Object.values(loadMapping()).sort((a, b) => b.created - a.created);
 }
 
-export async function getStoredFile(hash: string): Promise<Uint8Array | null> {
+export async function getStoredFile(hash: string): Promise<Uint8Array<ArrayBuffer> | null> {
   try {
     const data = await readOpfsFile(hash);
     return data;

@@ -57,7 +57,7 @@ export function renderEmbeddingHeatmap(
       let count = 0;
       for (let d = row * rowsPerCell; d < Math.min((row + 1) * rowsPerCell, hiddenDim); d++) {
         for (let s = col * colsPerCell; s < Math.min((col + 1) * colsPerCell, seqLen); s++) {
-          sum += data[s * hiddenDim + d] ?? 0;
+          sum += data[s * hiddenDim + d]!;
           count++;
         }
       }

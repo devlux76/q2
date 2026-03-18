@@ -365,7 +365,7 @@ function renderLocalFileList(): void {
       setLocalFileStatus('File not available in OPFS.', 3000);
       return;
     }
-    const blob = new Blob([new Uint8Array(data)]);
+    const blob = new Blob([data]);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
