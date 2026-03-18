@@ -17,7 +17,7 @@ describe('opfs storage layer', () => {
       configurable: true,
       writable: true,
     });
-    Object.defineProperty(window as any, 'originPrivateFileSystem', {
+    Object.defineProperty(window as Window & typeof globalThis, 'originPrivateFileSystem', {
       value: undefined,
       configurable: true,
       writable: true,

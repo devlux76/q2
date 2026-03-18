@@ -42,47 +42,27 @@ import {
   storeFromUrl,
 } from './opfs.js';
 import { AppSettings, loadSettings, saveSettings } from './settings.js';
+import {
+  HFModel,
+  fetchHFModels,
+  formatCount,
+} from './hf.js';
+import {
+  splitThinkBlocks,
+  stripThinkTags,
+  escapeAndFormatText,
+} from './chat-render.js';
+import {
+  min,
+  max,
+  renderEmbeddingHeatmap as renderHeatmap,
+  renderQ2Result as renderQ2,
+} from './embed-panel.js';
 export { loadSettings, saveSettings };
-
-// ─── HuggingFace Hub API ───────────────────────────────────────────────────────
-
-/** Model record returned by the HF Hub API. */
-export interface HFModel {
-  id: string;
-  downloads: number;
-  likes: number;
-  tags: string[];
-}
-
-/** Format a large number as a compact string (e.g. 1234567 → "1.2M"). */
-export function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-/**
- * Fetch text-generation models from the HuggingFace Hub API.
- * No API key is required for public models; providing one enables private
- * models and increases the rate limit.
- */
-export async function fetchHFModels(query: string, settings: AppSettings): Promise<HFModel[]> {
-  const params = new URLSearchParams({
-    pipeline_tag: 'text-generation',
-    sort: 'downloads',
-    direction: '-1',
-    limit: '20',
-  });
-  if (query.trim()) params.set('search', query.trim());
-  if (settings.filterLibrary) params.set('library', settings.filterLibrary);
-
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (settings.apiToken) headers['Authorization'] = `Bearer ${settings.apiToken}`;
-
-  const res = await fetch(`https://huggingface.co/api/models?${params}`, { headers });
-  if (!res.ok) throw new Error(`HF API ${res.status}: ${res.statusText}`);
-  return (await res.json()) as HFModel[];
-}
+export type { HFModel };
+export { fetchHFModels, formatCount };
+export { splitThinkBlocks, stripThinkTags, escapeAndFormatText };
+export { min, max };
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -332,12 +312,14 @@ function initSettingsPanel(): void {
   });
 
   dtypeEl.addEventListener('change', () => {
-    currentSettings.dtype = dtypeEl.value;
+    // The select element only contains valid Dtype values per the HTML; cast is safe.
+    currentSettings.dtype = dtypeEl.value as AppSettings['dtype'];
     saveSettings(currentSettings);
   });
 
   libraryEl.addEventListener('change', () => {
-    currentSettings.filterLibrary = libraryEl.value;
+    // The select element only contains valid FilterLibrary values per the HTML; cast is safe.
+    currentSettings.filterLibrary = libraryEl.value as AppSettings['filterLibrary'];
     saveSettings(currentSettings);
     // Re-fetch the model list with the updated library filter.
     void refreshModelList(modelSearchEl.value);
@@ -383,7 +365,7 @@ function renderLocalFileList(): void {
       setLocalFileStatus('File not available in OPFS.', 3000);
       return;
     }
-    const blob = new Blob([data as unknown as BlobPart]);
+    const blob = new Blob([data]);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -503,7 +485,7 @@ export function startWithModel(modelId: string): void {
 
 export function initWorker(modelId: string): void {
   const workerUrl =
-    (globalThis as any).__Q2_WORKER_URL__ ??
+    globalThis.__Q2_WORKER_URL__ ??
     new URL('./worker.js', import.meta.url).toString();
 
   worker = new Worker(workerUrl, {
@@ -843,91 +825,6 @@ export function renderBubble(bubble: HTMLDivElement, raw: string): void {
   }
 }
 
-interface TextPart { type: 'text'; text: string }
-interface ThinkPart { type: 'think'; text: string }
-type Part = TextPart | ThinkPart;
-
-export function splitThinkBlocks(raw: string): Part[] {
-  const parts: Part[] = [];
-  const re = /<think>([\s\S]*?)(?:<\/think>|$)/g;
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-
-  while ((m = re.exec(raw)) !== null) {
-    if (m.index > lastIndex) {
-      parts.push({ type: 'text', text: raw.slice(lastIndex, m.index) });
-    }
-    parts.push({ type: 'think', text: m[1] ?? '' });
-    lastIndex = re.lastIndex;
-  }
-
-  if (lastIndex < raw.length) {
-    // Handle an open (incomplete) <think> tag while still streaming.
-    const tail = raw.slice(lastIndex);
-    const openTag = tail.indexOf('<think>');
-    if (openTag !== -1) {
-      if (openTag > 0) parts.push({ type: 'text', text: tail.slice(0, openTag) });
-      parts.push({ type: 'think', text: tail.slice(openTag + 7) });
-    } else {
-      parts.push({ type: 'text', text: tail });
-    }
-  }
-
-  return parts;
-}
-
-export function stripThinkTags(raw: string): string {
-  // Remove complete <think>...</think> blocks first, then strip any remaining
-  // open <think> tag and everything that follows (in case generation was cut off).
-  return raw
-    .replace(/<think>[\s\S]*?<\/think>/g, '')
-    .replace(/<think>[\s\S]*$/g, '')
-    .trim();
-}
-
-/**
- * Minimal safe text formatter:
- *  - Escapes HTML entities
- *  - Renders ```code blocks``` and `inline code`
- *  - Converts **bold** and *italic*
- *  - Converts newlines to <br>
- */
-export function escapeAndFormatText(text: string): string {
-  // 1. Escape HTML special chars.
-  let s = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // 2. Fenced code blocks ```…``` — temporarily replace with placeholders
-  const codeBlocks: string[] = [];
-  s = s.replace(/```([\s\S]*?)```/g, (_match, codeContent: string) => {
-    const index = codeBlocks.length;
-    codeBlocks.push(`<pre class="code-block"><code>${codeContent}</code></pre>`);
-    return `__CODE_BLOCK_${index}__`;
-  });
-
-  // 3. Inline code `…`
-  s = s.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-
-  // 4. Bold **…**
-  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-  // 5. Italic *…* (single asterisk, not inside **…**)
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*([^*]|$)/g, '$1<em>$2</em>$3');
-
-  // 6. Newlines → <br> (only in non-code segments)
-  s = s.replace(/\n/g, '<br>');
-
-  // 7. Restore fenced code blocks
-  s = s.replace(/__CODE_BLOCK_(\d+)__/g, (_match, index: string) => {
-    const i = Number(index);
-    return codeBlocks[i] ?? '';
-  });
-
-  return s;
-}
-
 function scrollToBottom(): void {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -948,89 +845,27 @@ function showError(message: string): void {
   scrollToBottom();
 }
 
-// ─── Embedding heat-map ────────────────────────────────────────────────────────
+// ─── Embedding heat-map (app wrapper — uses module-level canvas) ──────────────
 
 /**
- * Renders a tiny heat-map of the last-LIV-layer embeddings.
- * One column per sequence position, one row per hidden dimension bin.
- * Colour: blue (negative) → white (zero) → red (positive).
+ * Renders a tiny heat-map of the last-LIV-layer embeddings onto the
+ * application canvas.  Delegates to embed-panel.ts which is independently
+ * testable with an explicit canvas argument.
  */
 export function renderEmbeddingHeatmap(
   data: Float32Array,
   seqLen: number,
   hiddenDim: number,
 ): void {
-  const canvas = embeddingCanvas;
-  const W = Math.min(seqLen, canvas.clientWidth || 320);
-  const H = 64; // fixed display height
-
-  canvas.width = W;
-  canvas.height = H;
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  const rowsPerCell = Math.ceil(hiddenDim / H);
-  const colsPerCell = Math.ceil(seqLen / W);
-
-  const minVal = min(data);
-  const maxVal = max(data);
-  const range = maxVal - minVal || 1;
-
-  for (let row = 0; row < H; row++) {
-    for (let col = 0; col < W; col++) {
-      // Average values in the bin.
-      let sum = 0;
-      let count = 0;
-      for (let d = row * rowsPerCell; d < Math.min((row + 1) * rowsPerCell, hiddenDim); d++) {
-        for (let s = col * colsPerCell; s < Math.min((col + 1) * colsPerCell, seqLen); s++) {
-          sum += data[s * hiddenDim + d] ?? 0;
-          count++;
-        }
-      }
-      const v = count ? sum / count : 0;
-      const t = (v - minVal) / range; // 0..1
-
-      // Blue → White → Red colour map.
-      const r = t > 0.5 ? 255 : Math.round(t * 2 * 255);
-      const g = t > 0.5 ? Math.round((1 - t) * 2 * 255) : Math.round(t * 2 * 255);
-      const b = t < 0.5 ? 255 : Math.round((1 - t) * 2 * 255);
-
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(col, row, 1, 1);
-    }
-  }
-}
-
-export function min(arr: Float32Array): number {
-  let m = Infinity;
-  for (const v of arr) if (v < m) m = v;
-  return m;
-}
-
-export function max(arr: Float32Array): number {
-  let m = -Infinity;
-  for (const v of arr) if (v > m) m = v;
-  return m;
+  renderHeatmap(data, seqLen, hiddenDim, embeddingCanvas);
 }
 
 /**
- * Renders the Q² quantisation result in the embedding stats panel.
- *
- * @param packed - n/4 packed Gray-encoded bytes from q2_quantise / q2EncodeDirect
- * @param key    - 64-bit MSB-aligned transition key from q2_key / q2KeyDirect
- * @param n      - original embedding dimension
+ * Appends the Q² quantisation result to the application embedding stats element.
+ * Delegates to embed-panel.ts which accepts an explicit statsEl argument.
  */
 export function renderQ2Result(packed: Uint8Array, key: bigint, n: number): void {
-  // Hex dump of the first 8 bytes (32 symbols) for display.
-  const hexBytes = Array.from(packed.slice(0, 8))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const ellipsis = packed.length > 8 ? '…' : '';
-  // Display the key as a zero-padded 16-hex-digit unsigned 64-bit value.
-  const keyHex = key.toString(16).padStart(16, '0');
-  embeddingStats.textContent +=
-    `\nQ²: [${hexBytes}${ellipsis}] (${n >> 2} bytes, ${n} dims)  key=0x${keyHex}`;
+  renderQ2(packed, key, n, embeddingStats);
 }
 
 // ─── Event listeners ───────────────────────────────────────────────────────────
@@ -1057,7 +892,7 @@ repPenaltyEl.addEventListener('input', () => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
-if (!(globalThis as any).__Q2_SKIP_AUTO_INIT__) {
+if (!globalThis.__Q2_SKIP_AUTO_INIT__) {
   initModelPicker();
 }
 

@@ -5,11 +5,13 @@
  * corpus or model experiment.  These tests run entirely in TypeScript, require
  * no model download, and should pass on any machine.
  *
- * References: TESTING.md §T0, PREDICTIONS.md §P1, §P2, §P3, §P8, §P10.
+ * References: TESTING.md §T0, PREDICTIONS.md §P1, §P2, §P3, §P4, §P8, §P9, §P10.
  *
  * Test organisation:
  *   T0-P1  — CGAT mapping and complement involution
  *   T0-Q   — Quantisation and packing invariants (smoke tests)
+ *   T0-P4  — Transition/transversion algebraic classification
+ *   T0-P9  — Z₄ Gray-code isometry uniqueness (alphabet optimality)
  *   T0-P10 — Key entropy and collision rate
  */
 
@@ -475,5 +477,212 @@ describe('T0-P8: tripletFreqs', () => {
     const freqs = tripletFreqs(seq);
     const total = Object.values(freqs).reduce((a, b) => a + b, 0);
     expect(total).toBe(seq.length - 2);
+  });
+});
+
+// ─── T0-P4: Transition/transversion algebraic classification ─────────────────
+//
+// Under the CGAT mapping, bit-0 of the Gray code encodes purine/pyrimidine
+// and bit-1 encodes keto/amino.  Lee-distance-1 pairs that change only the
+// keto/amino bit are "transitions" (G↔A and C↔T); those that change only
+// the purine/pyrimidine bit are "type-1 transversions" (G↔T and A↔C).
+// Lee-distance-2 pairs (G↔C and A↔T) change both bits and are "complement
+// transversions".  These algebraic facts are testable without a corpus.
+
+describe('T0-P4: transition/transversion algebraic classification', () => {
+  // G=0 (00), A=1 (01), C=2 (11), T=3 (10) in Gray encoding.
+  // Bit-0 (MSB, purine/pyrimidine): G=0, A=0, C=1, T=1
+  // Bit-1 (LSB, keto/amino):        G=0, A=1, C=1, T=0
+
+  /** Return the two-bit Gray encoding of a Z₄ symbol. */
+  function gray(z: number): [number, number] {
+    const g = grayEncode(z);
+    return [(g >> 1) & 1, g & 1]; // [purine/pyrimidine bit, keto/amino bit]
+  }
+
+  it('G(0) and A(1) are both purines (same ring-class bit)', () => {
+    expect(gray(0)[0]).toBe(0);
+    expect(gray(1)[0]).toBe(0);
+  });
+
+  it('C(2) and T(3) are both pyrimidines (same ring-class bit)', () => {
+    expect(gray(2)[0]).toBe(1);
+    expect(gray(3)[0]).toBe(1);
+  });
+
+  it('G(0) and T(3) are both keto (same functional-group bit)', () => {
+    expect(gray(0)[1]).toBe(0);
+    expect(gray(3)[1]).toBe(0);
+  });
+
+  it('A(1) and C(2) are both amino (same functional-group bit)', () => {
+    expect(gray(1)[1]).toBe(1);
+    expect(gray(2)[1]).toBe(1);
+  });
+
+  it('transitions (G↔A, C↔T) have Lee distance 1 and change only the keto/amino bit', () => {
+    const transitions: [number, number][] = [[0, 1], [2, 3]]; // G↔A, C↔T
+    for (const [a, b] of transitions) {
+      expect(leeDistance(a, b)).toBe(1);
+      // Same ring-class (purine/pyrimidine bit unchanged)
+      expect(gray(a)[0]).toBe(gray(b)[0]);
+      // Different functional-group (keto/amino bit changes)
+      expect(gray(a)[1]).not.toBe(gray(b)[1]);
+    }
+  });
+
+  it('type-1 transversions (G↔T, A↔C) have Lee distance 1 and change only the ring-class bit', () => {
+    const tv1: [number, number][] = [[0, 3], [1, 2]]; // G↔T, A↔C
+    for (const [a, b] of tv1) {
+      expect(leeDistance(a, b)).toBe(1);
+      // Different ring-class (purine/pyrimidine bit changes)
+      expect(gray(a)[0]).not.toBe(gray(b)[0]);
+      // Same functional-group (keto/amino bit unchanged)
+      expect(gray(a)[1]).toBe(gray(b)[1]);
+    }
+  });
+
+  it('complement transversions (G↔C, A↔T) have Lee distance 2 and change both chemical bits', () => {
+    const tv2: [number, number][] = [[0, 2], [1, 3]]; // G↔C, A↔T
+    for (const [a, b] of tv2) {
+      expect(leeDistance(a, b)).toBe(2);
+      // Both bits change
+      expect(gray(a)[0]).not.toBe(gray(b)[0]);
+      expect(gray(a)[1]).not.toBe(gray(b)[1]);
+    }
+  });
+
+  /** True if (z, w) are a transition pair (Lee 1, same ring-class bit). */
+  function isTransitionPartner(z: number, w: number): boolean {
+    return w !== z && leeDistance(z, w) === 1 && gray(z)[0] === gray(w)[0];
+  }
+
+  /** True if (z, w) are a type-1 transversion pair (Lee 1, different ring-class bit). */
+  function isType1TransversionPartner(z: number, w: number): boolean {
+    return w !== z && leeDistance(z, w) === 1 && gray(z)[0] !== gray(w)[0];
+  }
+
+  it('each Z₄ symbol has exactly one transition partner', () => {
+    for (let z = 0; z < 4; z++) {
+      const transitionPartners = [0, 1, 2, 3].filter((w) => isTransitionPartner(z, w));
+      expect(transitionPartners).toHaveLength(1);
+    }
+  });
+
+  it('each Z₄ symbol has exactly one type-1 transversion partner', () => {
+    for (let z = 0; z < 4; z++) {
+      const tv1Partners = [0, 1, 2, 3].filter((w) => isType1TransversionPartner(z, w));
+      expect(tv1Partners).toHaveLength(1);
+    }
+  });
+
+  it('each Z₄ symbol has exactly one complement-transversion partner (its Watson–Crick complement)', () => {
+    for (let z = 0; z < 4; z++) {
+      const tv2Partners = [0, 1, 2, 3].filter((w) =>
+        w !== z && leeDistance(z, w) === 2,
+      );
+      expect(tv2Partners).toHaveLength(1);
+      // The partner must be the complement
+      expect(tv2Partners[0]).toBe(complement(z));
+    }
+  });
+
+  it('all 12 ordered Z₄ pairs are exactly partitioned into transitions, tv1, and tv2', () => {
+    let tsCount = 0;
+    let tv1Count = 0;
+    let tv2Count = 0;
+    for (let a = 0; a < 4; a++) {
+      for (let b = 0; b < 4; b++) {
+        if (a === b) continue;
+        if (leeDistance(a, b) === 2) {
+          tv2Count++;
+        } else if (isTransitionPartner(a, b)) {
+          tsCount++;
+        } else if (isType1TransversionPartner(a, b)) {
+          tv1Count++;
+        }
+      }
+    }
+    // 4 transitions (G→A, A→G, C→T, T→C), 4 tv1, 4 tv2 = 12 total
+    expect(tsCount).toBe(4);
+    expect(tv1Count).toBe(4);
+    expect(tv2Count).toBe(4);
+    expect(tsCount + tv1Count + tv2Count).toBe(12);
+  });
+});
+
+// ─── T0-P9: Z₄ Gray-code isometry uniqueness (alphabet optimality) ───────────
+//
+// The Z₄ Gray map φ: Z₄ → {0,1}² is a Lee-to-Hamming isometry:
+// d_L(a,b) = d_H(φ(a), φ(b)) for all a,b ∈ Z₄.
+//
+// No analogous exact isometry exists for Z₈ (3 bits) because max(d_L) = 4 on
+// Z₈ but max(d_H) = 3 on 3-bit strings.  Likewise for larger alphabets.
+// This confirms the algebraic claim in PREDICTIONS.md §P9.
+
+describe('T0-P9: Z₄ Gray-code isometry is exact; Z₈ and larger alphabets lack exact Lee-to-Hamming isometry', () => {
+  /** Hamming distance between two non-negative integers viewed as k-bit strings. */
+  function hammingDist(a: number, b: number): number {
+    let x = a ^ b;
+    let count = 0;
+    while (x) { count += x & 1; x >>>= 1; }
+    return count;
+  }
+
+  /** Gray encoding for an n-element ring (standard reflection code). */
+  function reflectionGray(z: number): number {
+    return z ^ (z >> 1);
+  }
+
+  it('Z₄ Gray map is a perfect Lee-to-Hamming isometry', () => {
+    for (let a = 0; a < 4; a++) {
+      for (let b = 0; b < 4; b++) {
+        const leeDist = leeDistance(a, b);
+        const hammDist = hammingDist(grayEncode(a), grayEncode(b));
+        expect(hammDist).toBe(leeDist);
+      }
+    }
+  });
+
+  it('Z₈ reflection Gray code is NOT an exact Lee-to-Hamming isometry (max Lee = 4 > max Hamming on 3 bits = 3)', () => {
+    // On Z₈ the maximum Lee distance is 4 (between symbols 0 and 4).
+    // A 3-bit string has maximum Hamming distance 3.
+    // Therefore no bijection Z₈ → {0,1}³ can preserve Lee distance exactly.
+    const maxLeeDist = Math.max(
+      ...Array.from({ length: 8 }, (_, a) =>
+        Math.max(...Array.from({ length: 8 }, (_, b) => {
+          const diff = Math.abs(a - b);
+          return Math.min(diff, 8 - diff); // Lee distance on Z₈
+        })),
+      ),
+    );
+    expect(maxLeeDist).toBe(4); // Z₈ max Lee distance
+
+    const maxHammDist3Bits = 3; // max Hamming on 3-bit strings
+    expect(maxLeeDist).toBeGreaterThan(maxHammDist3Bits);
+  });
+
+  it('Z₈ reflection Gray code underestimates Lee distance for some pairs', () => {
+    // Specifically: symbols 0 and 4 have Lee distance 4 on Z₈,
+    // but their Gray codes (000 and 110) have Hamming distance 2.
+    const leeOn8 = (a: number, b: number): number => {
+      const diff = Math.abs(a - b);
+      return Math.min(diff, 8 - diff);
+    };
+    const lee04 = leeOn8(0, 4);
+    const hamm04 = hammingDist(reflectionGray(0), reflectionGray(4));
+    expect(lee04).toBe(4);
+    expect(hamm04).toBeLessThan(lee04); // Gray Hamming underestimates Lee for Z₈
+  });
+
+  it('Z₄ isometry is tight: grayDecode(grayEncode(z)) = z for all z', () => {
+    for (let z = 0; z < 4; z++) {
+      expect(grayDecode(grayEncode(z))).toBe(z);
+    }
+  });
+
+  it('Z₄ Gray codes are all distinct (bijection)', () => {
+    const codes = [0, 1, 2, 3].map((z) => grayEncode(z));
+    expect(new Set(codes).size).toBe(4);
   });
 });

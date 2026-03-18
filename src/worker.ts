@@ -31,6 +31,7 @@ import type {
   ChatMessage,
   GenerationConfig,
   EmbeddingMsg,
+  Dtype,
 } from './types.js';
 
 /** Subset of the ProgressInfo union we care about for download tracking. */
@@ -40,6 +41,72 @@ interface DownloadProgress {
   loaded?: number;
   total?: number;
 }
+
+/**
+ * Typed wrapper for calling the transformers.js pipeline factory.
+ *
+ * The public `pipeline` overloads don't expose `device`, `progress_callback`,
+ * or other runtime options we rely on, so we define the concrete shape we need
+ * and cast once at the call-site boundary.
+ */
+interface PipelineOptions {
+  dtype: Dtype;
+  device: string;
+  progress_callback: (progress: DownloadProgress) => void;
+}
+
+/**
+ * Factory type used when casting the polymorphic `pipeline` function.
+ * The public overloads omit runtime options (device, progress_callback) that
+ * the underlying JS implementation supports.
+ */
+type PipelineFactory = (
+  task: string,
+  model: string,
+  options: PipelineOptions,
+) => Promise<TextGenerationPipeline>;
+
+/**
+ * Call signature we use when invoking the loaded TextGenerationPipeline.
+ *
+ * The runtime supports additional undocumented options (hidden_states, streamer,
+ * stopping_criteria) that aren't in the public TypeScript overloads.
+ */
+interface PipelineCallable {
+  (messages: ChatMessage[], options: GenerationCallOptions): Promise<GenerationOutput>;
+}
+
+/** Options passed to the pipeline at inference time. */
+interface GenerationCallOptions {
+  max_new_tokens: number;
+  temperature: number;
+  do_sample: boolean;
+  repetition_penalty: number;
+  streamer: TextStreamer;
+  stopping_criteria: InterruptableStoppingCriteria | null;
+  output_hidden_states: boolean;
+}
+
+/**
+ * Concrete shape of a single layer's output tensor from transformers.js.
+ *
+ * `data` — the flattened tensor values as a Float32Array
+ * `dims`  — tensor shape, typically [batch, seqLen, hiddenDim]
+ */
+interface TensorLike {
+  data?: Float32Array;
+  dims?: number[];
+}
+
+/** Subset of the generation output shape we inspect for embedding extraction. */
+interface GenerationOutput {
+  hidden_states?: TensorLike[][];
+}
+
+// ─── In a Web Worker, `self` is DedicatedWorkerGlobalScope. ─────────────────
+// TypeScript's DOM lib types the global `self` as Window & typeof globalThis,
+// so an explicit cast is required to access worker-specific methods.
+const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -75,7 +142,7 @@ let activeDtype: EmbeddingMsg['dtype'] = 'fp32';
 // ─── Messaging helpers ────────────────────────────────────────────────────────
 
 function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
-  (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer);
+  workerScope.postMessage(msg, transfer);
 }
 
 // ─── Model loading ────────────────────────────────────────────────────────────
@@ -94,27 +161,34 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
  * function should be updated to derive the dtype from the actual tensor data
  * type rather than the model weight dtype.
  */
-function toEmbeddingDtype(_dtype: string): EmbeddingMsg['dtype'] {
+function toEmbeddingDtype(_dtype: Dtype): EmbeddingMsg['dtype'] {
   // The dtype argument is currently unused because transformers.js returns fp32
   // hidden states regardless of model weight quantisation.
   void _dtype;
   return 'fp32';
 }
 
-async function loadModel(modelId: string, dtype: string, apiToken?: string): Promise<void> {
+async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Promise<void> {
   // Apply the API token before any network requests (used by the Hub client).
   if (apiToken) {
-    (env as unknown as Record<string, unknown>).accessToken = apiToken;
+    // env.accessToken is a runtime-mutable property used by the HF Hub client;
+    // it is not reflected in the published TypeScript types.
+    Object.assign(env, { accessToken: apiToken });
   }
 
   send({ type: 'status', status: 'loading', detail: 'Fetching model weights…' });
+
+  // Cast the polymorphic `pipeline` factory to the concrete signature we need.
+  // The public overloads omit runtime options (device, progress_callback) that
+  // the underlying JS implementation supports.
+  const loadPipeline = pipeline as unknown as PipelineFactory;
 
   let lastErr: unknown;
   for (const device of DEVICE_PRIORITY) {
     try {
       send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });
-       
-      pipe = (await (pipeline as any)('text-generation', modelId, {
+
+      pipe = await loadPipeline('text-generation', modelId, {
         dtype,
         device,
         progress_callback: (p: DownloadProgress) => {
@@ -125,7 +199,7 @@ async function loadModel(modelId: string, dtype: string, apiToken?: string): Pro
             total: p.total ?? 0,
           });
         },
-      })) as TextGenerationPipeline;
+      });
 
       // Record the embedding dtype for the loaded model so EmbeddingMsg is typed correctly.
       activeDtype = toEmbeddingDtype(dtype);
@@ -168,14 +242,14 @@ async function generateResponse(
     // ── Text generation ──────────────────────────────────────────────────────
     // Only request hidden states (expensive) when embeddings are explicitly
     // requested by the caller via config.return_embeddings.
-    const wantEmbeddings =
-      (config as GenerationConfig & { return_embeddings?: boolean }).return_embeddings ===
-      true;
+    const extConfig = config as GenerationConfig & { return_embeddings?: boolean };
+    const wantEmbeddings = extConfig.return_embeddings === true;
 
-    const output = await (pipe as unknown as (
-      _msgs: ChatMessage[],
-      _opts: Record<string, unknown>,
-    ) => Promise<Record<string, unknown>>)(messages, {
+    // Cast the loaded pipeline to our typed callable interface.
+    // The underlying JS pipeline supports these runtime options; they are not
+    // reflected in the published TypeScript overloads.
+    const callPipeline = pipe as unknown as PipelineCallable;
+    const output = await callPipeline(messages, {
       max_new_tokens: config.max_new_tokens,
       temperature: config.temperature,
       do_sample: config.temperature > 0,
@@ -192,18 +266,18 @@ async function generateResponse(
 
     if (wantEmbeddings) {
       // Extract the last-step hidden state from the completed generation.
-      // hidden_states is Tensor[][] — [generation_step][layer_index].
-      const hiddenStates = (output as { hidden_states?: unknown[] }).hidden_states;
+      // hidden_states is TensorLike[][] — [generation_step][layer_index].
+      const hiddenStates = output.hidden_states;
       if (Array.isArray(hiddenStates) && hiddenStates.length > 0) {
         // Take the last generation step; layer 9 = last LIV block output.
-        const lastStep = hiddenStates[hiddenStates.length - 1] as unknown[];
-        const lastConvOut = lastStep?.[9] as
-          | { data?: Float32Array; dims?: number[] }
-          | undefined;
+        const lastStep = hiddenStates[hiddenStates.length - 1];
+        const lastConvOut: TensorLike | undefined = lastStep?.[9];
         if (lastConvOut?.data && lastConvOut.dims) {
           const [, seqLen, hiddenDim] = lastConvOut.dims;
           if (seqLen !== undefined && hiddenDim !== undefined) {
             // Transfer the buffer to avoid structured-clone copying.
+            // The activation tensor buffer is always a regular ArrayBuffer
+            // (transformers.js uses Float32Array, not SharedArrayBuffer).
             const data = lastConvOut.data.buffer.slice(
               lastConvOut.data.byteOffset,
               lastConvOut.data.byteOffset + lastConvOut.data.byteLength,
@@ -234,7 +308,7 @@ async function generateResponse(
 
 // ─── Message router ───────────────────────────────────────────────────────────
 
-(self as unknown as DedicatedWorkerGlobalScope).addEventListener(
+workerScope.addEventListener(
   'message',
   (e: MessageEvent<WorkerInMsg>) => {
     const msg = e.data;
