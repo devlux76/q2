@@ -390,19 +390,22 @@ nor $\mathbb{Z}_8$ (3 bits) has this property for the same code families.
 **Prediction.** Increasing the alphabet to $\mathbb{Z}_8$ or $\mathbb{Z}_{16}$ (3 or
 4 bits per symbol) provides diminishing retrieval returns, holding embedding dimension
 constant. The algebraic advantage of the Gray-map isometry is specific to
-$\mathbb{Z}_4$: a larger alphabet loses the exact Lee-to-Hamming isometry and
-complicates the `popcnt(XOR)` computation.
+$\mathbb{Z}_4$: for larger alphabets there is no exact Lee-to-Hamming isometry under
+plain Hamming distance, and this complicates the `popcnt(XOR)` computation.
 
 Specifically:
 
-- $\mathbb{Z}_8$: the 3-bit Gray code is not an isometry from $(\mathbb{Z}_8, d_L)$
-  to $(\{0,1\}^3, d_H)$ for all pairs. The cyclic wrap $d_L(7,0) = 1$ maps to Gray
-  codes $\texttt{100}$ and $\texttt{000}$, Hamming distance 1 — this particular case
-  works — but adjacent pairs at the midpoint ($d_L(3,4)=1$, Gray codes $\texttt{010}$
-  and $\texttt{110}$, Hamming distance 1) also work. The $\mathbb{Z}_8$ Gray map is an
-  isometry, but the resulting 3-bit symbol requires 3-bit-aligned SIMD packing, which
-  is not natively supported; `popcnt` on 64-bit words no longer computes the full
-  Lee distance without a correction step.
+- $\mathbb{Z}_8$: the 3-bit Gray code cannot be an isometry from $(\mathbb{Z}_8, d_L)$
+  to $(\{0,1\}^3, d_H)$ because $\max d_L = 4$ on $\mathbb{Z}_8$ while $\max d_H = 3$
+  on 3 bits. The cyclic wrap $d_L(7,0) = 1$ maps to Gray codes $\texttt{100}$ and
+  $\texttt{000}$ (Hamming distance 1), and adjacent pairs at the midpoint
+  ($d_L(3,4)=1$, Gray codes $\texttt{010}$ and $\texttt{110}$, Hamming distance 1)
+  also behave correctly, but larger Lee distances cannot be represented exactly by
+  Hamming distance on 3 bits. Consequently, `popcnt(XOR)` over Gray-coded $\mathbb{Z}_8$
+  symbols computes Hamming distance, which underestimates Lee distance for some pairs.
+  To recover true Lee distance one must apply a correction step, e.g., decode each
+  3-bit Gray symbol back to $\mathbb{Z}_8$ and use a small Lee-distance lookup table,
+  or map bitwise differences through a per-symbol LUT/SIMD transform before summing.
 - The information gain per symbol from $\mathbb{Z}_4$ to $\mathbb{Z}_8$ is
   $\log_2 8 - \log_2 4 = 1$ bit, but the additional bit encodes intra-cell position
   within the four magnitude classes, which §D-1.6 shows is not recoverable signal
