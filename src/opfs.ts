@@ -128,7 +128,7 @@ export async function storeFile(
   name?: string,
   url?: string,
 ): Promise<StoredFileMeta> {
-  const buffer = await (file instanceof File ? file.arrayBuffer() : file.arrayBuffer());
+  const buffer = await file.arrayBuffer();
   const hash = await digestHex(buffer);
   const primaryName = ensureName(name, (file as File).name ?? hash);
   const mapping = loadMapping();
