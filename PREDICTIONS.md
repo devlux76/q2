@@ -18,6 +18,10 @@ Section references of the form §T-x refer to [TESTING.md](TESTING.md).
 - [P7 — Document secondary structure](#p7--document-secondary-structure)
 - [P8 — Codon degeneracy and synonymous substitutions](#p8--codon-degeneracy-and-synonymous-substitutions)
 - [P9 — Alphabet optimality (Kerdock/Preparata)](#p9--alphabet-optimality-kerdockpreparata)
+- [P10 — Key entropy and collision rate](#p10--key-entropy-and-collision-rate)
+- [P11 — Biomechanical grounding of complement suppression](#p11--biomechanical-grounding-of-complement-suppression)
+- [P12 — Regime diagnostic: semantic distance vs. conceptual distance](#p12--regime-diagnostic-semantic-distance-vs-conceptual-distance)
+- [P13 — The regime dial and the sɪ test](#p13--the-regime-dial-and-the-s-test)
 - [Summary table](#summary-table)
 
 ---
@@ -620,6 +624,84 @@ Test protocol: §T-3 (embedding models), §T-4 (local LLMs), multilingual extens
 
 ---
 
+## P13 — The regime dial and the sɪ test
+
+P12 treats the semantic/conceptual distinction as binary: a pair either sits in the
+semantic regime or the conceptual regime. But regimes are not discrete. Every document
+pair occupies a point on a continuous spectrum, and the spectrum is the interesting
+object.
+
+**The dial.** Define the **regime score** *R* of a document pair (A, B) as:
+
+$$R(A, B) = 1 - \frac{d_{\text{Lee}}(A,B) / d_{\text{max}}}{d_{\cos}(A,B) / d_{\text{max,cos}}}$$
+
+where $d_{\text{Lee}}$ is the mean Lee distance between their transition sequences,
+$d_{\cos}$ is their cosine distance in embedding space, and the denominators normalize
+each to [0, 1]. $R = 0$ means the two metrics agree: the system is operating in the
+semantic regime, transition sequences add nothing. $R > 0$ means Lee distance is
+proportionally smaller than cosine distance: the transition sequences are finding
+conceptual proximity that surface embeddings miss. $R < 0$ means Lee distance is
+proportionally larger: surface form is closer than referent geometry.
+
+The dial is not a binary classifier — it is a signed scalar with a natural zero. Most
+pairs in a monolingual, same-genre corpus will cluster around $R = 0$. Cross-linguistic
+matched-content pairs should shift toward $R > 0$. Pairs that share genre and register
+but describe opposite referents (e.g., encomium vs. invective for the same person)
+should shift toward $R < 0$.
+
+**The sɪ test.** The user's observation provides a minimal test case in three tokens:
+
+| Token | Language | Semantic field | Phonology |
+|:-----:|:--------:|:--------------|:---------:|
+| sea   | English  | Ocean, vastness | /siː/ |
+| see   | English  | Perception, witness | /siː/ |
+| si    | Spanish  | Affirmation, existence | /si/ |
+
+These three tokens have near-maximal surface-vocabulary disjunction across semantic
+fields. A purely semantic embedding places them in three different neighborhoods. Yet:
+
+1. **sea / see**: share the observer-at-the-horizon phenomenology — the sea is
+   paradigmatically what you *see* when you reach the edge of the world. The conceptual
+   attractor is the vanishing point.
+2. **see / si**: share the assertoric function — witnessing and affirming are both acts
+   of ratifying that something is the case.
+3. **sea / si**: the sound /sɪ/ is where the world gets slippery — ocean and
+   affirmation converge in the Romance tradition of the *sì* as the word for *yes* that
+   lives by the sea (Dante's *Divina Commedia* I.33: "del bel paese là dove 'l sì
+   suona").
+
+The sɪ test is not a full benchmark — it is a three-point calibration. It predicts that
+token-level transition sequences for documents centered on each of these concepts
+(a sea voyage poem, a poem about bearing witness, a poem of affirmation) should produce
+a pairwise $R$ distribution that is right-skewed (more mass at $R > 0$) relative to
+three randomly chosen tokens with the same cosine pairwise distances.
+
+**Prediction.** The regime score $R$ is:
+
+1. **Positive and non-trivial** ($R > 0.05$, two-tailed $p < 0.05$) for cross-linguistic
+   matched-content primary-source pairs.
+2. **Near-zero** ($|R| < 0.02$) for same-language, same-genre, same-topic pairs, where
+   semantic and conceptual proximity co-vary.
+3. **Negative** ($R < -0.05$) for same-genre antonym pairs (encomium/invective,
+   elegy/epinicion) where surface register is matched but referent geometry is opposed.
+
+**Corollary — the dial as retrieval signal.** For any query document, ranking
+candidates by $R$ (rather than by raw Lee distance or raw cosine distance) should
+improve cross-lingual recall while degrading monolingual precision by a detectable but
+small amount. The trade-off curve of precision vs. cross-lingual recall as a function
+of the weight given to $R$ should be convex, indicating a well-defined operating point
+rather than a monotone accuracy/coverage trade-off.
+
+**Falsification condition.** The $R$ distribution for cross-linguistic matched-content
+pairs is statistically indistinguishable from the $R$ distribution for random
+cross-linguistic pairs at the same cosine distance. Equivalently: $R$ is pure noise —
+the dial has no signal.
+
+Test protocol: §T-3, §T-4, multilingual extension; sɪ calibration on curated
+primary-source poetry corpus.
+
+---
+
 ## Summary table
 
 | ID | Prediction | From | Tested in | Effort |
@@ -636,6 +718,7 @@ Test protocol: §T-3 (embedding models), §T-4 (local LLMs), multilingual extens
 | P10 | Key collision rate is low and correlates with semantic similarity | Key design | §T-2, §T-3 | Low |
 | P11 | Complement suppression is universal, stronger in spoken corpora, and ordered by phonotactic strictness | Auditory-vocal co-evolution | §T-3, multilingual | Medium |
 | P12 | Cross-linguistic conceptual near-neighbors achieve lower Lee distance than cosine similarity predicts; suppression rates converge across languages for matched-content pairs | Semantic vs. conceptual regime | §T-3, §T-4, multilingual | High |
+| P13 | Regime score *R* is positive for cross-lingual matched-content pairs, near-zero for same-genre same-topic pairs, and negative for antonym pairs; sɪ calibration is right-skewed | Semantic/conceptual dial | §T-3, §T-4, multilingual | High |
 
 P3 requires only a frequency count on quantizer output and can be run immediately once
 the quantizer from [PR #9](https://github.com/devlux76/q2/pull/9) is merged. P2 and
