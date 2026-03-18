@@ -8,15 +8,18 @@
   },
   "scripts": {
     "prepare": "bun x husky install",
-    "lint": "eslint --fix . --ext .js,.ts,.html,.yml,.yaml && eslint . --ext .js,.ts,.html,.yml,.yaml",
-    "lint:css": "stylelint --fix \"**/*.{css,html}\" && stylelint \"**/*.{css,html}\"",
-    "prebuild": "bun run lint && bun run lint:css",
+    "lint": "eslint --no-inline-config --max-warnings 0 --fix . --ext .js,.ts,.html,.yml,.yaml && eslint --no-inline-config --max-warnings 0 . --ext .js,.ts,.html,.yml,.yaml",
+    "lint:css": "stylelint --max-warnings 0 --fix \"**/*.{css,html}\" && stylelint --max-warnings 0 \"**/*.{css,html}\"",
+    "check": "bun run lint && bun run typecheck",
+    "prebuild": "bun run check && bun run lint:css",
     "build:wat": "wat2wasm src/q2.wat -o src/q2.wasm && bun run embed-wat",
     "embed-wat": "bun ./scripts/embed-wat.mjs",
     "generate-screenshots": "bun ./scripts/generate-screenshots.mjs",
-    "build": "bun build --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
+    "build": "bun run check && bun build --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
+    "predev": "bun run check",
     "dev": "bun build --watch --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
     "typecheck": "bun x tsc --noEmit",
+    "pretest": "bun run check",
     "test": "vitest run --coverage",
     "test:browser": "vitest run --browser",
     "coverage": "vitest run --coverage",
@@ -24,13 +27,13 @@
   },
   "lint-staged": {
     "*.{js,ts}": [
-      "eslint --fix"
+      "eslint --no-inline-config --max-warnings 0 --fix"
     ],
     "*.{html,yml,yaml}": [
-      "eslint --fix"
+      "eslint --no-inline-config --max-warnings 0 --fix"
     ],
     "*.{css,html}": [
-      "stylelint --fix"
+      "stylelint --max-warnings 0 --fix"
     ]
   },
   "repository": {

@@ -41,7 +41,7 @@ describe('no node/npm/npx pipeline tooling', () => {
       scripts?: Record<string, string>;
     };
     const scripts = pkg.scripts ?? {};
-    for (const [name, cmd] of Object.entries(scripts)) {
+    for (const [, cmd] of Object.entries(scripts)) {
       for (const pat of bannedPatterns) {
         expect(cmd).not.toMatch(pat);
       }
