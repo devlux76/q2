@@ -84,9 +84,7 @@ async function writeOpfsFile(path: string, data: Uint8Array | ArrayBuffer): Prom
   const name = path.replace(/^\/+|\/+$/g, '');
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  const buf = data instanceof Uint8Array
-    ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-    : data as ArrayBuffer;
+  const buf: BufferSource = data instanceof Uint8Array ? data : (data as ArrayBuffer);
   await writable.write(buf);
   await writable.close();
 }
