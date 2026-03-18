@@ -139,6 +139,23 @@ bun run test:browser
 > bun x playwright install
 > ```
 
+## Pre-commit checks
+
+This repo uses **Husky + lint-staged** to run linters on staged files before each commit. If a commit fails with a message like:
+
+> `husky - pre-commit script failed (code 1)`
+
+then an ESLint or Stylelint check failed (or the lint-staged configuration was invalid).
+
+To troubleshoot locally:
+
+```bash
+bun run lint          # run all lint checks
+bun x lint-staged     # run the pre-commit linters on staged files
+```
+
+Fix any reported issues (or adjust the linter rules), then re-stage and commit.
+
 ## Deploy (GitHub Pages)
 
 This project is a static browser app (HTML + JS bundle). To host it on GitHub Pages, build the bundle and publish the `dist/` output as the Pages site.
