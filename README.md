@@ -34,6 +34,18 @@ For an embedding tensor of shape `[seq_len × n]` (where `n` is the model's nati
 6. **Pack** 4 symbols per byte (MSB-first) → `n/4` bytes
 7. **Run-reduce** to the transition sequence; pack the first 32 transitions into a **64-bit key** (2 bits per symbol, MSB-aligned)
 
+```mermaid
+flowchart LR
+    A["Embedding tensor\n[seq_len × n]"] --> B["Mean-pool\nover token positions"]
+    B --> C["L2-normalise\nunit vector on Sⁿ⁻¹"]
+    C --> D["Threshold τ*\n= 0.6745 / √n"]
+    D --> E["Quantise each coord\nA / B / C / D"]
+    E --> F["Gray-encode\ng = sym ⊕ (sym >> 1)"]
+    F --> G["Pack\n4 symbols / byte\n→ n/4 bytes"]
+    G --> H["Run-reduce\ntransition sequence R"]
+    H --> I["64-bit key K\n(first 32 transitions)"]
+```
+
 ### Sub-fp32 element dtypes
 
 The ONNX dtype setting controls model weight precision; the ONNX runtime (transformers.js) typically returns hidden-state activations as `fp32` regardless of weight dtype. The kernel handles all cases via the `dtype` field of `EmbeddingMsg`:

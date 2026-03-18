@@ -350,6 +350,17 @@ $$\tau^* = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
 
 $$q(v_i) = \begin{cases} A & v_i \leq -\tau^* \\ B & -\tau^* < v_i \leq 0 \\ C & 0 < v_i \leq \tau^* \\ D & v_i > \tau^* \end{cases}$$
 
+The four equiprobable zones on the real line, separated by $-\tau^*$, $0$, and $+\tau^*$:
+
+```mermaid
+block-beta
+  columns 4
+  A["A\nstrong −\n≤ −τ*"]:1
+  B["B\nweak −\n(−τ*, 0]"]:1
+  C["C\nweak +\n(0, τ*]"]:1
+  D["D\nstrong +\n> τ*"]:1
+```
+
 **Empirical calibration.** In practice $\tau^*$ is estimated from a reservoir sample
 of 1 024 document activations per compaction cycle, using the empirical 25th and 75th
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
@@ -400,6 +411,18 @@ Total: $d_L(u,v) = 3$.
 
 For $n = 256$ dimensions the maximum Lee distance is $256 \times 2 = 512$.
 
+The four symbols arranged on the $\mathbb{Z}_4$ cycle, with Lee distances annotated:
+
+```mermaid
+graph LR
+    A("A = 0\nstrong −") -- "Lee 1" --- B("B = 1\nweak −")
+    B -- "Lee 1" --- C("C = 2\nweak +")
+    C -- "Lee 1" --- D("D = 3\nstrong +")
+    D -- "Lee 1\n(cyclic wrap)" --- A
+    A -. "Lee 2\n(complement)" .- C
+    B -. "Lee 2\n(complement)" .- D
+```
+
 ---
 
 ### 2.7 The Gray map
@@ -407,7 +430,7 @@ For $n = 256$ dimensions the maximum Lee distance is $256 \times 2 = 512$.
 The Gray map $\phi: \mathbb{Z}_4 \to \{0,1\}^2$ is the unique binary encoding that
 makes Hamming distance on the encoded vectors equal to Lee distance on the originals:
 
-$$\phi(0) = \texttt{00} \qquad \phi(1) = \texttt{01} \qquad \phi(2) = \texttt{11} \qquad \phi(3) = \texttt{10}$$
+$$\phi(0) = \mathtt{00} \qquad \phi(1) = \mathtt{01} \qquad \phi(2) = \mathtt{11} \qquad \phi(3) = \mathtt{10}$$
 
 **Theorem 2.1** *(Hammons, Kumar, Calderbank, Sloane, Solé, 1994).* $\phi$ is an
 isometry from $(\mathbb{Z}_4^n, d_L)$ to $(\{0,1\}^{2n}, d_H)$:
@@ -448,6 +471,32 @@ instruction.
 
 A 256-dimensional embedding encodes to $256 \times 2 = 512$ bits = 64 bytes.
 
+The Gray map ensures `popcnt(XOR)` on the 2-bit codes equals Lee distance — no symbol decoding needed:
+
+```mermaid
+flowchart LR
+    subgraph Z4["ℤ₄ symbols"]
+        direction TB
+        s0["A = 0"]
+        s1["B = 1"]
+        s2["C = 2"]
+        s3["D = 3"]
+    end
+    subgraph GC["Gray codes φ(·)"]
+        direction TB
+        g0["`00`"]
+        g1["`01`"]
+        g2["`11`"]
+        g3["`10`"]
+    end
+    s0 --> g0
+    s1 --> g1
+    s2 --> g2
+    s3 --> g3
+    note["popcnt(XOR of codes)\n= Lee distance"]
+    GC --> note
+```
+
 ---
 
 ### 2.8 The complement involution
@@ -463,15 +512,15 @@ In the $\phi$-encoding, $\theta$ is bitwise NOT: $\phi(\theta(x)) = \overline{\p
 **Proposition 2.2** *(Universal complement identity).* For any vector
 $v \in \mathbb{Z}_4^{256}$ and its complement $\bar{v}$ defined componentwise by $\theta$:
 
-$$\phi(v) \oplus \phi(\bar{v}) = \underbrace{\texttt{FF}\ldots\texttt{FF}}_{64 \text{ bytes}}$$
+$$\phi(v) \oplus \phi(\bar{v}) = \underbrace{\mathtt{FF}\ldots\mathtt{FF}}_{64 \text{ bytes}}$$
 
-*Proof.* For any 2-bit Gray encoding $e$, $e \oplus \bar{e} = \texttt{11}$ by
+*Proof.* For any 2-bit Gray encoding $e$, $e \oplus \bar{e} = \mathtt{11}$ by
 bitwise NOT. All 256 positions contribute `11`; concatenated over 512 bits the result
 is all-ones. $\square$
 
 **Corollary 2.3** *(Self-complement exclusion).* No vector $v$ satisfies $v = \bar{v}$.
 
-*Proof.* If $v = \bar{v}$ then $\phi(v) \oplus \phi(\bar{v}) = 0 \neq \texttt{FF}\ldots\texttt{FF}$. $\square$
+*Proof.* If $v = \bar{v}$ then $\phi(v) \oplus \phi(\bar{v}) = 0 \neq \mathtt{FF}\ldots\mathtt{FF}$. $\square$
 
 ---
 
@@ -512,6 +561,21 @@ Run-length invariance means a document that visits a semantic state once and a
 document that dwells in it for many consecutive dimensions share the same key. The key
 records which states were visited, not how long each visit lasted.
 
+**Example of run-reduction:**
+
+```mermaid
+block-beta
+  columns 1
+  block:V["Quantized vector V"]
+    v0["A"] v1["A"] v2["A"] v3["B"] v4["B"] v5["C"] v6["A"] v7["A"]
+  end
+  block:R["Transition sequence R (run-reduced)"]
+    r0["A"] r1["B"] r2["C"] r3["A"]
+  end
+```
+
+Repeated runs of the same symbol collapse to one; only transitions are kept.
+
 ---
 
 ### 3.2 The 64-bit integer key
@@ -537,6 +601,29 @@ bits 1–0 encode $r_{31}$.
 Documents whose transition sequences agree in the first 32 steps and diverge only
 afterward share a key and are retrieved as a group by any window query. Intra-bucket
 distinction is resolved by the Lee-distance re-ranking step.
+
+**64-bit key bit layout** (each symbol occupies 2 bits, MSB-first):
+
+```mermaid
+block-beta
+  columns 16
+  r0["r₀\nb63–62"]:1
+  r1["r₁\nb61–60"]:1
+  r2["r₂\nb59–58"]:1
+  r3["r₃\nb57–56"]:1
+  r4["r₄\nb55–54"]:1
+  r5["r₅\nb53–52"]:1
+  r6["…"]:1
+  r7["…"]:1
+  r8["…"]:1
+  r9["…"]:1
+  r10["…"]:1
+  r11["…"]:1
+  r12["r₂₉\nb5–4"]:1
+  r13["r₃₀\nb3–2"]:1
+  r14["r₃₁\nb1–0"]:1
+  r15["(LSB)"]:1
+```
 
 ---
 
