@@ -148,6 +148,7 @@ NQ). Metrics: nDCG@10, Recall@100. Expected ordering: $E \geq D > C \geq B > A$.
 | §P-4 | E vs. D retrieval | D, E | E $>$ D with statistical significance |
 | §P-5 | Reverse-complement antonym retrieval on antonym pair set | B, D | Antonym retrieved at above-chance rate |
 | §P-6 | Two-stage (hash + Lee) vs. flat Lee search, latency-matched | B, D | Two-stage $\geq$ flat on precision at equal latency |
+| §P-7 | Secondary structure complexity vs. human rhetorical complexity annotation | B, D | Positive correlation; nested-argument documents score higher |
 | §P-9 | $\mathbb{Z}_8$ vs. $\mathbb{Z}_4$ retrieval | B (Z₄), B′ (Z₈) | No significant improvement for Z₈ |
 
 **Probe corpus for §P-2.** Construct 30–100 sentence triplets, one from each class
@@ -159,6 +160,13 @@ document and test the ordering using a Wilcoxon signed-rank test (paired by topi
 resource (WordNet). For each document in the pair, compute the reverse-complement
 transition sequence, query the index, and record whether the antonym is retrieved
 within the top $k$ results. Compare to a matched-difficulty non-antonym baseline.
+
+**Annotation corpus for §P-7.** Select 50–100 documents with existing rhetorical
+complexity annotations (e.g. from argumentation-mining datasets such as Persuasive
+Essays (PE) or IBM Claim Stance). Compute the secondary structure of each document's
+transition sequence using the Nussinov algorithm (§P-7), and measure Spearman rank
+correlation between the number of nested complement pairs and the human-annotated
+rhetorical complexity score.
 
 ---
 
@@ -194,6 +202,7 @@ baseline.
 | §P-2 | $\rho_{\text{hp}}$ on probe corpus | Signal present but noisier than T3; statistically significant enrichment in Dialectical class vs. null baseline ($1/9$) |
 | §P-3 | Complement-bigram frequency | $< 1/3$; suppression may be weaker than in T3 |
 | §P-5 | Reverse-complement antonym retrieval | Above-chance retrieval; effect size smaller than T3 |
+| §P-7 | Secondary structure complexity vs. rhetorical complexity annotation | Positive correlation present but weaker than T3; statistical significance depends on model quality |
 
 **If §P-2 sub-test fails in T4 but passes in T3:** the hairpin signal is present in
 retrieval-optimised activation spaces but not in general-purpose LLM activations. This
