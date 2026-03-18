@@ -451,6 +451,12 @@ export function initLocalFileStore(): void {
   document.body.appendChild(fileInput);
 
   localFileDrop.addEventListener('click', () => fileInput.click());
+  localFileDrop.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      fileInput.click();
+    }
+  });
 
   localFileDrop.addEventListener('dragover', (e) => {
     e.preventDefault();
