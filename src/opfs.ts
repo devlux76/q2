@@ -43,8 +43,11 @@ function saveMapping(mapping: Record<string, StoredFileMeta>): void {
 }
 
 async function digestHex(data: ArrayBuffer | Uint8Array): Promise<string> {
-  const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const hashBuf = await crypto.subtle.digest('SHA-256', buffer);
+  // Normalize to a Uint8Array view. data instanceof Uint8Array uses a typed
+  // check that works even in cross-realm (jsdom) contexts.
+  const view = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
+  // Pass the view directly to Web Crypto to avoid an extra full-buffer copy.
+  const hashBuf = await crypto.subtle.digest('SHA-256', view);
   return Array.from(new Uint8Array(hashBuf))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
@@ -55,7 +58,7 @@ async function getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
   // Chrome/Edge: self.originPrivateFileSystem
   const nav = (navigator as any) as { storage?: unknown };
   if (nav.storage && typeof (nav.storage as any).getDirectory === 'function') {
-    return await (nav.storage as any).getDirectory();
+    return await (nav.storage as any).getDirectory() as FileSystemDirectoryHandle;
   }
   // Some environments expose originPrivateFileSystem directly.
   const win = window as any;
@@ -81,7 +84,8 @@ async function writeOpfsFile(path: string, data: Uint8Array | ArrayBuffer): Prom
   const name = path.replace(/^\/+|\/+$/g, '');
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  await writable.write(data);
+  const buf: BufferSource = data instanceof Uint8Array ? data : (data as ArrayBuffer);
+  await writable.write(buf);
   await writable.close();
 }
 
@@ -108,9 +112,9 @@ async function deleteOpfsFile(path: string): Promise<void> {
   const dir = await ensureDir([OPFS_DIR]);
   if (!dir) throw new Error('OPFS is not available in this environment');
   const name = path.replace(/^\/+|\/+$/g, '');
-  if (hasRemoveEntry(dir)) {
-    // @ts-expect-error: removeEntry is not yet in TypeScript lib.
-    await dir.removeEntry(name, { recursive: false });
+  if (typeof (dir as any).removeEntry === 'function') {
+    // spec: removeEntry(name, { recursive: false })
+    await (dir as any).removeEntry(name, { recursive: false });
   } else if (typeof (dir as any).remove === 'function') {
     await (dir as any).remove(name);
   } else {
@@ -138,7 +142,7 @@ export async function storeFile(
     name: primaryName,
     size: buffer.byteLength,
     created: now,
-    url,
+    ...(url !== undefined && { url }),
   };
   mapping[hash] = meta;
   saveMapping(mapping);

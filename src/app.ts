@@ -378,16 +378,16 @@ function renderLocalFileList(): void {
     downloadBtn.type = 'button';
     downloadBtn.textContent = 'Download';
     downloadBtn.addEventListener('click', async () => {
-      const data = await getStoredFile(file.hash);
-      if (!data) {
-        setLocalFileStatus('File not available in OPFS.', 3000);
-        return;
-      }
-      const blob = new Blob([data]);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name || file.hash;
+    const data = await getStoredFile(file.hash);
+    if (!data) {
+      setLocalFileStatus('File not available in OPFS.', 3000);
+      return;
+    }
+    const blob = new Blob([data as unknown as BlobPart]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || file.hash;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     });
@@ -445,7 +445,7 @@ export function initLocalFileStore(): void {
   fileInput.style.display = 'none';
   fileInput.addEventListener('change', async () => {
     if (fileInput.files?.length) {
-      await handleLocalFile(fileInput.files[0]);
+      await handleLocalFile(fileInput.files[0]!);
     }
   });
   document.body.appendChild(fileInput);
@@ -469,7 +469,7 @@ export function initLocalFileStore(): void {
     e.preventDefault();
     localFileDrop.classList.remove('dragover');
     if (e.dataTransfer?.files?.length) {
-      await handleLocalFile(e.dataTransfer.files[0]);
+      await handleLocalFile(e.dataTransfer.files[0]!);
     }
   });
 
