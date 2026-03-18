@@ -313,7 +313,7 @@ Section 1.5.
 
 ## The Quantization Problem
 
-### 0.1 Motivation: The On-Device Thermal Constraint
+### 1.1 Motivation: The On-Device Thermal Constraint
 
 Running a large language model on a consumer device — a phone, a laptop, a tablet —
 already operates near the thermal ceiling of that hardware. Inference requires sustained use
@@ -332,7 +332,7 @@ standard Q4 — as a progression that makes the choice inevitable rather than ar
 
 ---
 
-### 0.2 Binary Quantization and Its Structural Deficit
+### 1.2 Binary Quantization and Its Structural Deficit
 
 The simplest possible compression of a float32 activation $v_i \in \mathbb{R}$ is the sign bit:
 
@@ -366,7 +366,7 @@ structurally absent from the index.
 
 ---
 
-### 0.3 Ternary Quantization and Its Remaining Deficit
+### 1.3 Ternary Quantization and Its Remaining Deficit
 
 Ternary quantization adds a central state:
 
@@ -401,7 +401,7 @@ between a concept and its semantic opposite — remains entirely unrepresented.
 
 ---
 
-### 0.4 Standard Q4 and Why It Is a Different Problem
+### 1.4 Standard Q4 and Why It Is a Different Problem
 
 Standard 4-bit quantization as applied in LLM weight compression (GPTQ, AWQ, and related
 methods) assigns 4 bits per parameter using a learned or analytically derived codebook that
@@ -424,7 +424,7 @@ meaningless without this distinction.
 
 ---
 
-### 0.5 The Quaternary Semantic Quantization Scheme
+### 1.5 The Quaternary Semantic Quantization Scheme
 
 The preceding analysis identifies what a correct scheme must provide:
 
@@ -487,7 +487,7 @@ no state is wasted on rare events.
 
 ---
 
-### 0.6 The Lee Metric: Derived, Not Chosen
+### 1.6 The Lee Metric: Derived, Not Chosen
 
 Given four ordered states $\{A=0,\; B=1,\; C=2,\; D=3\}$ arranged cyclically in $\mathbb{Z}_4$,
 the natural distance is one that respects the ordering: adjacent states should cost less than
@@ -526,7 +526,7 @@ For $n = 256$ dimensions, the maximum Lee distance is $256 \times 2 = 512$.
 
 ---
 
-### 0.7 The Gray Map: The Unique Binary Encoding That Preserves Lee Distance
+### 1.7 The Gray Map: The Unique Binary Encoding That Preserves Lee Distance
 
 Given the Lee metric on $\mathbb{Z}_4$, we require a binary encoding $\phi: \mathbb{Z}_4 \to \{0,1\}^2$
 such that the Hamming distance on the encoded vectors equals the Lee distance on the
@@ -573,7 +573,7 @@ $$\phi(n) = n \oplus (n \gg 1)$$
 
 Verified: $\phi(0)=0\oplus 0=00$, $\phi(1)=1\oplus 0=01$, $\phi(2)=2\oplus 1=3=11$,
 $\phi(3)=3\oplus 1=2=10$. This identity is used directly in the SIMD implementation
-(Section 0.9) to compute Gray codes for four symbols simultaneously in a single vector XOR
+(Section 1.9) to compute Gray codes for four symbols simultaneously in a single vector XOR
 instruction.
 
 **The encoding table.** Combining the quantization function with the Gray map:
@@ -589,7 +589,7 @@ A 256-dimensional vector encodes to $256 \times 2 = 512$ bits = 64 bytes.
 
 ---
 
-### 0.8 The Complement Involution
+### 1.8 The Complement Involution
 
 The fixed-point-free complement involution required in Section 0.5 is explicit in the Gray
 map. Define $\theta: \mathbb{Z}_4 \to \mathbb{Z}_4$ by:
