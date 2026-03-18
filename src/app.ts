@@ -378,16 +378,16 @@ function renderLocalFileList(): void {
     downloadBtn.type = 'button';
     downloadBtn.textContent = 'Download';
     downloadBtn.addEventListener('click', async () => {
-      const data = await getStoredFile(file.hash);
-      if (!data) {
-        setLocalFileStatus('File not available in OPFS.', 3000);
-        return;
-      }
-      const blob = new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer]);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name || file.hash;
+    const data = await getStoredFile(file.hash);
+    if (!data) {
+      setLocalFileStatus('File not available in OPFS.', 3000);
+      return;
+    }
+    const blob = new Blob([data as unknown as BlobPart]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || file.hash;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     });
