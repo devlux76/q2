@@ -33,6 +33,16 @@ import {
   Q2_INPUT_OFFSET,
   Q2_OUTPUT_OFFSET,
 } from './q2.js';
+import {
+  deleteStoredFile,
+  getStoredFile,
+  isOpfsAvailable,
+  listStoredFiles,
+  storeFile,
+  storeFromUrl,
+} from './opfs.js';
+import { AppSettings, loadSettings, saveSettings } from './settings.js';
+export { loadSettings, saveSettings };
 
 // ─── HuggingFace Hub API ───────────────────────────────────────────────────────
 
@@ -42,43 +52,6 @@ export interface HFModel {
   downloads: number;
   likes: number;
   tags: string[];
-}
-
-/** Persistent application settings stored in localStorage. */
-export interface AppSettings {
-  /** Optional HuggingFace API token (private models, higher rate limits). */
-  apiToken: string;
-  /** ONNX file suffix: 'q4' | 'q8' | 'fp16' | 'fp32'. */
-  dtype: string;
-  /**
-   * library filter sent to the HF Hub API.
-   * 'transformers.js' — models tagged for the transformers.js runtime (default)
-   * 'onnx'            — all ONNX models
-   * ''                — no filter (all text-generation models)
-   */
-  filterLibrary: string;
-}
-
-const DEFAULT_SETTINGS: AppSettings = {
-  apiToken: '',
-  dtype: 'q4',
-  filterLibrary: 'transformers.js',
-};
-
-const SETTINGS_KEY = 'q2_settings';
-
-export function loadSettings(): AppSettings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<AppSettings>) };
-  } catch { /* ignore parse/storage errors */ }
-  return { ...DEFAULT_SETTINGS };
-}
-
-export function saveSettings(settings: AppSettings): void {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch { /* ignore storage errors */ }
 }
 
 /** Format a large number as a compact string (e.g. 1234567 → "1.2M"). */
@@ -142,6 +115,14 @@ const stopBtn = $<HTMLButtonElement>('#stop-btn');
 const embeddingPanel = $<HTMLDivElement>('#embedding-panel');
 const embeddingCanvas = $<HTMLCanvasElement>('#embedding-canvas');
 const embeddingStats = $<HTMLParagraphElement>('#embedding-stats');
+
+// Local file store UI (OPFS)
+const localFileDrop = $<HTMLDivElement>('#local-file-drop');
+const localFileUrl = $<HTMLInputElement>('#local-file-url');
+const localFileAddBtn = $<HTMLButtonElement>('#local-file-add');
+const localFilesList = $<HTMLUListElement>('#local-files-list');
+
+const localFileDropDefaultText = localFileDrop.textContent ?? '';
 
 // Generation controls (sidebar)
 const maxTokensEl = $<HTMLInputElement>('#max-tokens');
@@ -324,6 +305,7 @@ export function initModelPicker(): void {
 
   loadBtnEl.addEventListener('click', triggerLoad);
   initSettingsPanel();
+  initLocalFileStore();
 }
 
 /** Wire up the collapsible settings panel and persist changes to localStorage. */
@@ -359,6 +341,140 @@ function initSettingsPanel(): void {
     saveSettings(currentSettings);
     // Re-fetch the model list with the updated library filter.
     void refreshModelList(modelSearchEl.value);
+  });
+}
+
+function setLocalFileStatus(text: string, durationMs = 2500): void {
+  localFileDrop.textContent = text;
+  setTimeout(() => {
+    localFileDrop.textContent = localFileDropDefaultText;
+  }, durationMs);
+}
+
+function renderLocalFileList(): void {
+  const files = listStoredFiles();
+  localFilesList.innerHTML = '';
+
+  if (files.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'local-file-item';
+    li.textContent = 'No local files stored yet.';
+    localFilesList.appendChild(li);
+    return;
+  }
+
+  for (const file of files) {
+    const li = document.createElement('li');
+    li.className = 'local-file-item';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'local-file-name';
+    nameSpan.textContent = file.name;
+
+    const actions = document.createElement('span');
+    actions.className = 'local-file-actions';
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.type = 'button';
+    downloadBtn.textContent = 'Download';
+    downloadBtn.addEventListener('click', async () => {
+    const data = await getStoredFile(file.hash);
+    if (!data) {
+      setLocalFileStatus('File not available in OPFS.', 3000);
+      return;
+    }
+    const blob = new Blob([data as unknown as BlobPart]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || file.hash;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', async () => {
+      await deleteStoredFile(file.hash);
+      renderLocalFileList();
+      setLocalFileStatus('Removed from local storage.', 2000);
+    });
+
+    actions.appendChild(downloadBtn);
+    actions.appendChild(deleteBtn);
+
+    li.appendChild(nameSpan);
+    li.appendChild(actions);
+    localFilesList.appendChild(li);
+  }
+}
+
+async function handleLocalFile(file: File): Promise<void> {
+  try {
+    const meta = await storeFile(file, file.name);
+    renderLocalFileList();
+    setLocalFileStatus(`Saved ${meta.name}`);
+  } catch (err) {
+    setLocalFileStatus(`Error saving file: ${String(err)}`);
+  }
+}
+
+export async function handleLocalUrl(rawUrl: string): Promise<void> {
+  const url = rawUrl.trim();
+  if (!url) return;
+  try {
+    const meta = await storeFromUrl(url);
+    renderLocalFileList();
+    setLocalFileStatus(`Fetched and saved ${meta.name}`);
+  } catch (err) {
+    setLocalFileStatus(`Error fetching URL: ${String(err)}`);
+  }
+}
+
+export function initLocalFileStore(): void {
+  if (!isOpfsAvailable()) {
+    // Not supported in this environment; show a hint.
+    setLocalFileStatus('OPFS not supported in this browser.');
+  }
+
+  renderLocalFileList();
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', async () => {
+    if (fileInput.files?.length) {
+      await handleLocalFile(fileInput.files[0]!);
+    }
+  });
+  document.body.appendChild(fileInput);
+
+  localFileDrop.addEventListener('click', () => fileInput.click());
+  localFileDrop.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      fileInput.click();
+    }
+  });
+
+  localFileDrop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    localFileDrop.classList.add('dragover');
+  });
+  localFileDrop.addEventListener('dragleave', () => {
+    localFileDrop.classList.remove('dragover');
+  });
+  localFileDrop.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    localFileDrop.classList.remove('dragover');
+    if (e.dataTransfer?.files?.length) {
+      await handleLocalFile(e.dataTransfer.files[0]!);
+    }
+  });
+
+  localFileAddBtn.addEventListener('click', async () => {
+    await handleLocalUrl(localFileUrl.value);
   });
 }
 

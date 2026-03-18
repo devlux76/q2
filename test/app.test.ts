@@ -46,6 +46,14 @@ function setupDom() {
     <span id="temp-value"></span>
     <input id="rep-penalty" value="1.1" />
     <span id="rep-value"></span>
+
+    <div id="storage-section">
+      <div id="local-file-drop"></div>
+      <input id="local-file-url" />
+      <button id="local-file-add"></button>
+      <ul id="local-files-list"></ul>
+    </div>
+
     <span id="header-title"></span>
     <span id="sidebar-model-tag"></span>
   `;
