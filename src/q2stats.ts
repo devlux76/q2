@@ -62,9 +62,13 @@ export function leeDistance(a: number, b: number): number {
  * This is the inner-product kernel used by the two-stage retrieval architecture
  * (§P-6) and can be implemented with SIMD popcnt instructions.
  *
- * @param a - packed Q² bytes (n/4 bytes, output of q2EncodeDirect)
- * @param b - packed Q² bytes (same length as a)
- * @returns total Lee distance (sum over all symbol positions)
+ * The distance is computed over the first `min(a.length, b.length)` bytes.
+ * Any extra bytes in the longer array are ignored; in most callers this should
+ * only happen if there is a bug or mismatch in the packed vector dimensions.
+ *
+ * @param a - packed Q² bytes (typically n/4 bytes, output of q2EncodeDirect)
+ * @param b - packed Q² bytes for a vector of (typically) the same dimension
+ * @returns total Lee distance (sum over all compared symbol positions)
  */
 export function leeDistancePacked(a: Uint8Array, b: Uint8Array): number {
   const len = Math.min(a.length, b.length);
