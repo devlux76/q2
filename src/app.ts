@@ -383,7 +383,7 @@ function renderLocalFileList(): void {
         setLocalFileStatus('File not available in OPFS.', 3000);
         return;
       }
-      const blob = new Blob([data]);
+      const blob = new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer]);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -445,7 +445,7 @@ function initLocalFileStore(): void {
   fileInput.style.display = 'none';
   fileInput.addEventListener('change', async () => {
     if (fileInput.files?.length) {
-      await handleLocalFile(fileInput.files[0]);
+      await handleLocalFile(fileInput.files[0]!);
     }
   });
   document.body.appendChild(fileInput);
@@ -463,7 +463,7 @@ function initLocalFileStore(): void {
     e.preventDefault();
     localFileDrop.classList.remove('dragover');
     if (e.dataTransfer?.files?.length) {
-      await handleLocalFile(e.dataTransfer.files[0]);
+      await handleLocalFile(e.dataTransfer.files[0]!);
     }
   });
 

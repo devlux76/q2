@@ -43,8 +43,12 @@ function saveMapping(mapping: Record<string, StoredFileMeta>): void {
 }
 
 async function digestHex(data: ArrayBuffer | Uint8Array): Promise<string> {
-  const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const hashBuf = await crypto.subtle.digest('SHA-256', buffer);
+  // Normalize to a plain ArrayBuffer. data instanceof Uint8Array uses a typed
+  // check that works even in cross-realm (jsdom) contexts.
+  const view = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
+  // .slice() always returns a fresh ArrayBuffer regardless of backing buffer type.
+  const ab = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+  const hashBuf = await crypto.subtle.digest('SHA-256', ab);
   return Array.from(new Uint8Array(hashBuf))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
@@ -55,8 +59,7 @@ async function getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
   // Chrome/Edge: self.originPrivateFileSystem
   const nav = (navigator as any) as { storage?: unknown };
   if (nav.storage && typeof (nav.storage as any).getDirectory === 'function') {
-    // @ts-expect-error: TS lacks this method on Storage interface
-    return await (nav.storage as any).getDirectory();
+    return await (nav.storage as any).getDirectory() as FileSystemDirectoryHandle;
   }
   // Some environments expose originPrivateFileSystem directly.
   const win = window as any;
@@ -82,7 +85,10 @@ async function writeOpfsFile(path: string, data: Uint8Array | ArrayBuffer): Prom
   const name = path.replace(/^\/+|\/+$/g, '');
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
-  await writable.write(data);
+  const buf = data instanceof Uint8Array
+    ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+    : data as ArrayBuffer;
+  await writable.write(buf);
   await writable.close();
 }
 
@@ -99,7 +105,6 @@ async function deleteOpfsFile(path: string): Promise<void> {
   const dir = await ensureDir([OPFS_DIR]);
   if (!dir) throw new Error('OPFS is not available in this environment');
   const name = path.replace(/^\/+|\/+$/g, '');
-  // @ts-expect-error: removeEntry is not yet in TypeScript lib.
   if (typeof (dir as any).removeEntry === 'function') {
     // spec: removeEntry(name, { recursive: false })
     await (dir as any).removeEntry(name, { recursive: false });
@@ -130,7 +135,7 @@ export async function storeFile(
     name: primaryName,
     size: buffer.byteLength,
     created: now,
-    url,
+    ...(url !== undefined && { url }),
   };
   mapping[hash] = meta;
   saveMapping(mapping);
