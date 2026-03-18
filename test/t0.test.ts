@@ -267,8 +267,8 @@ describe('T0-Q: Quantisation smoke tests', () => {
 // ─── T0-P10: Key entropy and collision rate ───────────────────────────────────
 
 describe('T0-P10: Key entropy and collision rate', () => {
-  it('nullCollisionExpectation for 1000 keys in 64-bit space is < 0.001', () => {
-    // 1000*(999) / 2^65 ≈ 2.7e-11 — essentially zero
+  it('nullCollisionExpectation for 1000 keys in 64-bit space is < 1e-6', () => {
+    // 1000*(999) / 2^65 ≈ 2.7e-14 — far below 1e-6, essentially zero
     const expected = nullCollisionExpectation(1000);
     expect(expected).toBeLessThan(1e-6);
   });
