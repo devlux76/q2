@@ -71,20 +71,26 @@ This compiles `src/q2.wat → src/q2.wasm` and updates the `WASM_B64` constant i
 
 ## Screenshots
 
-### Loading Screen
-The app displays a progress card while downloading and caching the ~1.2 GB ONNX model weights.
+### Loading screen
+The app displays a progress card while downloading and caching the model weights (typically pre‑quantized to q4/q8).
 
-![Load screen — model downloading](https://github.com/user-attachments/assets/3a5f66ad-a352-42ae-ad1a-a523cedb98a9)
+![Load screen — model downloading](docs/screenshots/load-screen.png)
 
-### Chat Interface (empty)
+### Chat interface (empty)
 Once the model is ready, the full chat interface appears with the generation settings sidebar.
 
-![Chat interface — empty state](https://github.com/user-attachments/assets/68b3595d-5c94-4923-bbd6-f106ea759503)
+![Chat interface — empty state](docs/screenshots/chat-empty.png)
 
-### Chat Interface (conversation)
+### Chat interface (conversation)
 During and after a conversation the sidebar also shows the **Last LIV layer embeddings** panel — a heat-map of the raw activations and the Q² quantisation result (packed bytes + 64-bit transition key).
 
-![Chat interface — active conversation with embedding panel](https://github.com/user-attachments/assets/555cc7ee-012d-4e1b-8db7-14a164e4f462)
+![Chat interface — active conversation with embedding panel](docs/screenshots/chat-embedding.png)
+
+> To regenerate these screenshots, run:
+>
+> ```bash
+> node scripts/generate-screenshots.mjs
+> ```
 
 ## Setup
 
