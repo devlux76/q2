@@ -313,7 +313,7 @@ Section 1.5.
 
 ## The Quantization Problem
 
-### 0.1 Motivation: The On-Device Thermal Constraint
+### 1.1 Motivation: The On-Device Thermal Constraint
 
 Running a large language model on a consumer device — a phone, a laptop, a tablet —
 already operates near the thermal ceiling of that hardware. Inference requires sustained use
@@ -332,7 +332,7 @@ standard Q4 — as a progression that makes the choice inevitable rather than ar
 
 ---
 
-### 0.2 Binary Quantization and Its Structural Deficit
+### 1.2 Binary Quantization and Its Structural Deficit
 
 The simplest possible compression of a float32 activation $v_i \in \mathbb{R}$ is the sign bit:
 
@@ -366,7 +366,7 @@ structurally absent from the index.
 
 ---
 
-### 0.3 Ternary Quantization and Its Remaining Deficit
+### 1.3 Ternary Quantization and Its Remaining Deficit
 
 Ternary quantization adds a central state:
 
@@ -401,7 +401,7 @@ between a concept and its semantic opposite — remains entirely unrepresented.
 
 ---
 
-### 0.4 Standard Q4 and Why It Is a Different Problem
+### 1.4 Standard Q4 and Why It Is a Different Problem
 
 Standard 4-bit quantization as applied in LLM weight compression (GPTQ, AWQ, and related
 methods) assigns 4 bits per parameter using a learned or analytically derived codebook that
@@ -424,7 +424,7 @@ meaningless without this distinction.
 
 ---
 
-### 0.5 The Quaternary Semantic Quantization Scheme
+### 1.5 The Quaternary Semantic Quantization Scheme
 
 The preceding analysis identifies what a correct scheme must provide:
 
@@ -487,7 +487,7 @@ no state is wasted on rare events.
 
 ---
 
-### 0.6 The Lee Metric: Derived, Not Chosen
+### 1.6 The Lee Metric: Derived, Not Chosen
 
 Given four ordered states $\{A=0,\; B=1,\; C=2,\; D=3\}$ arranged cyclically in $\mathbb{Z}_4$,
 the natural distance is one that respects the ordering: adjacent states should cost less than
@@ -526,7 +526,7 @@ For $n = 256$ dimensions, the maximum Lee distance is $256 \times 2 = 512$.
 
 ---
 
-### 0.7 The Gray Map: The Unique Binary Encoding That Preserves Lee Distance
+### 1.7 The Gray Map: The Unique Binary Encoding That Preserves Lee Distance
 
 Given the Lee metric on $\mathbb{Z}_4$, we require a binary encoding $\phi: \mathbb{Z}_4 \to \{0,1\}^2$
 such that the Hamming distance on the encoded vectors equals the Lee distance on the
@@ -573,7 +573,7 @@ $$\phi(n) = n \oplus (n \gg 1)$$
 
 Verified: $\phi(0)=0\oplus 0=00$, $\phi(1)=1\oplus 0=01$, $\phi(2)=2\oplus 1=3=11$,
 $\phi(3)=3\oplus 1=2=10$. This identity is used directly in the SIMD implementation
-(Section 0.9) to compute Gray codes for four symbols simultaneously in a single vector XOR
+(Section 1.9) to compute Gray codes for four symbols simultaneously in a single vector XOR
 instruction.
 
 **The encoding table.** Combining the quantization function with the Gray map:
@@ -589,7 +589,7 @@ A 256-dimensional vector encodes to $256 \times 2 = 512$ bits = 64 bytes.
 
 ---
 
-### 0.8 The Complement Involution
+### 1.8 The Complement Involution
 
 The fixed-point-free complement involution required in Section 0.5 is explicit in the Gray
 map. Define $\theta: \mathbb{Z}_4 \to \mathbb{Z}_4$ by:
@@ -611,6 +611,237 @@ $\texttt{MaxUINT512}$. $\square$
 **Corollary** *(Self-complement exclusion).* No vector $v$ satisfies $v = \bar{v}$.
 
 *Proof.* If $v = \bar{v}$ then $v \oplus \bar{v} = 0 \neq \texttt{MaxUINT512}$. Contradiction. $\square$
+
+---
+
+## The Transition Key
+
+### 2.1 From Quantized Vector to Transition Sequence
+
+Given a quantized vector $V = (v_0, v_1, \ldots, v_{n-1}) \in \{0,1,2,3\}^n$, the
+**run-reduction** algorithm produces a transition sequence by a single left-to-right
+pass:
+
+$$R \leftarrow (v_0); \quad n \leftarrow 1$$
+$$\textbf{while}\ n < |V|: \quad \textbf{if}\ v_n \neq v_{n-1}\ \textbf{then append}\ v_n\ \textbf{to}\ R; \quad n\mathrel{+}= 1$$
+
+The result $R = (r_0, r_1, \ldots, r_{k-1})$ is the sequence of distinct consecutive
+values in $V$: every run of identical adjacent symbols is collapsed to its first
+occurrence.
+
+**Lemma 2.1** *(Idempotence).* Applying run-reduction twice produces the same result:
+$\text{reduce}(\text{reduce}(V)) = \text{reduce}(V)$.
+
+*Proof.* Let $R = \text{reduce}(V)$. By construction, $r_j \neq r_{j+1}$ for all
+$0 \leq j < k-1$. On the second pass the condition $v_n \neq v_{n-1}$ is satisfied at
+every position (since no two adjacent elements of $R$ are equal), so every symbol is
+appended and $\text{reduce}(R) = R$. $\square$
+
+**Lemma 2.2** *(Length bound).* $|R| \leq |V|$, with equality iff $V$ is already a
+transition sequence (no two adjacent values equal).
+
+*Proof.* Each element of $V$ contributes at most one element to $R$ (itself), and at
+least one element of $V$ contributes (the first). $\square$
+
+**Lemma 2.3** *(Semantic invariance).* Two vectors $V$ and $V'$ that differ only in the
+lengths of their runs — identical transition sequence $R$, different run lengths — map
+to the same key. The key encodes *which* semantic states were visited, not *how long*
+the vector dwelt in each.
+
+*Proof.* The reduction discards all information about run length. $\square$
+
+This is the correct behaviour for retrieval: a document that mentions a concept once
+and a document that hammers it repeatedly share the same semantic trajectory through
+the quantized space. The key addresses the room they both occupy.
+
+---
+
+### 2.2 The 64-Bit Integer Key
+
+Given the transition sequence $R = (r_0, r_1, \ldots, r_{k-1})$ with
+$r_i \in \{0,1,2,3\}$, define the integer key $K$ as the base-4 number with $R$ as
+its digits, most significant first:
+
+$$K(R) = \sum_{i=0}^{\min(k,32)-1} r_i \cdot 4^{31-i}$$
+
+**Theorem 2.4** *(Exact 64-bit fit).* The range of $K$ is exactly
+$\{0, 1, \ldots, 2^{64}-1\} = [0,\, \texttt{UINT64\_MAX}]$.
+
+*Proof.* The maximum value of a 32-digit base-4 number is:
+
+$$K_{\max} = \sum_{i=0}^{31} 3 \cdot 4^i = 3 \cdot \frac{4^{32}-1}{4-1} = 4^{32} - 1$$
+
+Since $4 = 2^2$, we have $4^{32} = 2^{64}$, so:
+
+$$K_{\max} = 2^{64} - 1 = \texttt{UINT64\_MAX}$$
+
+The minimum value is 0 (all symbols $A$). The mapping $r_i \in \{0,1,2,3\} \mapsto
+\{00,01,10,11\}$ in binary is the direct 2-bit representation; 32 such pairs pack
+exactly 64 bits. There is no overflow and no wasted bit. $\square$
+
+**Corollary 2.5** *(Bit layout).* The key occupies a standard `uint64_t` with zero
+padding or truncation. Bits 63–62 encode $r_0$; bits 61–60 encode $r_1$; bits $1$–$0$
+encode $r_{31}$.
+
+**Handling sequences longer than 32.** If $|R| > 32$, only the first 32 symbols enter
+the key. The discarded tail encodes fine intra-block structure. Two concepts whose
+transition sequences agree in the first 32 steps and diverge only afterward are
+assigned the same key and are therefore co-located in the index — they are retrieved
+as a group by any window query, which is the correct behaviour (they traversed the
+same high-level semantic path). The distinction within the bucket is resolved by the
+Lee-distance re-ranking step.
+
+---
+
+### 2.3 MSB Alignment and Semantic Ordering
+
+The key is **left-aligned**: the first transition $r_0$ occupies the most significant
+two bits. This is not arbitrary.
+
+**Definition.** The *semantic depth* of a transition at position $i$ in $R$ is $i$.
+Depth 0 is the first semantic state entered; depth 31 is the finest resolvable
+discrimination within the block.
+
+**Proposition 2.6** *(Prefix clustering).* Two keys $K_1$ and $K_2$ share a common
+prefix of length $j$ (i.e., $\lfloor K_1 / 4^{32-j} \rfloor = \lfloor K_2 /
+4^{32-j} \rfloor$) if and only if their transition sequences agree in the first $j$
+positions.
+
+*Proof.* The $j$ most significant base-4 digits of $K$ are exactly $r_0, \ldots,
+r_{j-1}$. Two keys agree in those digits iff their source sequences agree there. $\square$
+
+**Corollary 2.7** *(Key distance bounds).* If sequences $R_1$ and $R_2$ share a prefix
+of length $j$ and first diverge at position $j$, then:
+
+$$|K_1 - K_2| \leq 4^{32-j} - 1$$
+
+Sequences with longer common prefix are closer in integer key space, regardless of
+what happens after the divergence point. A window of half-width $\delta = 4^{32-j}$
+recovers all sequences that agree with the query in the first $j$ transitions.
+
+**The LSB alternative.** Right-alignment places $r_0$ in bits 1–0, so that closeness
+in integer value measures agreement in the *final* transitions. This is appropriate
+when the embedding dimensions are sorted so that later dimensions are more
+discriminating — for instance, after a PCA rotation placing maximum-variance directions
+last. For standard unsorted embeddings, MSB-alignment with dimensions sorted by
+per-dimension variance before quantization is the canonical choice.
+
+---
+
+### 2.4 Block File Organisation
+
+The 64-bit key space $[0, 2^{64})$ is partitioned into **8 block files**, each
+covering $2^{61}$ consecutive keys.
+
+**Partition.** Block file $b \in \{0, 1, \ldots, 7\}$ covers the range:
+
+$$\mathcal{B}_b = \left[ b \cdot 2^{61},\; (b+1) \cdot 2^{61} \right)$$
+
+The block index for a key $K$ is the top 3 bits:
+
+$$b(K) = K \gg 61$$
+
+In hexadecimal (16 hex digits per `uint64`), the block boundaries fall on the first
+nibble boundary plus the high bit:
+
+| Block | Hex range |
+|-------|-----------|
+| 0 | `0x0000000000000000` – `0x1FFFFFFFFFFFFFFF` |
+| 1 | `0x2000000000000000` – `0x3FFFFFFFFFFFFFFF` |
+| 2 | `0x4000000000000000` – `0x5FFFFFFFFFFFFFFF` |
+| 3 | `0x6000000000000000` – `0x7FFFFFFFFFFFFFFF` |
+| 4 | `0x8000000000000000` – `0x9FFFFFFFFFFFFFFF` |
+| 5 | `0xA000000000000000` – `0xBFFFFFFFFFFFFFFF` |
+| 6 | `0xC000000000000000` – `0xDFFFFFFFFFFFFFFF` |
+| 7 | `0xE000000000000000` – `0xFFFFFFFFFFFFFFFF` |
+
+Within each block file, keys are stored sorted. A block file is a sorted sequence of
+$(K, \text{doc\_id})$ pairs. Range queries reduce to binary search to find the lower
+bound, then a sequential scan to the upper bound.
+
+**Why 8.** The block count $N_b$ must satisfy two competing constraints:
+
+1. *Density:* each block file must contain enough entries to make binary search
+   worthwhile. With $N_b$ blocks and $C$ indexed documents, the mean block population
+   is $C/N_b$.
+2. *Sparsity:* each block must be sparse enough that a window $[K-\delta, K+\delta]$
+   selects a small, manageable set. Block size is $2^{64}/N_b$; sparsity requires
+   $\delta \ll 2^{64}/N_b$.
+
+$N_b = 8 = 2^3$ gives block size $2^{61} \approx 2.3 \times 10^{18}$. For
+$C \leq 10^{12}$ documents (a generous upper bound), the probability that any
+particular address is occupied is at most $10^{12}/2^{61} \approx 4 \times 10^{-7}$.
+The space is profoundly sparse; windows around any key will return a small,
+semantically coherent neighbourhood.
+
+$N_b < 8$ merges too many concepts into a single file, degrading query performance.
+$N_b > 8$ fragments the corpus, producing mostly-empty block files with high overhead
+per query. 8 is the smallest power of 2 that keeps block routing to a 3-bit shift and
+each file dense enough to justify its existence.
+
+---
+
+### 2.5 The Window Query
+
+**Definition.** A *window query* with centre $K$ and half-width $\delta$ retrieves all
+indexed entries whose key satisfies $|K' - K| \leq \delta$:
+
+$$W(K, \delta) = \{ (K', \text{doc\_id}) : K - \delta \leq K' \leq K + \delta \}$$
+
+**Theorem 2.8** *(Two-file bound).* For any $K$ and $\delta < 2^{61}$, the window
+$W(K, \delta)$ intersects at most 2 block files.
+
+*Proof.* The window $[K-\delta, K+\delta]$ has width $2\delta + 1 \leq 2^{61}$. Each
+block file covers $2^{61}$ consecutive integers. A contiguous interval of length
+$\leq 2^{61}$ can straddle at most one block boundary, hence intersects at most 2
+blocks. $\square$
+
+Since $2^{61} \approx 2.3 \times 10^{18}$, the condition $\delta < 2^{61}$ is
+satisfied by any practically chosen window. A query that spans more than $10^{18}$
+consecutive keys is not a window query; it is a full corpus scan.
+
+**Semantic interpretation of $\delta$.** Setting $\delta = 4^{32-j} - 1$ retrieves
+exactly all documents whose transition sequences agree with the query in the first $j$
+transitions (Corollary 2.7). The caller chooses semantic resolution $j$ and the window
+size follows:
+
+| Shared prefix length $j$ | Window half-width $\delta$ | Semantic meaning |
+|--------------------------|---------------------------|-----------------|
+| 32 | 0 | Exact key match |
+| 31 | 3 | Agree in first 31 transitions |
+| 30 | 15 | Agree in first 30 transitions |
+| 28 | 255 | Agree in first 28 transitions |
+| 24 | 65535 | Agree in first 24 transitions |
+| 16 | $\approx 4.3 \times 10^9$ | Agree in first 16 transitions |
+
+---
+
+### 2.6 Address Collision and Bucket Density
+
+The key maps multiple documents to the same 64-bit address whenever they share an
+identical transition sequence. This is not a failure mode; it is the correct
+behaviour. Documents at the same key address traversed the same semantic path; they
+are co-located by design.
+
+**Expected bucket size.** Let $D$ be the number of distinct transition sequences in a
+corpus of $C$ documents. Since $D \leq C$ and many documents share trajectories,
+$D \ll C$ in practice. The mean bucket size is $C/D$.
+
+**The 64-bit universe claim.** The oft-cited figure that $2^{64}$ suffices to address
+every atom in the observable universe ($\approx 10^{80}$ atoms) is incorrect by 16
+orders of magnitude — $2^{64} \approx 10^{19}$. What 64 bits actually provides is an
+address space vastly larger than any plausible corpus of *distinct semantic
+trajectories*. Even if every document in human history (estimated at $\sim 10^{10}$
+documents) produced a unique 32-step trajectory, $10^{10}/2^{64} \approx 5 \times
+10^{-10}$ addresses per document — an occupancy of $5 \times 10^{-10}$, effectively
+empty. Windows are therefore well-defined: they land in a sparse sea and retrieve a
+small, related neighbourhood.
+
+**Corollary 2.9** *(Non-trivial windows).* For any reasonable corpus, a window of
+half-width $\delta \geq 4^{32-j}$ for $j \leq 28$ will return a non-empty result only
+if the query concept has neighbours that shared its first $j$ transitions. The absence
+of results is itself information: no indexed concept followed the same high-level
+semantic path as the query.
 
 ---
 
