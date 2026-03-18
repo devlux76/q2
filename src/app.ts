@@ -389,7 +389,7 @@ function renderLocalFileList(): void {
       a.href = url;
       a.download = file.name || file.hash;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     });
 
     const deleteBtn = document.createElement('button');
