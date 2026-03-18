@@ -56,6 +56,17 @@ interface PipelineOptions {
 }
 
 /**
+ * Factory type used when casting the polymorphic `pipeline` function.
+ * The public overloads omit runtime options (device, progress_callback) that
+ * the underlying JS implementation supports.
+ */
+type PipelineFactory = (
+  task: string,
+  model: string,
+  options: PipelineOptions,
+) => Promise<TextGenerationPipeline>;
+
+/**
  * Call signature we use when invoking the loaded TextGenerationPipeline.
  *
  * The runtime supports additional undocumented options (hidden_states, streamer,
@@ -76,7 +87,12 @@ interface GenerationCallOptions {
   output_hidden_states: boolean;
 }
 
-/** Concrete shape of a single layer's output tensor from transformers.js. */
+/**
+ * Concrete shape of a single layer's output tensor from transformers.js.
+ *
+ * `data` — the flattened tensor values as a Float32Array
+ * `dims`  — tensor shape, typically [batch, seqLen, hiddenDim]
+ */
 interface TensorLike {
   data?: Float32Array;
   dims?: number[];
@@ -165,11 +181,6 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
   // Cast the polymorphic `pipeline` factory to the concrete signature we need.
   // The public overloads omit runtime options (device, progress_callback) that
   // the underlying JS implementation supports.
-  type PipelineFactory = (
-    task: string,
-    model: string,
-    options: PipelineOptions,
-  ) => Promise<TextGenerationPipeline>;
   const loadPipeline = pipeline as unknown as PipelineFactory;
 
   let lastErr: unknown;

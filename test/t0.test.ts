@@ -552,20 +552,26 @@ describe('T0-P4: transition/transversion algebraic classification', () => {
     }
   });
 
+  /** True if (z, w) are a transition pair (Lee 1, same ring-class bit). */
+  function isTransitionPartner(z: number, w: number): boolean {
+    return w !== z && leeDistance(z, w) === 1 && gray(z)[0] === gray(w)[0];
+  }
+
+  /** True if (z, w) are a type-1 transversion pair (Lee 1, different ring-class bit). */
+  function isType1TransversionPartner(z: number, w: number): boolean {
+    return w !== z && leeDistance(z, w) === 1 && gray(z)[0] !== gray(w)[0];
+  }
+
   it('each Z₄ symbol has exactly one transition partner', () => {
     for (let z = 0; z < 4; z++) {
-      const transitionPartners = [0, 1, 2, 3].filter((w) =>
-        w !== z && leeDistance(z, w) === 1 && gray(z)[0] === gray(w)[0],
-      );
+      const transitionPartners = [0, 1, 2, 3].filter((w) => isTransitionPartner(z, w));
       expect(transitionPartners).toHaveLength(1);
     }
   });
 
   it('each Z₄ symbol has exactly one type-1 transversion partner', () => {
     for (let z = 0; z < 4; z++) {
-      const tv1Partners = [0, 1, 2, 3].filter((w) =>
-        w !== z && leeDistance(z, w) === 1 && gray(z)[0] !== gray(w)[0],
-      );
+      const tv1Partners = [0, 1, 2, 3].filter((w) => isType1TransversionPartner(z, w));
       expect(tv1Partners).toHaveLength(1);
     }
   });
@@ -588,13 +594,12 @@ describe('T0-P4: transition/transversion algebraic classification', () => {
     for (let a = 0; a < 4; a++) {
       for (let b = 0; b < 4; b++) {
         if (a === b) continue;
-        const d = leeDistance(a, b);
-        if (d === 2) {
+        if (leeDistance(a, b) === 2) {
           tv2Count++;
-        } else if (gray(a)[0] === gray(b)[0]) {
-          tsCount++;  // same ring-class → transition
-        } else {
-          tv1Count++; // different ring-class, Lee 1 → type-1 transversion
+        } else if (isTransitionPartner(a, b)) {
+          tsCount++;
+        } else if (isType1TransversionPartner(a, b)) {
+          tv1Count++;
         }
       }
     }
