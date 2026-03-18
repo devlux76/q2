@@ -160,6 +160,12 @@ async function generateResponse(
 
   try {
     // ── Text generation ──────────────────────────────────────────────────────
+    // Only request hidden states (expensive) when embeddings are explicitly
+    // requested by the caller via config.return_embeddings.
+    const wantEmbeddings =
+      (config as GenerationConfig & { return_embeddings?: boolean }).return_embeddings ===
+      true;
+
     const output = await (pipe as unknown as (
       msgs: ChatMessage[],
       opts: Record<string, unknown>,
@@ -175,28 +181,32 @@ async function generateResponse(
       // The hidden state at index 9 (0-based) is the output of the last LIV
       // convolution block (layer 9 of 10), just before the first GQA block —
       // the correct extraction point for the Q² kernel (DESIGN.md §1.5).
-      output_hidden_states: true,
+      output_hidden_states: wantEmbeddings,
     });
 
-    // Extract the last-step hidden state from the completed generation.
-    // hidden_states is Tensor[][] — [generation_step][layer_index].
-    const hiddenStates = (output as { hidden_states?: unknown[] }).hidden_states;
-    if (Array.isArray(hiddenStates) && hiddenStates.length > 0) {
-      // Take the last generation step; layer 9 = last LIV block output.
-      const lastStep = hiddenStates[hiddenStates.length - 1] as unknown[];
-      const lastConvOut = lastStep?.[9] as { data?: Float32Array; dims?: number[] } | undefined;
-      if (lastConvOut?.data && lastConvOut.dims) {
-        const [, seqLen, hiddenDim] = lastConvOut.dims;
-        if (seqLen !== undefined && hiddenDim !== undefined) {
-          // Transfer the buffer to avoid structured-clone copying.
-          const data = lastConvOut.data.buffer.slice(
-            lastConvOut.data.byteOffset,
-            lastConvOut.data.byteOffset + lastConvOut.data.byteLength,
-          ) as ArrayBuffer;
-          send(
-            { type: 'embedding', data, seqLen, hiddenDim, dtype: activeDtype },
-            [data],
-          );
+    if (wantEmbeddings) {
+      // Extract the last-step hidden state from the completed generation.
+      // hidden_states is Tensor[][] — [generation_step][layer_index].
+      const hiddenStates = (output as { hidden_states?: unknown[] }).hidden_states;
+      if (Array.isArray(hiddenStates) && hiddenStates.length > 0) {
+        // Take the last generation step; layer 9 = last LIV block output.
+        const lastStep = hiddenStates[hiddenStates.length - 1] as unknown[];
+        const lastConvOut = lastStep?.[9] as
+          | { data?: Float32Array; dims?: number[] }
+          | undefined;
+        if (lastConvOut?.data && lastConvOut.dims) {
+          const [, seqLen, hiddenDim] = lastConvOut.dims;
+          if (seqLen !== undefined && hiddenDim !== undefined) {
+            // Transfer the buffer to avoid structured-clone copying.
+            const data = lastConvOut.data.buffer.slice(
+              lastConvOut.data.byteOffset,
+              lastConvOut.data.byteOffset + lastConvOut.data.byteLength,
+            ) as ArrayBuffer;
+            send(
+              { type: 'embedding', data, seqLen, hiddenDim, dtype: activeDtype },
+              [data],
+            );
+          }
         }
       }
     }
