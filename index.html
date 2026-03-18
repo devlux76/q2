@@ -120,6 +120,18 @@
         </label>
       </section>
 
+      <section class="settings-section" id="storage-section">
+        <h2>Local files</h2>
+        <div id="local-file-drop" class="drop-zone" tabindex="0">
+          Drop a ZIP/model/corpus file here (or use the URL below)
+        </div>
+        <div class="local-file-row">
+          <input id="local-file-url" type="url" placeholder="https://example.com/model.zip" />
+          <button id="local-file-add">Save</button>
+        </div>
+        <ul id="local-files-list" class="local-files-list"></ul>
+      </section>
+
       <!-- Q² Embedding panel — populated by the worker when hidden states are available -->
       <section id="embedding-panel" class="hidden">
         <h2>Last LIV layer embeddings</h2>
