@@ -510,6 +510,116 @@ semantic similarity of collided pairs.
 
 ---
 
+## P11 — Biomechanical grounding of complement suppression
+
+The complement-bigram suppression predicted in P3 has a mechanistic basis that goes
+beyond the statistical smoothness of trained embeddings. Natural language was shaped
+over millennia by a hard physical constraint: speech production and speech perception
+share the same apparatus and cannot run at full capacity simultaneously. Auditory
+feedback is actively suppressed during speech production (efference copy). This forced
+language to evolve toward low-Lee-distance trajectories — the same smoothness
+preference that produces coarticulation in phonetics and stepwise motion in melody.
+
+The Lee circle is the embedding-space analog of the articulatory-acoustic continuum.
+A complement bigram (Lee distance 2) corresponds to the most abrupt possible
+transition — the acoustic equivalent of a tritone leap within the diminished seventh
+chord. Human mouths and ears jointly disfavor such transitions, and language
+accordingly suppresses them.
+
+**Prediction.** Complement-bigram suppression (P3) is:
+
+1. **Universal across language families.** The same vocal tract and auditory system
+   produced every natural language. The suppression rate should appear in embeddings
+   trained on typologically distant languages (SOV/SVO, agglutinative/isolating,
+   tonal/non-tonal).
+
+2. **Stronger in spoken-language corpora than written-only corpora.** Speech
+   transcripts, conversational text, and oral-tradition literature should show more
+   pronounced complement suppression than formal written registers (legal, academic,
+   mathematical), which are less directly shaped by articulatory constraints.
+
+3. **Correlated with phonotactic strictness.** Languages with strict CV phonotactics
+   (e.g., Japanese, Hawaiian) impose stronger articulatory smoothness than languages
+   permitting complex onset/coda clusters (e.g., Georgian, Czech). Complement
+   suppression rates in embeddings should be ordered accordingly.
+
+**Null hypothesis.** The suppression observed in P3 is a statistical artifact of the
+training objective (next-token prediction over written text) and carries no
+articulatory signal. If so, suppression rates should be invariant across spoken vs.
+written corpora and uncorrelated with phonotactic strictness.
+
+**Falsification condition.** Complement-bigram suppression rates are statistically
+indistinguishable between spoken and written corpora, or between phonotactically strict
+and permissive language families, across at least three typologically distinct language
+groups.
+
+Test protocol: §T-3 (embedding models), multilingual extension.
+
+---
+
+## P12 — Regime diagnostic: semantic distance vs. conceptual distance
+
+Two documents can be close in embedding space for different reasons:
+
+- **Semantic proximity**: they share vocabulary, style, or discourse conventions. This
+  is largely a property of the *language system* — the human machinery used to encode
+  meaning.
+- **Conceptual proximity**: they describe the same region of physical, experiential, or
+  structural reality. This is a property of the *world being described*, independent of
+  which language or genre is used.
+
+Standard embedding models are trained on surface co-occurrence and primarily measure
+semantic proximity. A conceptual embedding would cluster documents by the geometry of
+their referents, not their surface form.
+
+**The diagnostic.** If Q²'s transition sequences are capturing conceptual geometry,
+then the complement-bigram suppression rate should be **invariant across languages for
+matched-content corpora** — because the attractor and no-go structure reflects the
+topology of the domain, not the phonology of the language. If suppression rates instead
+co-vary with the phonotactic profile of each language (P11), the system is operating in
+the semantic regime.
+
+The same diagnostic applies to retrieval. Define a **conceptual near-neighbor pair** as
+two documents that:
+
+1. Describe the same physical or structural referent (same geographic location, same
+   mathematical object, same historical event).
+2. Were written in different languages with no translation or connecting secondary
+   literature in the training corpus.
+3. Share low surface-vocabulary overlap.
+
+Sea poetry written in English on the Cornish coast and sea poetry written in Japanese
+on the Miyagi coast satisfies all three criteria. A semantic embedding has no surface
+path between them. A conceptual embedding, if it is tracking the attractor basin of the
+underlying referent (ocean, scale, horizon, mortality), should score them as
+near-neighbors.
+
+**Prediction.** Conceptual near-neighbor pairs achieve lower Lee distance in transition
+sequences than their cosine embedding distance predicts. The gap between
+transition-sequence Lee distance and cosine distance is larger for cross-linguistic
+matched-content pairs than for same-language matched-content pairs.
+
+**Primary-source condition.** The test uses only primary source documents — texts
+produced before any secondary scholarship explicitly connecting them entered broad
+circulation. This excludes documents where the conceptual link has already been
+surface-encoded in the training corpus via meta-analysis or comparative scholarship.
+The prediction must hold on first-contact pairs.
+
+**Corollary.** Complement-bigram suppression rates for the two documents in a
+conceptual near-neighbor pair should be more similar to each other than to a random
+document in the same language — because both transition sequences are orbiting the same
+referent attractor, regardless of the phonotactic constraints of their source languages.
+
+**Falsification condition.** Lee distance between known conceptual near-neighbors with
+disjoint surface vocabularies is statistically indistinguishable from Lee distance
+between random document pairs at the same cosine embedding distance. Equivalently:
+transition-sequence space adds no retrieval signal over cosine similarity for
+cross-linguistic matched-content pairs.
+
+Test protocol: §T-3 (embedding models), §T-4 (local LLMs), multilingual extension.
+
+---
+
 ## Summary table
 
 | ID | Prediction | From | Tested in | Effort |
@@ -524,6 +634,8 @@ semantic similarity of collided pairs.
 | P8 | Triplet frequency distribution shows codon-usage-bias pattern | Genetic code degeneracy | §T-2, §T-3 | Low |
 | P9 | $\mathbb{Z}_8$ encoding yields no significant retrieval improvement | Kerdock/Preparata | §T-3 | Medium |
 | P10 | Key collision rate is low and correlates with semantic similarity | Key design | §T-2, §T-3 | Low |
+| P11 | Complement suppression is universal, stronger in spoken corpora, and ordered by phonotactic strictness | Auditory-vocal co-evolution | §T-3, multilingual | Medium |
+| P12 | Cross-linguistic conceptual near-neighbors achieve lower Lee distance than cosine similarity predicts; suppression rates converge across languages for matched-content pairs | Semantic vs. conceptual regime | §T-3, §T-4, multilingual | High |
 
 P3 requires only a frequency count on quantizer output and can be run immediately once
 the quantizer from [PR #9](https://github.com/devlux76/q2/pull/9) is merged. P2 and
