@@ -43,12 +43,11 @@ function saveMapping(mapping: Record<string, StoredFileMeta>): void {
 }
 
 async function digestHex(data: ArrayBuffer | Uint8Array): Promise<string> {
-  // Normalize to a plain ArrayBuffer. data instanceof Uint8Array uses a typed
+  // Normalize to a Uint8Array view. data instanceof Uint8Array uses a typed
   // check that works even in cross-realm (jsdom) contexts.
   const view = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
-  // .slice() always returns a fresh ArrayBuffer regardless of backing buffer type.
-  const ab = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
-  const hashBuf = await crypto.subtle.digest('SHA-256', ab);
+  // Pass the view directly to Web Crypto to avoid an extra full-buffer copy.
+  const hashBuf = await crypto.subtle.digest('SHA-256', view);
   return Array.from(new Uint8Array(hashBuf))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
