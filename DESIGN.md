@@ -610,11 +610,17 @@ indexed entries with key in $[K-\delta,\ K+\delta]$:
 
 $$W(K, \delta) = \{ (K',\ \textit{doc\_id}) : |K' - K| \leq \delta \}$$
 
-**Theorem 3.8** *(Two-file bound).* For any $K$ and $\delta < 2^{61}$, $W(K, \delta)$
-intersects at most 2 block files.
+**Theorem 3.8** *(Two-file bound).* For any $K$:
 
-*Proof.* The interval $[K-\delta, K+\delta]$ has width $2\delta+1 \leq 2^{61}$. A
-contiguous interval of that width straddles at most one block boundary. $\square$
+1. If $\delta \leq 2^{60} - 1$, then $W(K, \delta)$ intersects at most 2 block files.
+2. If $\delta < 2^{61}$, then $W(K, \delta)$ intersects at most 3 block files.
+
+*Proof.* The interval $[K-\delta, K+\delta]$ has width $2\delta+1$. For (1),
+we have $2\delta+1 \leq 2(2^{60}-1)+1 = 2^{61}-1 < 2^{61}$, so the interval can
+straddle at most one block boundary and thus intersect at most 2 block files.
+For (2), $\delta < 2^{61}$ implies $2\delta+1 < 2\cdot 2^{61} = 2^{62}$, so the
+interval can straddle at most two block boundaries and thus intersect at most
+3 block files. $\square$
 
 Any practically chosen window satisfies $\delta < 2^{61}$ ($\approx 2.3\times10^{18}$);
 a query spanning more than $10^{18}$ consecutive keys is a corpus scan, not a window
