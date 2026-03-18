@@ -7,7 +7,7 @@
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
- *  • Embedding panel (previews Q² input vectors from the last LIV layer)
+ *  • Embedding panel (Q² kernel: mean-pool, L2-norm, quantise → packed bytes + key)
  */
 
 // Allow tests to override the worker entrypoint (e.g. a blob URL) and to
@@ -24,6 +24,15 @@ import type {
   GenerationConfig,
   EmbeddingMsg,
 } from './types.js';
+import {
+  getKernel,
+  meanPoolAndNormalise,
+  q2EncodeDirect,
+  DTYPE_TO_Q2,
+  Q2_DTYPE_FP32,
+  Q2_INPUT_OFFSET,
+  Q2_OUTPUT_OFFSET,
+} from './q2.js';
 
 // ─── HuggingFace Hub API ───────────────────────────────────────────────────────
 
@@ -510,14 +519,89 @@ export function onToken(token: string): void {
 }
 
 export function onEmbedding(msg: EmbeddingMsg): void {
-  // Display the last-LIV-layer embedding as a heat-map preview.
-  // The actual Q² WASM quantisation kernel will be wired here.
   embeddingPanel.classList.remove('hidden');
-  const floats = new Float32Array(msg.data);
-  renderEmbeddingHeatmap(floats, msg.seqLen, msg.hiddenDim);
-  embeddingStats.textContent =
-    `Shape: [${msg.seqLen} × ${msg.hiddenDim}]  ` +
-    `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+
+  const { seqLen, hiddenDim, dtype } = msg;
+  const expectedElements = seqLen * hiddenDim;
+
+  // Always render the raw activation heat-map for visual feedback.
+  // For fp32 data, we can render immediately. For other dtypes, we skip
+  // Float32-based stats/heatmaps unless/until we add explicit decoding.
+  let floats: Float32Array | null = null;
+
+  if (dtype === 'fp32') {
+    if (msg.data.byteLength % 4 !== 0) {
+      console.warn(
+        `Embedding fp32 data has byteLength=${msg.data.byteLength}, which is not a multiple of 4; skipping Float32 view.`,
+      );
+    } else {
+      const view = new Float32Array(msg.data);
+      if (view.length !== expectedElements) {
+        console.warn(
+          `Embedding fp32 data has length=${view.length}, expected=${expectedElements} (seqLen=${seqLen}, hiddenDim=${hiddenDim}); skipping Float32 view.`,
+        );
+      } else {
+        floats = view;
+      }
+    }
+  }
+
+  if (floats) {
+    renderEmbeddingHeatmap(floats, seqLen, hiddenDim);
+    embeddingStats.textContent =
+      `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  ` +
+      `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+  } else {
+    // Non-fp32 or invalid buffer; render basic shape/dtype info only.
+    embeddingStats.textContent =
+      `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  stats=unavailable`;
+  }
+
+  // ── Q² kernel ────────────────────────────────────────────────────────────
+  // Run the quaternary quantisation in the background.  The WASM kernel is
+  // preferred; if instantiation fails (e.g. in test environments that lack
+  // WebAssembly.instantiate) we fall back to the pure-TS implementation.
+  const n = msg.hiddenDim;
+  const seqLen = msg.seqLen;
+  const dtype = msg.dtype;
+  const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
+
+  void (async () => {
+    try {
+      const kernel = await getKernel();
+      const mem = new Uint8Array(kernel.memory.buffer);
+
+      // Copy the raw activation buffer into WASM memory at the input offset.
+      const inputBytes = new Uint8Array(msg.data);
+      mem.set(inputBytes, Q2_INPUT_OFFSET);
+
+      // Run quantisation: mean-pool, L2-normalise, threshold, Gray-encode.
+      kernel.quantise(Q2_INPUT_OFFSET, seqLen, n, dtypeId, Q2_OUTPUT_OFFSET);
+
+      // Derive the 64-bit transition key.
+      const rawKey = kernel.key(Q2_OUTPUT_OFFSET, n);
+      const key = BigInt.asUintN(64, rawKey);
+
+      // Read back packed bytes.
+      const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2);
+      renderQ2Result(packed, key, n);
+    } catch {
+      // WASM unavailable — use the pure-TypeScript fallback (fp32 only).
+      // This path is taken in test environments and SSR contexts.
+      // For sub-fp32 dtypes the WASM kernel is required; log a warning and skip.
+      if (dtype !== 'fp32') {
+        console.warn(`Q² TS fallback: dtype=${dtype} requires WASM kernel; skipping.`);
+        return;
+      }
+      const vec = meanPoolAndNormalise(
+        new Float32Array(msg.data),
+        seqLen,
+        n,
+      );
+      const { packed, key } = q2EncodeDirect(vec, n);
+      renderQ2Result(packed, BigInt.asUintN(64, key), n);
+    }
+  })();
 }
 
 export function onDone(): void {
@@ -814,6 +898,25 @@ export function max(arr: Float32Array): number {
   let m = -Infinity;
   for (const v of arr) if (v > m) m = v;
   return m;
+}
+
+/**
+ * Renders the Q² quantisation result in the embedding stats panel.
+ *
+ * @param packed - n/4 packed Gray-encoded bytes from q2_quantise / q2EncodeDirect
+ * @param key    - 64-bit MSB-aligned transition key from q2_key / q2KeyDirect
+ * @param n      - original embedding dimension
+ */
+export function renderQ2Result(packed: Uint8Array, key: bigint, n: number): void {
+  // Hex dump of the first 8 bytes (32 symbols) for display.
+  const hexBytes = Array.from(packed.slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const ellipsis = packed.length > 8 ? '…' : '';
+  // Display the key as a zero-padded 16-hex-digit unsigned 64-bit value.
+  const keyHex = key.toString(16).padStart(16, '0');
+  embeddingStats.textContent +=
+    `\nQ²: [${hexBytes}${ellipsis}] (${n >> 2} bytes, ${n} dims)  key=0x${keyHex}`;
 }
 
 // ─── Event listeners ───────────────────────────────────────────────────────────
