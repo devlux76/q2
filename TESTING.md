@@ -20,7 +20,8 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 
 ## Overview
 
-The four phases progress from the least constrained (random text, no semantic
+Testing is organized into an initial pre-phase **T0** and four main phases **T1–T4**.
+The four main phases progress from the least constrained (random text, no semantic
 structure) to the most constrained (code, where ground truth is machine-verifiable)
 and then broaden to measure what the encoding adds over current best-practice
 embedding models.
@@ -35,6 +36,28 @@ Each phase carries a **core retrieval benchmark** and one or more **prediction
 sub-tests** tied to specific claims in [PREDICTIONS.md](PREDICTIONS.md). The
 prediction sub-tests are independent of the retrieval benchmark: they can confirm
 or falsify a prediction even when retrieval accuracy is at chance.
+
+```mermaid
+flowchart TD
+    T0["T0 — Unit tests & invariants\nGray code, quantisation,\ncollision rate\n(no model download)"]
+    T1["T1 — Random text\nnull distribution\n(character-frequency corpus)"]
+    T2["T2 — Structured code corpus\nmachine-verifiable ground truth\n(TypeScript functions)"]
+    T3["T3 — Matryoshka &\ndedicated embedding models\n(BEIR benchmark)"]
+    T4["T4 — Standard local LLMs\n(LFM-2.5, Qwen2.5)"]
+
+    T0 -->|"null baselines\nestablished"| T1
+    T1 -->|"validate against\nnull"| T2
+    T1 -->|"validate against\nnull"| T3
+    T1 -->|"validate against\nnull"| T4
+    T2 -->|"P2, P3, P8, P10"| T3
+    T3 -->|"P2, P3, P5, P7"| T4
+
+    style T0 fill:#ddf,stroke:#99c
+    style T1 fill:#ffd,stroke:#cc9
+    style T2 fill:#dfd,stroke:#9c9
+    style T3 fill:#fdd,stroke:#c99
+    style T4 fill:#eee,stroke:#999
+```
 
 ## T0 — Unit tests and invariants
 

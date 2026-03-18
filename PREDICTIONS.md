@@ -75,6 +75,25 @@ The mapping from embedding space to Z₄ is therefore a projection onto a chemic
 natural 2D coordinate system. This is not an analogy; it is the same algebraic
 structure.
 
+The two chemical axes and their intersection, showing all four bases and their Lee distances:
+
+```mermaid
+quadrantChart
+    title CGAT mapping: purine/pyrimidine × keto/amino axes
+    x-axis Keto --> Amino
+    y-axis Pyrimidine --> Purine
+    quadrant-1 Purine + Amino
+    quadrant-2 Purine + Keto
+    quadrant-3 Pyrimidine + Keto
+    quadrant-4 Pyrimidine + Amino
+    G (φ=00, Z₄=0): [0.15, 0.75]
+    A (φ=01, Z₄=1): [0.85, 0.75]
+    T (φ=10, Z₄=3): [0.15, 0.25]
+    C (φ=11, Z₄=2): [0.85, 0.25]
+```
+
+Watson–Crick pairs (G–C and A–T) are diagonally opposite: Lee distance 2. Adjacent pairs (G–A, C–T, G–T, A–C) differ in exactly one axis: Lee distance 1.
+
 ---
 
 ## P2 — Codon palindromes and hairpin density
@@ -100,6 +119,33 @@ so the intermediate symbol has all bits flipped. The biological correspondence i
 an RNA hairpin loop forms where a strand folds back on itself via Watson–Crick
 complementarity; here the fold is in the transition sequence, and the complementarity
 is $\theta$.
+
+A complement palindrome codon $(A, C, A)$ in a transition sequence — visiting the semantic antipode and returning:
+
+```mermaid
+graph LR
+    A1("A") --"step out\nLee 2"--> C("C = θ(A)") --"return\nLee 2"--> A2("A")
+    style C fill:#f96,stroke:#c63
+```
+
+All three palindrome types on the Z₄ cycle:
+
+```mermaid
+graph TD
+    subgraph Adjacent["Adjacent palindrome (A,B,A) — Lee 1"]
+        direction LR
+        aa("A") --"Lee 1"--> ab("B") --"Lee 1"--> aa2("A")
+    end
+    subgraph Cyclic["Cyclic-wrap palindrome (A,D,A) — Lee 1"]
+        direction LR
+        ca("A") --"Lee 1 (wrap)"--> cd("D") --"Lee 1 (wrap)"--> ca2("A")
+    end
+    subgraph Complement["Complement palindrome (A,C,A) — Lee 2 ★"]
+        direction LR
+        cpa("A") --"Lee 2"--> cpc("C = θ(A)") --"Lee 2"--> cpa2("A")
+        style cpc fill:#f96,stroke:#c63
+    end
+```
 
 **Hairpin density.** Define:
 
@@ -200,7 +246,7 @@ should be semantically cheaper than same-ring-class transversions.
 
 **Prediction.** A weighted Lee metric with weights:
 
-$$w_1 = 1 \text{ (transition)}, \quad w_2 \approx 1.5\text{–}2 \text{ (type-1 transversion)}, \quad w_3 \approx 3 \text{ (complement transversion)}$$
+$$w_1 = 1 \text{ (transition)}, \quad w_2 \approx 1.5\text{ to }2 \text{ (type-1 transversion)}, \quad w_3 \approx 3 \text{ (complement transversion)}$$
 
 outperforms the uniform Lee metric ($w_1 = w_2 = 1$, $w_3 = 2$) on retrieval
 benchmarks. The empirical weights should be estimable from the corpus's own
@@ -248,6 +294,21 @@ This prediction is orthogonal to cosine similarity: two antonym documents can ha
 high cosine similarity (their embeddings are close on $S^{n-1}$) while being reverse
 complements in transition-sequence space.
 
+**Visualisation.** A document R and its semantic antonym share the same semantic axis, traversed in opposite orientations:
+
+```mermaid
+graph LR
+    subgraph DocD["Document D — R = (A, B, C, D, …)"]
+        direction LR
+        d0("A") --> d1("B") --> d2("C") --> d3("D")
+    end
+    subgraph Antonym["Antonym — R̄ᵣₑᵥ = (θ(D), θ(C), θ(B), θ(A), …) = (B, A, D, C, …)"]
+        direction LR
+        a0("B") --> a1("A") --> a2("D") --> a3("C")
+    end
+    DocD -. "reverse-complement\nquery retrieves" .-> Antonym
+```
+
 **Falsification condition.** Reverse-complement queries retrieve antonyms at no better
 than chance rate relative to documents at the same Lee distance.
 
@@ -278,6 +339,16 @@ The Q² 64-bit key has the same two-level structure by construction (§D-3.3):
 1. Hash lookup on the top $k$ bits of the key, $k \approx 12$–$24$, returning a
    small candidate set.
 2. Full Lee-distance computation on the candidate set only.
+
+```mermaid
+flowchart TD
+    Q["Query document\n→ 64-bit key K"] --> S1
+    S1["Stage 1: Hash lookup\ntop k bits of K\n(coarse semantic filter)"] --> CS["Small candidate set\n(~hundreds of docs)"]
+    CS --> S2["Stage 2: Full Lee-distance\ncomputation on candidates\n(fine re-ranking)"]
+    S2 --> R["Ranked results"]
+    style S1 fill:#6af,stroke:#36c
+    style S2 fill:#9c9,stroke:#6a6
+```
 
 The false-positive rate as a function of mismatch depth follows a sigmoid with
 inflection near symbol position 12–14 from the MSB, not a linear function of Lee
@@ -397,9 +468,9 @@ Specifically:
 
 - $\mathbb{Z}_8$: the 3-bit Gray code cannot be an isometry from $(\mathbb{Z}_8, d_L)$
   to $(\{0,1\}^3, d_H)$ because $\max d_L = 4$ on $\mathbb{Z}_8$ while $\max d_H = 3$
-  on 3 bits. The cyclic wrap $d_L(7,0) = 1$ maps to Gray codes $\texttt{100}$ and
-  $\texttt{000}$ (Hamming distance 1), and adjacent pairs at the midpoint
-  ($d_L(3,4)=1$, Gray codes $\texttt{010}$ and $\texttt{110}$, Hamming distance 1)
+  on 3 bits. The cyclic wrap $d_L(7,0) = 1$ maps to Gray codes $\mathtt{100}$ and
+  $\mathtt{000}$ (Hamming distance 1), and adjacent pairs at the midpoint
+  ($d_L(3,4)=1$, Gray codes $\mathtt{010}$ and $\mathtt{110}$, Hamming distance 1)
   also behave correctly, but larger Lee distances cannot be represented exactly by
   Hamming distance on 3 bits. Consequently, `popcnt(XOR)` over Gray-coded $\mathbb{Z}_8$
   symbols computes Hamming distance, which underestimates Lee distance for some pairs.
