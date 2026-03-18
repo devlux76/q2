@@ -561,9 +561,7 @@ export function onEmbedding(msg: EmbeddingMsg): void {
   // Run the quaternary quantisation in the background.  The WASM kernel is
   // preferred; if instantiation fails (e.g. in test environments that lack
   // WebAssembly.instantiate) we fall back to the pure-TS implementation.
-  const n = msg.hiddenDim;
-  const seqLen = msg.seqLen;
-  const dtype = msg.dtype;
+  const n = hiddenDim;
   const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
 
   void (async () => {
