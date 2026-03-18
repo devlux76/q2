@@ -30,6 +30,8 @@ import {
   q2EncodeDirect,
   DTYPE_TO_Q2,
   Q2_DTYPE_FP32,
+  Q2_INPUT_OFFSET,
+  Q2_OUTPUT_OFFSET,
 } from './q2.js';
 
 // ─── HuggingFace Hub API ───────────────────────────────────────────────────────
@@ -571,17 +573,17 @@ export function onEmbedding(msg: EmbeddingMsg): void {
 
       // Copy the raw activation buffer into WASM memory at the input offset.
       const inputBytes = new Uint8Array(msg.data);
-      mem.set(inputBytes, 0x40000);
+      mem.set(inputBytes, Q2_INPUT_OFFSET);
 
       // Run quantisation: mean-pool, L2-normalise, threshold, Gray-encode.
-      kernel.quantise(0x40000, seqLen, n, dtypeId, 0x10000);
+      kernel.quantise(Q2_INPUT_OFFSET, seqLen, n, dtypeId, Q2_OUTPUT_OFFSET);
 
       // Derive the 64-bit transition key.
-      const rawKey = kernel.key(0x10000, n);
+      const rawKey = kernel.key(Q2_OUTPUT_OFFSET, n);
       const key = BigInt.asUintN(64, rawKey);
 
       // Read back packed bytes.
-      const packed = new Uint8Array(kernel.memory.buffer, 0x10000, n >> 2);
+      const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2);
       renderQ2Result(packed, key, n);
     } catch {
       // WASM unavailable — use the pure-TypeScript fallback (fp32 only).
