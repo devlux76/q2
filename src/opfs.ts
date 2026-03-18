@@ -55,7 +55,6 @@ async function getOpfsRoot(): Promise<FileSystemDirectoryHandle | null> {
   // Chrome/Edge: self.originPrivateFileSystem
   const nav = (navigator as any) as { storage?: unknown };
   if (nav.storage && typeof (nav.storage as any).getDirectory === 'function') {
-    // @ts-expect-error: TS lacks this method on Storage interface
     return await (nav.storage as any).getDirectory();
   }
   // Some environments expose originPrivateFileSystem directly.
