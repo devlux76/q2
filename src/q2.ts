@@ -293,6 +293,10 @@ export function meanPoolAndNormalise(
 ): Float32Array {
   const v = new Float32Array(n);
 
+  if (seqLen <= 0) {
+    throw new Error(`meanPoolAndNormalise: seqLen must be > 0, got ${seqLen}`);
+  }
+
   // Accumulate over sequence positions
   for (let s = 0; s < seqLen; s++) {
     for (let d = 0; d < n; d++) {
