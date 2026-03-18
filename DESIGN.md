@@ -206,32 +206,108 @@ discretizing that hologram efficiently.
 
 ---
 
-### 0.4 Implications for Retrieval System Design
+### 0.4 The Correct Metric: L1 and the Taxicab Unit Ball
 
-Three conclusions follow from the geometry above.
+The L2 distance between two points couples all $n$ coordinates under a square root:
 
-**First:** An embedding is only a retrieval key relative to the model that produced it.
-Cross-model comparison without explicit Procrustes alignment is undefined. A retrieval
-index built from the embeddings of one model must be rebuilt entirely if the model
-changes.
+$$d_2(u, v) = \sqrt{\sum_{i=1}^n (u_i - v_i)^2}$$
 
-**Second:** The on-device constraint described in Section 1.1 is not merely an
-engineering inconvenience. Running a second embedding model alongside an LLM to
-re-encode documents in a new model's coordinate system is geometrically necessary if
-you change models — but it is thermally impossible on constrained hardware. The
-design consequence is that the retrieval index must be derived from the LLM's own
-activations, so that when the model updates, the index can be reconstructed from the
-same computational work the model was already doing.
+This coupling is the source of the shell-concentration pathology above, requires
+$\pi^{n/2}$ in the volume formula, and makes the distance computation non-separable.
 
-**Third:** The relevant geometric object is the surface $S^{n-1}$, and the relevant
-operation is partitioning that surface into discrete cells. Each coordinate $e_i$ of the
-embedding vector encodes which side of a hyperplane the document falls on in one
-dimension of the sphere. The quantization problem is: how many bits per dimension are
-needed to represent that cell membership faithfully enough that the Lee distance
-between cell assignments approximates the angular distance between points on the
-sphere?
+The L1 metric decouples the coordinates:
 
-The answer — quaternary, two bits per dimension — is derived in the following section.
+$$d_1(u, v) = \sum_{i=1}^n |u_i - v_i|$$
+
+The L1 unit ball is the cross-polytope:
+
+$$B_1^n = \left\{ x \in \mathbb{R}^n : \sum_{i=1}^n |x_i| \leq 1 \right\}$$
+
+In two dimensions this is the diamond with vertices at $(\pm 1, 0)$ and $(0, \pm 1)$.
+Its L1 boundary has four edges, each of L1 length 1, for a total L1 "circumference" of
+8 over a diameter of 2:
+
+$$\pi_1 = \frac{8}{2} = 4$$
+
+$\pi$ is exactly 4 in the taxicab metric. No transcendental. The circle is a diamond.
+The hypersphere is a cross-polytope.
+
+The axis-aligned Cartesian grid is the natural grid for the L1 ball: the diamond's
+faces are the coordinate halfspaces. There is no mismatch between the ball and the
+grid. The squaring is exact.
+
+The $n$-dimensional cross-polytope has $2n$ vertices at $\pm e_i$ for each standard
+basis vector, and $2^n$ facets. Points on its boundary satisfy:
+
+$$\sum_{i=1}^n |x_i| = 1$$
+
+Each coordinate is an independent 1D displacement. The total L1 distance is their sum.
+
+---
+
+### 0.5 The Quaternary Representation Is the Coordinate
+
+In L1 geometry, $d_1(u, v)$ reduces to $n$ independent scalar problems: for each
+dimension $i$, how far apart are $u_i$ and $v_i$? The full distance is their sum, with
+no coupling.
+
+A single coordinate $x_i \in \mathbb{R}$ has two structural features relevant to
+position on the L1 unit ball: its sign (which side of the origin) and its magnitude
+class (near the origin or far from it). These two binary decisions produce four cells.
+Fewer cells collapse either sign or magnitude class. More cells subdivide within a
+cell, encoding intra-cell position that does not contribute to the L1 distance between
+cells. Four is the minimum resolution that preserves both features.
+
+The four cells $\{A, B, C, D\}$ correspond to $\{0, 1, 2, 3\}$ in $\mathbb{Z}_4$.
+The Lee metric on $\mathbb{Z}_4$:
+
+$$d_L(u_i, v_i) = \min(|u_i - v_i|,\; 4 - |u_i - v_i|)$$
+
+is the L1 distance on the 4-point cycle. The cyclic wrap — $d_L(D, A) = 1$ — reflects
+that strong-negative and strong-positive are both extreme points of the same axis, and
+in the L1 cross-polytope they are adjacent vertices connected by an edge.
+
+Extended to vectors:
+
+$$d_L(u, v) = \sum_{i=1}^n \min(|u_i - v_i|,\; 4 - |u_i - v_i|)$$
+
+This is the exact L1 distance on $\mathbb{Z}_4^n$. The Gray map (Section 0.7) makes
+it computable by `popcnt(XOR)` on 64-byte vectors without decoding.
+
+**The north-pole observation.** At the vertex $(D, D, \ldots, D)$ of the
+cross-polytope — all coordinates at their maximum — every perturbation reduces at
+least one coordinate. There is no rotational ambiguity, no choice of which arc to
+follow, no $\pi$ to integrate over. The ordering $A < B < C < D$ on each axis is the
+complete geometric structure of that dimension. At the poles of the cross-polytope,
+every direction is toward the interior. The geometry is purely ordinal.
+
+The float32 activation value is not the ground truth that the quaternary symbol
+approximates. It is an overcomplete representation of an ordinal position. The bits
+encoding intra-cell displacement contribute to the L2 norm and to the shell
+concentration of Section 0.2 — they are not recoverable signal for L1 retrieval. The
+quantization discards them correctly.
+
+---
+
+### 0.6 Implications for Retrieval System Design
+
+Three conclusions follow.
+
+**Incommensurability is absolute.** The quantization thresholds are calibrated from
+one model's activation distribution. A different model produces different thresholds.
+The quaternary codes are not comparable across models. An index must be rebuilt when
+the model changes.
+
+**The thermal constraint and the geometric constraint coincide.** Cross-model
+alignment requires a Procrustes solve over paired examples — geometrically necessary
+and thermally impossible on constrained hardware. Using the LLM's own activations
+satisfies both constraints simultaneously.
+
+**The quantization problem is now stated correctly.** The question is not: how many
+bits per dimension approximate angular distance on $S^{n-1}$? The question is: what is
+the natural discrete coordinate system of the L1 unit ball? The answer is four cells
+per dimension — the unique minimum preserving sign and magnitude class — derived in
+Section 1.5.
 
 ---
 
