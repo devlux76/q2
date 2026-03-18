@@ -94,14 +94,23 @@ async function readOpfsFile(path: string): Promise<Uint8Array> {
   return new Uint8Array(await file.arrayBuffer());
 }
 
+interface FileSystemDirectoryHandleWithRemoveEntry extends FileSystemDirectoryHandle {
+  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
+}
+
+function hasRemoveEntry(
+  dir: FileSystemDirectoryHandle,
+): dir is FileSystemDirectoryHandleWithRemoveEntry {
+  return typeof (dir as any).removeEntry === 'function';
+}
+
 async function deleteOpfsFile(path: string): Promise<void> {
   const dir = await ensureDir([OPFS_DIR]);
   if (!dir) throw new Error('OPFS is not available in this environment');
   const name = path.replace(/^\/+|\/+$/g, '');
-  // @ts-expect-error: removeEntry is not yet in TypeScript lib.
-  if (typeof (dir as any).removeEntry === 'function') {
-    // spec: removeEntry(name, { recursive: false })
-    await (dir as any).removeEntry(name, { recursive: false });
+  if (hasRemoveEntry(dir)) {
+    // @ts-expect-error: removeEntry is not yet in TypeScript lib.
+    await dir.removeEntry(name, { recursive: false });
   } else if (typeof (dir as any).remove === 'function') {
     await (dir as any).remove(name);
   } else {
