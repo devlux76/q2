@@ -516,7 +516,15 @@ input[type="range"]:focus {
   font-size: 0.82rem;
   cursor: pointer;
   margin-bottom: 10px;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.drop-zone:focus-visible,
+.drop-zone:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(91, 138, 247, 0.4);
 }
 
 .drop-zone:hover {
