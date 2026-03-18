@@ -20,9 +20,16 @@ export default [
       '@typescript-eslint': (await import('@typescript-eslint/eslint-plugin')).default,
     },
     rules: {
-      'no-unused-vars': 'warn',
+      'no-unused-vars': 'off',
       'no-undef': 'off',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
     },
   },
   {

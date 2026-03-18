@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * embed-wat.mjs — Updates the WASM_B64 constant in src/q2.ts with the
  * freshly-compiled bytes from src/q2.wasm.
  *
- * Run automatically by `npm run build:wat` after `wat2wasm`.
+ * Run automatically by `bun run build:wat` after `wat2wasm`.
  */
 
 import { readFileSync, writeFileSync } from 'fs';

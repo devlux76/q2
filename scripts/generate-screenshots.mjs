@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { createServer } from 'http';
 import { readFile, mkdir } from 'fs/promises';
 import { join, extname } from 'path';

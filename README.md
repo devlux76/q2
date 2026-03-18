@@ -63,8 +63,8 @@ The ONNX dtype setting controls model weight precision; the ONNX runtime (transf
 The WASM binary embedded in `src/q2.ts` is compiled from `src/q2.wat`. To regenerate after editing the WAT source:
 
 ```bash
-# Requires wat2wasm from the WABT toolkit (npm install -g wabt).
-npm run build:wat
+# Requires wat2wasm from the WABT toolkit (bun x wabt).
+bun run build:wat
 ```
 
 This compiles `src/q2.wat → src/q2.wasm` and updates the `WASM_B64` constant in `src/q2.ts`.
@@ -89,7 +89,7 @@ During and after a conversation the sidebar also shows the **Last LIV layer embe
 > To regenerate these screenshots, run:
 >
 > ```bash
-> node scripts/generate-screenshots.mjs
+> bun run generate-screenshots
 > ```
 
 ## Setup
@@ -112,7 +112,7 @@ bun run build
 - **Rebuild WAT kernel** (after editing `src/q2.wat`):
 
 ```bash
-npm run build:wat
+bun run build:wat
 ```
 
 - **Dev** (watch mode):
@@ -198,7 +198,7 @@ This repository includes a GitHub Actions workflow (`.github/workflows/gh-pages.
 To verify the built site loads before deploying, serve `dist/` locally with a static server (this is just for local testing):
 
 ```bash
-npx serve dist
+bun x serve dist
 ```
 
 Then open the URL it prints (e.g. `http://localhost:3000`).

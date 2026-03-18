@@ -79,7 +79,7 @@ export const DTYPE_TO_Q2: Record<string, Q2Dtype> = {
 
 /**
  * Base64-encoded WASM binary compiled from src/q2.wat.
- * Regenerate with: npm run build:wat
+ * Regenerate with: bun run build:wat
  */
 const WASM_B64 =
   'AGFzbQEAAAABHARgAX8BfWADf39/AX1gBX9/f39/AX9gAn9/AX4DBQQAAQIDBQMBAAgGBgF/AEEACwce' +
@@ -139,11 +139,11 @@ export interface Q2Kernel {
    * @returns           number of bytes written (always n/4)
    */
   quantise(
-    inputOffset: number,
-    seqLen: number,
-    n: number,
-    dtype: Q2Dtype,
-    outOffset: number,
+    _inputOffset: number,
+    _seqLen: number,
+    _n: number,
+    _dtype: Q2Dtype,
+    _outOffset: number,
   ): number;
 
   /**
@@ -153,7 +153,7 @@ export interface Q2Kernel {
    * @param n            - original dimension count
    * @returns            64-bit key as BigInt (DESIGN.md §2.2)
    */
-  key(packedOffset: number, n: number): bigint;
+  key(_packedOffset: number, _n: number): bigint;
 }
 
 // ─── Instantiation ────────────────────────────────────────────────────────────
@@ -178,8 +178,8 @@ async function instantiate(): Promise<Q2Kernel> {
 
   type WasmExports = {
     mem: WebAssembly.Memory;
-    q2_quantise: (ip: number, sl: number, n: number, dt: number, op: number) => number;
-    q2_key: (sp: number, n: number) => bigint;
+    q2_quantise: (_ip: number, _sl: number, _n: number, _dt: number, _op: number) => number;
+    q2_key: (_sp: number, _n: number) => bigint;
   };
   const e = instance.exports as WasmExports;
 

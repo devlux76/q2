@@ -58,7 +58,6 @@ interface DownloadProgress {
  *   wasm   – Pure WebAssembly (always available)
  */
 const DEVICE_PRIORITY = ['webnn', 'webgpu', 'webgl', 'wasm'] as const;
-type ModelDevice = (typeof DEVICE_PRIORITY)[number];
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -96,6 +95,9 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
  * type rather than the model weight dtype.
  */
 function toEmbeddingDtype(_dtype: string): EmbeddingMsg['dtype'] {
+  // The dtype argument is currently unused because transformers.js returns fp32
+  // hidden states regardless of model weight quantisation.
+  void _dtype;
   return 'fp32';
 }
 
@@ -171,8 +173,8 @@ async function generateResponse(
       true;
 
     const output = await (pipe as unknown as (
-      msgs: ChatMessage[],
-      opts: Record<string, unknown>,
+      _msgs: ChatMessage[],
+      _opts: Record<string, unknown>,
     ) => Promise<Record<string, unknown>>)(messages, {
       max_new_tokens: config.max_new_tokens,
       temperature: config.temperature,
