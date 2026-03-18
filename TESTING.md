@@ -20,7 +20,8 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 
 ## Overview
 
-The four phases progress from the least constrained (random text, no semantic
+Testing is organized into an initial pre-phase **T0** and four main phases **T1–T4**.
+The four main phases progress from the least constrained (random text, no semantic
 structure) to the most constrained (code, where ground truth is machine-verifiable)
 and then broaden to measure what the encoding adds over current best-practice
 embedding models.
