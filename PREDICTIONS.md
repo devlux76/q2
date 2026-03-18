@@ -246,7 +246,7 @@ should be semantically cheaper than same-ring-class transversions.
 
 **Prediction.** A weighted Lee metric with weights:
 
-$$w_1 = 1 \text{ (transition)}, \quad w_2 \approx 1.5\text{-}2 \text{ (type-1 transversion)}, \quad w_3 \approx 3 \text{ (complement transversion)}$$
+$$w_1 = 1 \text{ (transition)}, \quad w_2 \approx 1.5\text{ to }2 \text{ (type-1 transversion)}, \quad w_3 \approx 3 \text{ (complement transversion)}$$
 
 outperforms the uniform Lee metric ($w_1 = w_2 = 1$, $w_3 = 2$) on retrieval
 benchmarks. The empirical weights should be estimable from the corpus's own
