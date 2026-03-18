@@ -103,15 +103,15 @@
   ;;               L2 normalisation removes the fixed ×8 scale factor.
   ;;
   ;;   4 = q2     — ¼ byte/element, 4 symbols per byte, 2 bits each, MSB-first
+  ;;               NOTE: this function ($read_f32) is NOT called for dtype=4.
+  ;;               q2_quantise detects dtype=4 before entering the accumulation
+  ;;               loops and takes a direct byte-copy pass-through path instead
+  ;;               (see the q2_quantise function below).  The implementation here
+  ;;               is provided only for completeness and defensive correctness in
+  ;;               case $read_f32 is ever called with dtype=4 directly.
   ;;               byte address = $base + ($idx >> 2)
-  ;;               bit shift    = ($idx & 3) gives position 0..3 within byte;
-  ;;                              actual right-shift = (3 − ($idx & 3)) × 2
-  ;;               value ∈ {0, 1, 2, 3} — the packed byte already holds Z₄ symbols
-  ;;               (prior Q² pass); returned as f32 so the mean-pool arithmetic
-  ;;               works uniformly.  Note: because q2 input symbols are ordinal
-  ;;               (not magnitude-normalised) the threshold step in q2_quantise
-  ;;               is still applied — the symbols are re-quantised relative to
-  ;;               their mean, which is a no-op if the symbols are already balanced.
+  ;;               bit shift    = (3 − ($idx & 3)) × 2   (MSB-first)
+  ;;               returns symbol ∈ {0, 1, 2, 3} as f32.
   ;; ─────────────────────────────────────────────────────────────────────────────
   (func $read_f32 (param $base i32) (param $idx i32) (param $dtype i32) (result f32)
     (local $tmp i32)

@@ -558,17 +558,20 @@ export function onEmbedding(msg: EmbeddingMsg): void {
       const packed = new Uint8Array(kernel.memory.buffer, 0x10000, n >> 2);
       renderQ2Result(packed, key, n);
     } catch {
-      // WASM unavailable — use the pure-TypeScript fallback.
+      // WASM unavailable — use the pure-TypeScript fallback (fp32 only).
       // This path is taken in test environments and SSR contexts.
-      if (dtype === 'fp32') {
-        const vec = meanPoolAndNormalise(
-          new Float32Array(msg.data),
-          seqLen,
-          n,
-        );
-        const { packed, key } = q2EncodeDirect(vec, n);
-        renderQ2Result(packed, BigInt.asUintN(64, key), n);
+      // For sub-fp32 dtypes the WASM kernel is required; log a warning and skip.
+      if (dtype !== 'fp32') {
+        console.warn(`Q² TS fallback: dtype=${dtype} requires WASM kernel; skipping.`);
+        return;
       }
+      const vec = meanPoolAndNormalise(
+        new Float32Array(msg.data),
+        seqLen,
+        n,
+      );
+      const { packed, key } = q2EncodeDirect(vec, n);
+      renderQ2Result(packed, BigInt.asUintN(64, key), n);
     }
   })();
 }

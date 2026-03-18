@@ -23,7 +23,9 @@ describe('q2EncodeDirect', () => {
 
   it('encodes strong-positive (D) as Gray 10₂', () => {
     // All dimensions strongly positive (above threshold)
-    const vec = new Float32Array(8).fill(1); // L2-norm will shrink to 1/√8, still > τ*
+    // After L2-normalisation each element becomes 1/√8 ≈ 0.354.
+    // τ* = 0.6745/√8 ≈ 0.238, so 0.354 > τ* → all D.
+    const vec = new Float32Array(8).fill(1);
     const { packed } = q2EncodeDirect(vec, 8);
     // D → 3 → Gray 10₂ = 0b10 = 2
     // Each byte: 4 × 10₂ = 10101010₂ = 0xAA
@@ -78,11 +80,11 @@ describe('q2EncodeDirect', () => {
     expect(packed[1]).toBe(expectedByte1);
   });
 
-  it('key is 0n for a constant vector (one transition, all same symbol)', () => {
+  it('key holds the single symbol in MSBs for a constant vector', () => {
     const vec = new Float32Array(8).fill(1);
     const { key } = q2EncodeDirect(vec, 8);
-    // All D (3 → 10₂), one transition: r[0] = 3
-    // Key = 3n << 62n
+    // All D (3 → 10₂); one distinct symbol emitted at the first position.
+    // run-reduction emits r[0] = 3; key = 3n << 62n (symbol in bits 63:62).
     expect(key).toBe(BigInt.asUintN(64, 3n << 62n));
   });
 });

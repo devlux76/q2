@@ -91,7 +91,7 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
 function toEmbeddingDtype(dtype: string): EmbeddingMsg['dtype'] {
   if (dtype === 'fp16') return 'fp16';
   if (dtype === 'q8')   return 'q8';
-  if (dtype === 'q4')   return 'fp32'; // q4 weights, but activations are fp32
+  if (dtype === 'q4')   return 'fp32'; // q4 weights: transformers.js dequantises at runtime, activations are fp32
   return 'fp32';
 }
 

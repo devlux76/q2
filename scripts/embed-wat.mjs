@@ -25,16 +25,30 @@ const lines = chunks.map((chunk, i) => {
 });
 const constBlock = `const WASM_B64 =\n${lines.join('\n')}`;
 
-// Replace the existing WASM_B64 constant in q2.ts
+// Replace the existing WASM_B64 constant in q2.ts using line-based markers
+// rather than a regex with nested repetition (avoids ReDoS).
 const tsPath = join(root, 'src', 'q2.ts');
 const src = readFileSync(tsPath, 'utf8');
-const updated = src.replace(
-  /const WASM_B64 =\n(?:  '[^']*'[^;]*\n)*  '[^']*';/,
-  constBlock,
-);
+
+const START_MARKER = 'const WASM_B64 =';
+const start = src.indexOf(START_MARKER);
+if (start === -1) {
+  console.error('embed-wat.mjs: WASM_B64 constant not found in src/q2.ts');
+  process.exit(1);
+}
+// Find the end of the constant: the first "'; at the start of a suffix after the declaration.
+const afterDecl = src.indexOf('\n', start);
+let end = src.indexOf("';", afterDecl);
+if (end === -1) {
+  console.error("embed-wat.mjs: closing '; not found after WASM_B64 in src/q2.ts");
+  process.exit(1);
+}
+end += 2; // include the '; characters
+
+const updated = src.slice(0, start) + constBlock + src.slice(end);
 
 if (updated === src) {
-  console.error('embed-wat.mjs: WASM_B64 pattern not found in src/q2.ts');
+  console.error('embed-wat.mjs: WASM_B64 block unchanged; check src/q2.ts format');
   process.exit(1);
 }
 
