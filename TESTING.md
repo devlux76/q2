@@ -1,4 +1,4 @@
-# Quaternary Semantic Quantization: Testing
+# Quaternary Quantization: Testing
 
 > **Related documents:** [DESIGN.md](DESIGN.md) · [PREDICTIONS.md](PREDICTIONS.md)
 
@@ -93,7 +93,7 @@ model serves only as a deterministic function of its input.
 
 **Pipeline.** Apply the full Q² pipeline to each document:
 1. Embed with the target model.
-2. Quantize using empirically calibrated $\tau^*$ (§D-2.5).
+2. Quantize using empirically calibrated $\tau^{*}$ (§D-2.5).
 3. Run-reduce to the transition sequence $R$ (§D-3.1).
 4. Compute $K$ (§D-3.2), $\rho_{\text{hp}}$ (§P-2), bigram frequencies (§P-3),
    and triplet frequencies (§P-8).
@@ -128,7 +128,7 @@ embeddable. Corpus size: 1 000–10 000 functions.
 
 **Model.** A code-specialised embedding model exported to ONNX (e.g. a
 CodeBERT-class or StarCoder-class model). The model choice fixes the activation
-distribution; the threshold $\tau^*$ is calibrated from this corpus.
+distribution; the threshold $\tau^{*}$ is calibrated from this corpus.
 
 **Retrieval tasks.**
 - Given a function signature, retrieve the implementation.
