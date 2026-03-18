@@ -1,5 +1,9 @@
 # q2
+[![CI](https://github.com/devlux76/q2/actions/workflows/ci.yml/badge.svg)](https://github.com/devlux76/q2/actions/workflows/ci.yml)
+
 Quaternary Quantization
+
+> **Quality gate:** this repo treats lint warnings as errors, and `bun run check` (lint + typecheck) is required for builds, tests, and CI.
 
 ## What it does
 
@@ -119,6 +123,12 @@ bun run build:wat
 
 ```bash
 bun run dev
+```
+
+- **Check** (lint + typecheck):
+
+```bash
+bun run check
 ```
 
 - **Typecheck** (TypeScript):
