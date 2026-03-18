@@ -47,7 +47,7 @@ only interpretable if the null is measured, not assumed.
 **Corpus generation.** Sample characters i.i.d. from the empirical English
 character-frequency distribution (the 26-letter alphabet plus space and common
 punctuation, weighted by standard corpus frequencies). Generate documents of varying
-lengths (50, 200, 500, 2 000 tokens). No LLM is involved in generation; the embedding
+lengths (50, 200, 500, 2 000 characters). No LLM is involved in generation; the embedding
 model serves only as a deterministic function of its input.
 
 **Pipeline.** Apply the full Q² pipeline to each document:
