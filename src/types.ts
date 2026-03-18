@@ -76,8 +76,9 @@ export interface EmbeddingMsg {
   seqLen: number;
   hiddenDim: number;
   /**
-   * Native element dtype of the activation values in `data`.
-   * Matches the dtype string used to load the ONNX model.
+   * Native element dtype of the activation values in `data` (activation element
+   * dtype). May differ from the model weight dtype string used to load the
+   * ONNX model.
    * Defaults to 'fp32' when the ONNX runtime returns full-precision tensors
    * regardless of model weight quantisation level.
    */
