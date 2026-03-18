@@ -519,15 +519,41 @@ export function onToken(token: string): void {
 export function onEmbedding(msg: EmbeddingMsg): void {
   embeddingPanel.classList.remove('hidden');
 
+  const { seqLen, hiddenDim, dtype } = msg;
+  const expectedElements = seqLen * hiddenDim;
+
   // Always render the raw activation heat-map for visual feedback.
-  // For fp32 data, we can render immediately; other dtypes fall back to
-  // rendering the raw bytes as-is (values may not be meaningful visually
-  // but give an indication of activity).
-  const floats = new Float32Array(msg.data);
-  renderEmbeddingHeatmap(floats, msg.seqLen, msg.hiddenDim);
-  embeddingStats.textContent =
-    `Shape: [${msg.seqLen} × ${msg.hiddenDim}]  dtype=${msg.dtype}  ` +
-    `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+  // For fp32 data, we can render immediately. For other dtypes, we skip
+  // Float32-based stats/heatmaps unless/until we add explicit decoding.
+  let floats: Float32Array | null = null;
+
+  if (dtype === 'fp32') {
+    if (msg.data.byteLength % 4 !== 0) {
+      console.warn(
+        `Embedding fp32 data has byteLength=${msg.data.byteLength}, which is not a multiple of 4; skipping Float32 view.`,
+      );
+    } else {
+      const view = new Float32Array(msg.data);
+      if (view.length !== expectedElements) {
+        console.warn(
+          `Embedding fp32 data has length=${view.length}, expected=${expectedElements} (seqLen=${seqLen}, hiddenDim=${hiddenDim}); skipping Float32 view.`,
+        );
+      } else {
+        floats = view;
+      }
+    }
+  }
+
+  if (floats) {
+    renderEmbeddingHeatmap(floats, seqLen, hiddenDim);
+    embeddingStats.textContent =
+      `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  ` +
+      `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+  } else {
+    // Non-fp32 or invalid buffer; render basic shape/dtype info only.
+    embeddingStats.textContent =
+      `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  stats=unavailable`;
+  }
 
   // ── Q² kernel ────────────────────────────────────────────────────────────
   // Run the quaternary quantisation in the background.  The WASM kernel is
