@@ -98,7 +98,7 @@ $$f_{\text{shell}}(n, \varepsilon) = 1 - (1-\varepsilon)^n$$
 For any fixed $\varepsilon > 0$, $f_{\text{shell}} \to 1$ as $n \to \infty$. The shell
 thickness required to capture fraction $f$ is:
 
-$$\varepsilon^*(f, n) = 1 - (1-f)^{1/n} \approx \frac{-\ln(1-f)}{n}$$
+$$\varepsilon^{*}(f, n) = 1 - (1-f)^{1/n} \approx \frac{-\ln(1-f)}{n}$$
 
 | Fraction captured | Shell thickness |
 |:-----------------:|:---------------:|
@@ -112,7 +112,7 @@ $4.61/256 \approx 0.018$.
 
 For $u, v$ drawn uniformly from $S^{n-1}$:
 
-$$\mathbb{E}[u \cdot v] = 0 \qquad \operatorname{Var}(u \cdot v) = \frac{1}{n}$$
+$$\mathbb{E}[u \cdot v] = 0 \qquad \mathrm{Var}(u \cdot v) = \frac{1}{n}$$
 
 The standard deviation of cosine similarity between two random unit vectors is $1/\sqrt{n}$.
 At $n = 256$ this is $\approx 0.063$: the full range $[-1, +1]$ is compressed into
@@ -130,7 +130,7 @@ i.i.d. $\mathcal{N}(0, 1/n)$.
 
 ### 1.4 The surface-area information bound
 
-The shell thickness $\varepsilon^*(n) \sim c/n$ shrinks as $n$ grows. If the semantic
+The shell thickness $\varepsilon^{*}(n) \sim c/n$ shrinks as $n$ grows. If the semantic
 space has a characteristic scale $L$, the absolute shell thickness is:
 
 $$\delta(n) = \frac{c \cdot L}{n}$$
@@ -272,7 +272,7 @@ distance.
 
 **What is lost.** Float32 encodes both direction (sign) and magnitude. Binary
 quantization discards magnitude entirely: $v_i = 0.01$ and $v_i = 4.7$ are
-indistinguishable. For activations drawn from $\mathcal{N}(0, \sigma^2)$:
+indistinguishable. For activations drawn from $\mathcal{N}(0, \sigma^{2})$:
 
 $$I(v_i;\ q_{\text{bin}}(v_i)) = H(q_{\text{bin}}(v_i)) = 1 \text{ bit}$$
 
@@ -340,28 +340,24 @@ $$\{A,\ B,\ C,\ D\} \;\longleftrightarrow\; \{\text{strong−},\ \text{weak−},
 where $n_s$ is the embedding dimension[^1], the maximum-entropy condition requires
 equiprobable states:
 
-$$P(v_i \leq -\tau^*) = P(-\tau^* < v_i \leq 0) = P(0 < v_i \leq \tau^*) = P(v_i > \tau^*) = \tfrac{1}{4}$$
+$$P(v_i \leq -\tau^{*}) = P(-\tau^{*} < v_i \leq 0) = P(0 < v_i \leq \tau^{*}) = P(v_i > \tau^{*}) = \tfrac{1}{4}$$
 
 The threshold is:
 
-$$\tau^* = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
+$$\tau^{*} = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
 
 **The quantization function:**
 
-$$q(v_i) = \begin{cases} A & v_i \leq -\tau^* \\ B & -\tau^* < v_i \leq 0 \\ C & 0 < v_i \leq \tau^* \\ D & v_i > \tau^* \end{cases}$$
+$$q(v_i) = \begin{cases} A & v_i \leq -\tau^{*} \\ B & -\tau^{*} < v_i \leq 0 \\ C & 0 < v_i \leq \tau^{*} \\ D & v_i > \tau^{*} \end{cases}$$
 
-The four equiprobable zones on the real line, separated by $-\tau^*$, $0$, and $+\tau^*$:
+The four equiprobable zones on the real line, separated by $-\tau^{*}$, $0$, and $+\tau^{*}$:
 
 ```mermaid
-block-beta
-  columns 4
-  A["A\nstrong −\n≤ −τ*"]:1
-  B["B\nweak −\n(−τ*, 0]"]:1
-  C["C\nweak +\n(0, τ*]"]:1
-  D["D\nstrong +\n> τ*"]:1
+graph LR
+    A["A\nstrong −\n≤ −τ*"] --- B["B\nweak −\n(−τ*, 0]"] --- C["C\nweak +\n(0, τ*]"] --- D["D\nstrong +\n> τ*"]
 ```
 
-**Empirical calibration.** In practice $\tau^*$ is estimated from a reservoir sample
+**Empirical calibration.** In practice $\tau^{*}$ is estimated from a reservoir sample
 of 1 024 document activations per compaction cycle, using the empirical 25th and 75th
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
 assuming a specific activation shape.
@@ -471,6 +467,8 @@ instruction.
 
 A 256-dimensional embedding encodes to $256 \times 2 = 512$ bits = 64 bytes.
 
+**As a bitmask.** Each 2-bit Gray code is a bitmask over two independent binary features of the quantized coordinate. The **high bit** (MSB of $\phi$) encodes **sign**: $0$ for negative ($A$, $B$) and $1$ for positive ($C$, $D$). The **low bit** (LSB of $\phi$) encodes **magnitude class**: $0$ for strong commitment ($A$, $D$) and $1$ for near-boundary ($B$, $C$). Because the two bits are independent, `XOR` measures disagreement in each feature separately — which is exactly why `popcnt(XOR)` computes Lee distance without any symbol decoding.
+
 The Gray map ensures `popcnt(XOR)` on the 2-bit codes equals Lee distance — no symbol decoding needed:
 
 ```mermaid
@@ -484,18 +482,18 @@ flowchart LR
     end
     subgraph GC["Gray codes φ(·)"]
         direction TB
-        g0["`00`"]
-        g1["`01`"]
-        g2["`11`"]
-        g3["`10`"]
+        g0["00"]
+        g1["01"]
+        g2["11"]
+        g3["10"]
     end
     s0 --> g0
     s1 --> g1
     s2 --> g2
     s3 --> g3
-    note["popcnt(XOR of codes)\n= Lee distance"]
-    GC --> note
 ```
+
+`popcnt(XOR)` on the Gray-encoded vectors gives the exact Lee distance.
 
 ---
 
@@ -564,14 +562,16 @@ records which states were visited, not how long each visit lasted.
 **Example of run-reduction:**
 
 ```mermaid
-block-beta
-  columns 1
-  block:V["Quantized vector V"]
-    v0["A"] v1["A"] v2["A"] v3["B"] v4["B"] v5["C"] v6["A"] v7["A"]
-  end
-  block:R["Transition sequence R (run-reduced)"]
-    r0["A"] r1["B"] r2["C"] r3["A"]
-  end
+flowchart TD
+    subgraph V["Quantized vector V"]
+        direction LR
+        va["A"] --- vb["A"] --- vc["A"] --- vd["B"] --- ve["B"] --- vf["C"] --- vg["A"] --- vh["A"]
+    end
+    subgraph R["Transition sequence R (run-reduced)"]
+        direction LR
+        ra["A"] --- rb["B"] --- rc["C"] --- rd["A"]
+    end
+    V -->|"run-reduce"| R
 ```
 
 Repeated runs of the same symbol collapse to one; only transitions are kept.
@@ -604,26 +604,9 @@ distinction is resolved by the Lee-distance re-ranking step.
 
 **64-bit key bit layout** (each symbol occupies 2 bits, MSB-first):
 
-```mermaid
-block-beta
-  columns 16
-  r0["r₀\nb63–62"]:1
-  r1["r₁\nb61–60"]:1
-  r2["r₂\nb59–58"]:1
-  r3["r₃\nb57–56"]:1
-  r4["r₄\nb55–54"]:1
-  r5["r₅\nb53–52"]:1
-  r6["…"]:1
-  r7["…"]:1
-  r8["…"]:1
-  r9["…"]:1
-  r10["…"]:1
-  r11["…"]:1
-  r29["r₂₉\nb5–4"]:1
-  r30["r₃₀\nb3–2"]:1
-  r31["r₃₁\nb1–0"]:1
-  r15["(LSB)"]:1
-```
+| b63–62 | b61–60 | b59–58 | b57–56 | b55–54 | b53–52 | … | b5–4 | b3–2 | b1–0 |
+|:------:|:------:|:------:|:------:|:------:|:------:|:-:|:----:|:----:|:----:|
+| r₀ | r₁ | r₂ | r₃ | r₄ | r₅ | … | r₂₉ | r₃₀ | r₃₁ (LSB) |
 
 ---
 
@@ -658,7 +641,7 @@ $2^{61}$ consecutive keys.
 
 **Partition.** Block $b \in \{0, \ldots, 7\}$ covers:
 
-$$\mathcal{B}_b = \left[ b \cdot 2^{61},\ (b+1) \cdot 2^{61} \right)$$
+$$\mathcal{B}_b = \bigl[ b \cdot 2^{61},\ (b+1) \cdot 2^{61} \bigr)$$
 
 The block index for a key $K$ is the top 3 bits: $b(K) = K \gg 61$.
 
@@ -695,7 +678,7 @@ concepts into one file; more blocks fragment the corpus into mostly-empty files.
 **Definition.** A *window query* with centre $K$ and half-width $\delta$ retrieves all
 indexed entries with key in $[K-\delta,\ K+\delta]$:
 
-$$W(K, \delta) = \{ (K',\ \textit{doc\_id}) : |K' - K| \leq \delta \}$$
+$$W(K, \delta) = \{ (K',\ \text{doc\_id}) : |K' - K| \leq \delta \}$$
 
 **Theorem 3.8** *(Two-file bound).* For any $K$:
 
