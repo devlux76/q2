@@ -50,22 +50,38 @@ export interface TokenMsg {
  *
  * Shape: [batch=1, seq_len, hidden_dim]
  *
- * This data is the input to the quaternary quantization (Q²) WASM kernel.
- * The kernel receives this data as a Float32Array view over the provided
- * ArrayBuffer and writes back a compact Uint8Array where each byte encodes
- * four 2-bit quaternary symbols.
+ * This data is the input to the quaternary quantization (Q²) WASM kernel
+ * (src/q2.wat).  The kernel mean-pools over seq_len, L2-normalises the
+ * resulting n-dimensional vector, and produces a packed Uint8Array of n/4
+ * Gray-encoded bytes together with a 64-bit transition key.
  */
 export interface EmbeddingMsg {
   type: 'embedding';
   /**
-   * Transferable buffer containing float32 values laid out as
-   * [seq_len × hidden_dim]. The sender should transfer this buffer via
-   * postMessage(msg, [data]) to avoid structured-clone copying, and the
-   * receiver should construct a Float32Array view as needed.
+   * Transferable buffer containing activation values laid out as
+   * [seq_len × hidden_dim] in row-major order.
+   *
+   * Element width depends on `dtype`:
+   *   fp32 — 4 bytes, IEEE 754 single-precision (default)
+   *   fp16 — 2 bytes, IEEE 754 half-precision
+   *   q8   — 1 byte,  signed int8 ∈ [−128, 127]
+   *   q4   — ½ byte,  two unsigned nibbles per byte ∈ [0, 15]
+   *   q2   — ¼ byte,  four 2-bit Z₄ symbols per byte (prior Q² pass)
+   *
+   * The sender should transfer this buffer via postMessage(msg, [data]) to
+   * avoid structured-clone copying; the receiver constructs the appropriate
+   * typed-array view based on `dtype`.
    */
   data: ArrayBuffer;
   seqLen: number;
   hiddenDim: number;
+  /**
+   * Native element dtype of the activation values in `data`.
+   * Matches the dtype string used to load the ONNX model.
+   * Defaults to 'fp32' when the ONNX runtime returns full-precision tensors
+   * regardless of model weight quantisation level.
+   */
+  dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q2';
 }
 
 export interface DoneMsg {

@@ -196,11 +196,12 @@ describe('app.ts helpers and DOM integration', () => {
     const embeddingPanel = document.querySelector('#embedding-panel') as HTMLElement;
 
     const data = new Float32Array([1, 2, 3, 4]).buffer;
-    app.onEmbedding({ type: 'embedding', data, seqLen: 2, hiddenDim: 2 });
+    app.onEmbedding({ type: 'embedding', data, seqLen: 2, hiddenDim: 2, dtype: 'fp32' });
 
     expect(embeddingPanel.classList.contains('hidden')).toBe(false);
     const stats = document.querySelector('#embedding-stats') as HTMLElement;
     expect(stats.textContent).toContain('Shape: [2 × 2]');
+    expect(stats.textContent).toContain('dtype=fp32');
   });
 
   it('sendMessage posts a generate message and updates the UI', async () => {
@@ -317,6 +318,18 @@ describe('app.ts helpers and DOM integration', () => {
 
     // Should not throw; coverage is achieved by hitting the early return.
     expect(true).toBe(true);
+  });
+
+  it('renderQ2Result appends Q² info to embeddingStats', () => {
+    const stats = document.querySelector('#embedding-stats') as HTMLElement;
+    stats.textContent = 'Shape: [1 × 8]  dtype=fp32  min=0.000  max=1.000';
+
+    const packed = new Uint8Array([0xAA, 0xAA]); // D D D D D D D D (all strong+)
+    app.renderQ2Result(packed, 0xdd8c000000000000n, 8);
+
+    expect(stats.textContent).toContain('Q²:');
+    expect(stats.textContent).toContain('key=0x');
+    expect(stats.textContent).toContain('2 bytes');
   });
 
   // ─── HF API + settings tests ─────────────────────────────────────────────────

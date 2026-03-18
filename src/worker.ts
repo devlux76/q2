@@ -30,6 +30,7 @@ import type {
   WorkerOutMsg,
   ChatMessage,
   GenerationConfig,
+  EmbeddingMsg,
 } from './types.js';
 
 /** Subset of the ProgressInfo union we care about for download tracking. */
@@ -69,14 +70,30 @@ env.useBrowserCache = true;   // Cache model shards in the Cache API (IndexedDB)
 
 let pipe: TextGenerationPipeline | null = null;
 let stoppingCriteria: InterruptableStoppingCriteria | null = null;
+/** Activation dtype of the currently-loaded model. Forwarded in EmbeddingMsg. */
+let activeDtype: EmbeddingMsg['dtype'] = 'fp32';
 
 // ─── Messaging helpers ────────────────────────────────────────────────────────
 
-function send(msg: WorkerOutMsg): void {
-  (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg);
+function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
+  (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer);
 }
 
 // ─── Model loading ────────────────────────────────────────────────────────────
+
+/**
+ * Maps an ONNX dtype string to the EmbeddingMsg dtype used by the Q² kernel.
+ * The ONNX runtime (transformers.js) typically returns hidden-state tensors as
+ * fp32 even when model weights are quantised (q4/q8/fp16), so 'fp32' is the
+ * safe default.  Override only if the runtime exposes sub-fp32 activation
+ * tensors for the loaded dtype.
+ */
+function toEmbeddingDtype(dtype: string): EmbeddingMsg['dtype'] {
+  if (dtype === 'fp16') return 'fp16';
+  if (dtype === 'q8')   return 'q8';
+  if (dtype === 'q4')   return 'fp32'; // q4 weights, but activations are fp32
+  return 'fp32';
+}
 
 async function loadModel(modelId: string, dtype: string, apiToken?: string): Promise<void> {
   // Apply the API token before any network requests (used by the Hub client).
@@ -103,6 +120,9 @@ async function loadModel(modelId: string, dtype: string, apiToken?: string): Pro
           });
         },
       })) as TextGenerationPipeline;
+
+      // Record the embedding dtype for the loaded model so EmbeddingMsg is typed correctly.
+      activeDtype = toEmbeddingDtype(dtype);
 
       send({ type: 'status', status: 'ready' });
       return;
@@ -140,10 +160,10 @@ async function generateResponse(
 
   try {
     // ── Text generation ──────────────────────────────────────────────────────
-    await (pipe as unknown as (
+    const output = await (pipe as unknown as (
       msgs: ChatMessage[],
       opts: Record<string, unknown>,
-    ) => Promise<unknown>)(messages, {
+    ) => Promise<Record<string, unknown>>)(messages, {
       max_new_tokens: config.max_new_tokens,
       temperature: config.temperature,
       do_sample: config.temperature > 0,
@@ -151,21 +171,35 @@ async function generateResponse(
       streamer,
       stopping_criteria: stoppingCriteria,
       // ── Embedding hook ───────────────────────────────────────────────────
-      // output_hidden_states: true will be activated once the model's ONNX
-      // export confirms hidden-state outputs and the Q² WAT kernel is ready.
-      //
-      // When enabled, the hidden state at index 9 (0-based; output of the
-      // 10th / last LIV convolution block, just before the first GQA block)
-      // will be extracted and posted as an EmbeddingMsg for the kernel:
-      //
-      //   const hiddenStates = output.hidden_states;           // Tensor[][]
-      //   const lastConvOut  = hiddenStates[step]?.[9];        // Tensor
-      //   if (lastConvOut) {
-      //     const data = lastConvOut.data as Float32Array;
-      //     const [, seqLen, hiddenDim] = lastConvOut.dims;
-      //     send({ type: 'embedding', data, seqLen, hiddenDim });
-      //   }
+      // output_hidden_states enables per-step hidden-state capture.
+      // The hidden state at index 9 (0-based) is the output of the last LIV
+      // convolution block (layer 9 of 10), just before the first GQA block —
+      // the correct extraction point for the Q² kernel (DESIGN.md §1.5).
+      output_hidden_states: true,
     });
+
+    // Extract the last-step hidden state from the completed generation.
+    // hidden_states is Tensor[][] — [generation_step][layer_index].
+    const hiddenStates = (output as { hidden_states?: unknown[] }).hidden_states;
+    if (Array.isArray(hiddenStates) && hiddenStates.length > 0) {
+      // Take the last generation step; layer 9 = last LIV block output.
+      const lastStep = hiddenStates[hiddenStates.length - 1] as unknown[];
+      const lastConvOut = lastStep?.[9] as { data?: Float32Array; dims?: number[] } | undefined;
+      if (lastConvOut?.data && lastConvOut.dims) {
+        const [, seqLen, hiddenDim] = lastConvOut.dims;
+        if (seqLen !== undefined && hiddenDim !== undefined) {
+          // Transfer the buffer to avoid structured-clone copying.
+          const data = lastConvOut.data.buffer.slice(
+            lastConvOut.data.byteOffset,
+            lastConvOut.data.byteOffset + lastConvOut.data.byteLength,
+          ) as ArrayBuffer;
+          send(
+            { type: 'embedding', data, seqLen, hiddenDim, dtype: activeDtype },
+            [data],
+          );
+        }
+      }
+    }
 
     send({ type: 'done' });
   } catch (err) {

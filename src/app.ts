@@ -7,7 +7,7 @@
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
- *  • Embedding panel (previews Q² input vectors from the last LIV layer)
+ *  • Embedding panel (Q² kernel: mean-pool, L2-norm, quantise → packed bytes + key)
  */
 
 // Allow tests to override the worker entrypoint (e.g. a blob URL) and to
@@ -24,6 +24,13 @@ import type {
   GenerationConfig,
   EmbeddingMsg,
 } from './types.js';
+import {
+  getKernel,
+  meanPoolAndNormalise,
+  q2EncodeDirect,
+  DTYPE_TO_Q2,
+  Q2_DTYPE_FP32,
+} from './q2.js';
 
 // ─── HuggingFace Hub API ───────────────────────────────────────────────────────
 
@@ -510,14 +517,60 @@ export function onToken(token: string): void {
 }
 
 export function onEmbedding(msg: EmbeddingMsg): void {
-  // Display the last-LIV-layer embedding as a heat-map preview.
-  // The actual Q² WASM quantisation kernel will be wired here.
   embeddingPanel.classList.remove('hidden');
+
+  // Always render the raw activation heat-map for visual feedback.
+  // For fp32 data, we can render immediately; other dtypes fall back to
+  // rendering the raw bytes as-is (values may not be meaningful visually
+  // but give an indication of activity).
   const floats = new Float32Array(msg.data);
   renderEmbeddingHeatmap(floats, msg.seqLen, msg.hiddenDim);
   embeddingStats.textContent =
-    `Shape: [${msg.seqLen} × ${msg.hiddenDim}]  ` +
+    `Shape: [${msg.seqLen} × ${msg.hiddenDim}]  dtype=${msg.dtype}  ` +
     `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+
+  // ── Q² kernel ────────────────────────────────────────────────────────────
+  // Run the quaternary quantisation in the background.  The WASM kernel is
+  // preferred; if instantiation fails (e.g. in test environments that lack
+  // WebAssembly.instantiate) we fall back to the pure-TS implementation.
+  const n = msg.hiddenDim;
+  const seqLen = msg.seqLen;
+  const dtype = msg.dtype;
+  const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
+
+  void (async () => {
+    try {
+      const kernel = await getKernel();
+      const mem = new Uint8Array(kernel.memory.buffer);
+
+      // Copy the raw activation buffer into WASM memory at the input offset.
+      const inputBytes = new Uint8Array(msg.data);
+      mem.set(inputBytes, 0x40000);
+
+      // Run quantisation: mean-pool, L2-normalise, threshold, Gray-encode.
+      kernel.quantise(0x40000, seqLen, n, dtypeId, 0x10000);
+
+      // Derive the 64-bit transition key.
+      const rawKey = kernel.key(0x10000, n);
+      const key = BigInt.asUintN(64, rawKey);
+
+      // Read back packed bytes.
+      const packed = new Uint8Array(kernel.memory.buffer, 0x10000, n >> 2);
+      renderQ2Result(packed, key, n);
+    } catch {
+      // WASM unavailable — use the pure-TypeScript fallback.
+      // This path is taken in test environments and SSR contexts.
+      if (dtype === 'fp32') {
+        const vec = meanPoolAndNormalise(
+          new Float32Array(msg.data),
+          seqLen,
+          n,
+        );
+        const { packed, key } = q2EncodeDirect(vec, n);
+        renderQ2Result(packed, BigInt.asUintN(64, key), n);
+      }
+    }
+  })();
 }
 
 export function onDone(): void {
@@ -814,6 +867,25 @@ export function max(arr: Float32Array): number {
   let m = -Infinity;
   for (const v of arr) if (v > m) m = v;
   return m;
+}
+
+/**
+ * Renders the Q² quantisation result in the embedding stats panel.
+ *
+ * @param packed - n/4 packed Gray-encoded bytes from q2_quantise / q2EncodeDirect
+ * @param key    - 64-bit MSB-aligned transition key from q2_key / q2KeyDirect
+ * @param n      - original embedding dimension
+ */
+export function renderQ2Result(packed: Uint8Array, key: bigint, n: number): void {
+  // Hex dump of the first 8 bytes (32 symbols) for display.
+  const hexBytes = Array.from(packed.slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const ellipsis = packed.length > 8 ? '…' : '';
+  // Display the key as a zero-padded 16-hex-digit unsigned 64-bit value.
+  const keyHex = key.toString(16).padStart(16, '0');
+  embeddingStats.textContent +=
+    `\nQ²: [${hexBytes}${ellipsis}] (${n >> 2} bytes, ${n} dims)  key=0x${keyHex}`;
 }
 
 // ─── Event listeners ───────────────────────────────────────────────────────────
