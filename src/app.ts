@@ -420,7 +420,7 @@ async function handleLocalFile(file: File): Promise<void> {
   }
 }
 
-async function handleLocalUrl(rawUrl: string): Promise<void> {
+export async function handleLocalUrl(rawUrl: string): Promise<void> {
   const url = rawUrl.trim();
   if (!url) return;
   try {
@@ -432,7 +432,7 @@ async function handleLocalUrl(rawUrl: string): Promise<void> {
   }
 }
 
-function initLocalFileStore(): void {
+export function initLocalFileStore(): void {
   if (!isOpfsAvailable()) {
     // Not supported in this environment; show a hint.
     setLocalFileStatus('OPFS not supported in this browser.');
