@@ -1,4 +1,4 @@
-# Quaternary Semantic Quantization: Predictions
+# Quaternary Quantization: Predictions
 
 > **Related documents:** [DESIGN.md](DESIGN.md) · [TESTING.md](TESTING.md)
 
