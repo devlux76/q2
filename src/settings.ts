@@ -7,6 +7,8 @@
 
 import type { Dtype, FilterLibrary } from './types.js';
 
+import type { Q2KeyDisplayMode } from './types.js';
+
 export interface AppSettings {
   /** Optional HuggingFace API token (private models, higher rate limits). */
   apiToken: string;
@@ -14,12 +16,15 @@ export interface AppSettings {
   dtype: Dtype;
   /** Library filter tag sent to the HF Hub API. */
   filterLibrary: FilterLibrary;
+  /** Q² transition key display mode in the embedding panel. */
+  q2KeyDisplayMode: Q2KeyDisplayMode;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiToken: '',
   dtype: 'q4',
   filterLibrary: 'transformers.js',
+  q2KeyDisplayMode: 'q2',
 };
 
 const SETTINGS_KEY = 'q2_settings';

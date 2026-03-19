@@ -57,6 +57,11 @@ function setupDom() {
         <option value="onnx">onnx</option>
         <option value="">All</option>
       </select>
+      <select id="q2-key-display-mode">
+        <option value="q2" selected>q2</option>
+        <option value="cgAt">cgAt</option>
+        <option value="hex">hex</option>
+      </select>
       <button id="load-btn" disabled>Load</button>
     </div>
 
@@ -356,10 +361,10 @@ describe('app.ts helpers and DOM integration', () => {
     stats.textContent = 'Shape: [1 × 8]  dtype=fp32  min=0.000  max=1.000';
 
     const packed = new Uint8Array([0xAA, 0xAA]); // D D D D D D D D (all strong+)
-    app.renderQ2Result(packed, 0xdd8c000000000000n, 8);
+    app.renderQ2Result(packed, 0xdd8c000000000000n, 8, 'q2');
 
     expect(stats.textContent).toContain('Q²:');
-    expect(stats.textContent).toContain('key=0x');
+    expect(stats.textContent).toContain('key=Q²:');
     expect(stats.textContent).toContain('2 bytes');
   });
 
@@ -465,6 +470,15 @@ describe('app.ts helpers and DOM integration', () => {
     expect(workerRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'load', dtype: 'q8' }),
     );
+  });
+
+  it('changing q2-key-display-mode persists the setting', () => {
+    const keyModeEl = document.querySelector('#q2-key-display-mode') as HTMLSelectElement;
+    keyModeEl.value = 'cgAt';
+    keyModeEl.dispatchEvent(new Event('change'));
+
+    const loadedSettings = app.loadSettings();
+    expect(loadedSettings.q2KeyDisplayMode).toBe('cgAt');
   });
 
   it('switchTab changes active tab and shows correct panel', () => {
