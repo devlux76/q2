@@ -210,8 +210,9 @@
   ;;   D  strong positive  3  10₂   v > τ*
   ;;
   ;; Special case — dtype = 4 (q2 input, already packed Gray-encoded bytes):
-  ;;   The n/4 input bytes are copied directly to $out_ptr; the threshold
-  ;;   step is skipped.
+  ;;   The n/4 input bytes are copied directly from $input_ptr to $out_ptr, and
+  ;;   the function returns without performing load/L2-normalise/threshold/
+  ;;   quantise/Gray-encode/pack steps.
   ;; ─────────────────────────────────────────────────────────────────────────────
   (func (export "q2_quantise")
     (param $input_ptr i32)
