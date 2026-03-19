@@ -524,15 +524,15 @@ input[type="range"]:focus {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px rgba(91, 138, 247, 0.4);
+  box-shadow: 0 0 0 1px rgb(91 138 247 / 40%);
 }
 
 .drop-zone:hover {
-  background: rgba(91, 138, 247, 0.05);
+  background: rgb(91 138 247 / 5%);
 }
 
 .drop-zone.dragover {
-  background: rgba(91, 138, 247, 0.15);
+  background: rgb(91 138 247 / 15%);
   border-color: var(--accent);
 }
 
