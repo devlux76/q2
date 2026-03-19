@@ -155,6 +155,19 @@ export let worker: Worker | null = null;
 let modelReady = false;
 let isGenerating = false;
 
+function appLog(level: 'debug' | 'info' | 'warn' | 'error', message: string, ...args: unknown[]): void {
+  const prefix = `[q2 main] ${new Date().toISOString()} [${level}]`;
+  if (level === 'debug') {
+    console.debug(prefix, message, ...args);
+  } else if (level === 'info') {
+    console.info(prefix, message, ...args);
+  } else if (level === 'warn') {
+    console.warn(prefix, message, ...args);
+  } else {
+    console.error(prefix, message, ...args);
+  }
+}
+
 /** Loaded and applied before the first HF API call or model load. */
 let currentSettings: AppSettings = loadSettings();
 
@@ -544,15 +557,18 @@ export function startWithModel(modelId: string): void {
 }
 
 export function initWorker(modelId: string): void {
+  appLog('info', 'initWorker called', { modelId });
   const workerUrl =
     globalThis.__Q2_WORKER_URL__ ??
     new URL('./worker.js', import.meta.url).toString();
 
+  appLog('debug', 'Creating worker', { workerUrl });
   worker = new Worker(workerUrl, {
     type: 'module',
   });
 
   worker.addEventListener('message', (e: MessageEvent<WorkerOutMsg>) => {
+    appLog('debug', 'Received worker message', e.data);
     handleWorkerMessage(e.data);
   });
 
@@ -567,12 +583,14 @@ export function initWorker(modelId: string): void {
 }
 
 function postToWorker(msg: WorkerInMsg): void {
+  appLog('info', 'Posting message to worker', msg);
   worker?.postMessage(msg);
 }
 
 // ─── Worker message handler ────────────────────────────────────────────────────
 
 export function handleWorkerMessage(msg: WorkerOutMsg): void {
+  appLog('info', 'handleWorkerMessage received', msg);
   switch (msg.type) {
     case 'status':
       onStatus(msg.status, msg.detail);
@@ -607,6 +625,7 @@ export function onStatus(
   status: 'loading' | 'ready' | 'generating' | 'idle',
   detail?: string,
 ): void {
+  appLog('debug', 'onStatus', { status, detail });
   if (status === 'ready') {
     modelReady = true;
     loadOverlay.classList.add('hidden');
@@ -636,6 +655,7 @@ export function onStatus(
 }
 
 export function onProgress(file: string, loaded: number, total: number): void {
+  appLog('debug', 'onProgress', { file, loaded, total });
   if (total > 0) {
     const pct = Math.round((loaded / total) * 100);
     loadBarFillEl.style.width = `${pct}%`;

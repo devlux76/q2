@@ -135,6 +135,20 @@ function isIOS(): boolean {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+// Verbose debug logging for model loading and inference steps.
+function workerLog(level: 'debug' | 'info' | 'warn' | 'error', message: string, ...args: unknown[]): void {
+  const prefix = `[q2 worker] ${new Date().toISOString()} [${level}]`;
+  if (level === 'debug') {
+    console.debug(prefix, message, ...args);
+  } else if (level === 'info') {
+    console.info(prefix, message, ...args);
+  } else if (level === 'warn') {
+    console.warn(prefix, message, ...args);
+  } else {
+    console.error(prefix, message, ...args);
+  }
+}
+
 /**
  * Preferred inference backends in priority order.
  * The worker tries each one in turn and settles on the first that succeeds.
@@ -209,13 +223,17 @@ function toEmbeddingDtype(_dtype: Dtype): EmbeddingMsg['dtype'] {
 }
 
 async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Promise<void> {
+  workerLog('info', 'loadModel invoked', { modelId, dtype, hasApiToken: Boolean(apiToken) });
+
   // Apply the API token before any network requests (used by the Hub client).
   if (apiToken) {
     // env.accessToken is a runtime-mutable property used by the HF Hub client;
     // it is not reflected in the published TypeScript types.
+    workerLog('debug', 'Setting env.accessToken for HuggingFace Hub request');
     Object.assign(env, { accessToken: apiToken });
   }
 
+  workerLog('info', 'Sending initial loading status message');
   send({ type: 'status', status: 'loading', detail: 'Fetching model weights…' });
 
   // Cast the polymorphic `pipeline` factory to the concrete signature we need.
@@ -226,6 +244,7 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
   let lastErr: unknown;
   for (const device of DEVICE_PRIORITY) {
     try {
+      workerLog('info', 'Attempting backend', { device });
       send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });
 
       // Track the last time a progress event was received so the hang guard
@@ -237,6 +256,8 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
         device,
         progress_callback: (p: DownloadProgress) => {
           lastProgressAt = Date.now();
+          const detail = { file: p.file ?? '', loaded: p.loaded ?? 0, total: p.total ?? 0 };
+          workerLog('debug', 'progress callback', detail);
           send({
             type: 'progress',
             file: p.file ?? '',
@@ -251,25 +272,38 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
       // loader against an idle-timeout so the loop can fall through.
       const hangGuard = new Promise<never>((_, reject) => {
         const id = setInterval(() => {
-          if (Date.now() - lastProgressAt >= BACKEND_HANG_TIMEOUT_MS) {
+          const ageMs = Date.now() - lastProgressAt;
+          workerLog('debug', 'hang guard tick', { device, ageMs, timeoutMs: BACKEND_HANG_TIMEOUT_MS });
+          if (ageMs >= BACKEND_HANG_TIMEOUT_MS) {
             clearInterval(id);
-            reject(new Error(`${device} backend timed out after ${BACKEND_HANG_TIMEOUT_MS / 1000}s of inactivity`));
+            const message = `${device} backend timed out after ${BACKEND_HANG_TIMEOUT_MS / 1000}s of inactivity`;
+            workerLog('warn', message);
+            reject(new Error(message));
           }
         }, 1_000);
         // Cancel the watchdog as soon as the loader settles (success or error)
         // so the interval cannot fire after the race is already decided.
-        void loader.then(() => clearInterval(id), () => clearInterval(id));
+        void loader.then(() => {
+          workerLog('debug', 'loader settled, clearing hang guard interval', { device });
+          clearInterval(id);
+        }, (e) => {
+          workerLog('debug', 'loader rejected, clearing hang guard interval', { device, error: e });
+          clearInterval(id);
+        });
       });
 
       pipe = await Promise.race([loader, hangGuard]);
+      workerLog('info', 'Model loaded successfully', { device, modelId, dtype });
 
       // Record the embedding dtype for the loaded model so EmbeddingMsg is typed correctly.
       activeDtype = toEmbeddingDtype(dtype);
+      workerLog('info', 'active dtype set after load', { activeDtype });
 
       send({ type: 'status', status: 'ready' });
       return;
     } catch (err) {
       lastErr = err;
+      workerLog('warn', 'Backend failed', { device, error: err });
       // Summarise the failure for the loading screen so the user can see
       // which backend was skipped and why before the next attempt starts.
       const maxLen = 80;
@@ -283,8 +317,7 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
       // Fall through to the next device in the priority list.
     }
   }
-
-  send({ type: 'error', message: String(lastErr) });
+  workerLog('error', 'All backends failed, sending error message to main thread', { lastErr });  send({ type: 'error', message: String(lastErr) });
 }
 
 // ─── Inference ────────────────────────────────────────────────────────────────
@@ -293,11 +326,20 @@ async function generateResponse(
   messages: ChatMessage[],
   config: GenerationConfig,
 ): Promise<void> {
+  workerLog('info', 'generateResponse invoked', {
+    messagesCount: messages.length,
+    config,
+    modelLoaded: Boolean(pipe),
+    activeDtype,
+  });
+
   if (!pipe) {
+    workerLog('error', 'generateResponse called before model load');
     send({ type: 'error', message: 'Model not loaded. Call load first.' });
     return;
   }
 
+  workerLog('info', 'Starting generation', { messages, config });
   send({ type: 'status', status: 'generating' });
   stoppingCriteria = new InterruptableStoppingCriteria();
 
@@ -336,17 +378,34 @@ async function generateResponse(
       output_hidden_states: wantEmbeddings,
     });
 
+    workerLog('info', 'Pipeline generation finished', {
+      wantEmbeddings,
+      hiddenStatesLength: Array.isArray(output.hidden_states) ? output.hidden_states.length : 'unknown',
+      outputKeys: Object.keys(output),
+    });
+
     if (wantEmbeddings) {
       // Extract the last-step hidden state from the completed generation.
       // hidden_states is TensorLike[][] — [generation_step][layer_index].
       const hiddenStates = output.hidden_states;
-      if (Array.isArray(hiddenStates) && hiddenStates.length > 0) {
+      workerLog('debug', 'Embedding extraction start', { hiddenStates });
+      if (!Array.isArray(hiddenStates) || hiddenStates.length === 0) {
+        workerLog('warn', 'No hidden states found in pipeline output', { hiddenStates });
+      } else {
         // Take the last generation step; layer 9 = last LIV block output.
         const lastStep = hiddenStates[hiddenStates.length - 1];
+        workerLog('debug', 'Last generation step hidden state', { lastStepIndex: hiddenStates.length - 1, lastStep });
         const lastConvOut: TensorLike | undefined = lastStep?.[9];
-        if (lastConvOut?.data && lastConvOut.dims) {
+        if (!lastConvOut) {
+          workerLog('warn', 'Expected layer 9 hidden state missing', { lastStep });
+        } else if (!lastConvOut.data || !lastConvOut.dims) {
+          workerLog('warn', 'Layer 9 hidden state incomplete', { lastConvOut });
+        } else {
           const [, seqLen, hiddenDim] = lastConvOut.dims;
-          if (seqLen !== undefined && hiddenDim !== undefined) {
+          workerLog('info', 'Extracted conv output dims', { seqLen, hiddenDim, dtype: activeDtype });
+          if (seqLen === undefined || hiddenDim === undefined) {
+            workerLog('error', 'Invalid hidden state dimensions', { dims: lastConvOut.dims });
+          } else {
             // Transfer the buffer to avoid structured-clone copying.
             // The activation tensor buffer is always a regular ArrayBuffer
             // (transformers.js uses Float32Array, not SharedArrayBuffer).
@@ -354,6 +413,7 @@ async function generateResponse(
               lastConvOut.data.byteOffset,
               lastConvOut.data.byteOffset + lastConvOut.data.byteLength,
             ) as ArrayBuffer;
+            workerLog('info', 'Sending embedding msg', { seqLen, hiddenDim, activeDtype, bytes: data.byteLength });
             send(
               { type: 'embedding', data, seqLen, hiddenDim, dtype: activeDtype },
               [data],
@@ -366,14 +426,17 @@ async function generateResponse(
     send({ type: 'done' });
   } catch (err) {
     const msg = String(err);
+    workerLog('error', 'Generation failed', { error: err, message: msg });
     // InterruptableStoppingCriteria sets interrupted = true; treat as user cancel.
     if (!stoppingCriteria?.interrupted) {
       send({ type: 'error', message: msg });
     } else {
+      workerLog('info', 'Generation aborted by user', { message: msg });
       send({ type: 'done' });
     }
   } finally {
     stoppingCriteria = null;
+    workerLog('info', 'Generation completed/finalized, setting status idle');
     send({ type: 'status', status: 'idle' });
   }
 }
