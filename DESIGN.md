@@ -14,6 +14,7 @@
    - 1.5 [The L1 metric and the cross-polytope](#15-the-l1-metric-and-the-cross-polytope)
    - 1.6 [The quaternary coordinate](#16-the-quaternary-coordinate)
    - 1.7 [Index design consequences](#17-index-design-consequences)
+   - 1.8 [Relational geometry and the lingua franca](#18-relational-geometry-and-the-lingua-franca)
 2. [Quantization](#2-quantization)
    - 2.1 [The thermal constraint](#21-the-thermal-constraint)
    - 2.2 [Binary quantization](#22-binary-quantization)
@@ -34,6 +35,13 @@
 ---
 
 ## 1 The Embedding Problem
+
+**Why are embeddings incommensurable?** Two models trained on the same corpus
+produce vectors that cannot be directly compared — their coordinate frames are
+arbitrary rotations of one another, fixed only by random initialisation and training
+order. This section builds the answer from first principles: what an embedding is,
+why its coordinate frame is unfixed, and why that constraint is less limiting than it
+first appears.
 
 ### 1.1 Embeddings and the unit hypersphere
 
@@ -90,6 +98,18 @@ coordinate frames, not semantic similarity between documents.
 An untrained transformer also produces vectors on $S^{n-1}$, but with no training
 signal to cluster similar documents, the geometry carries no semantic content. An
 embedding is meaningful as a retrieval key only after training.
+
+**Coordinate-frame incommensurability does not imply relational incommensurability.**
+The rotation $Q$ scrambles absolute positions. It does not scramble differences.
+For any documents $a, b, c, d$ satisfying $e_A(a) - e_A(b) + e_A(c) \approx e_A(d)$
+in Model A's frame, the same relation holds in Model B's frame, because $Q$ distributes
+linearly over vector arithmetic:
+
+$$Q(e_A(a) - e_A(b) + e_A(c)) = e_B(a) - e_B(b) + e_B(c) \approx e_B(d)$$
+
+Semantic analogies, concept offsets, and the parallelogram structure of the embedding
+space are invariant under rotation. Incommensurability is a property of absolute
+coordinates, not of semantic geometry. The implications are developed in §1.8.
 
 ---
 
@@ -242,10 +262,13 @@ them.
 
 Three consequences follow from §1.1–1.6.
 
-**Incommensurability is absolute.** The quantization thresholds are calibrated from
+**Coordinate-frame incommensurability.** Quantization thresholds are calibrated from
 one model's activation distribution. A different model produces different thresholds.
-Quaternary codes are not comparable across models. An index must be rebuilt when the
-model changes.
+Quaternary codes in absolute terms are not comparable across models; an index must be
+rebuilt when the model changes. The relational structure of the embedding space —
+differences, analogies, topological trajectories — is preserved across models (§1.8),
+but recovering it requires a Procrustes solve over paired examples, which is
+thermally infeasible on constrained hardware.
 
 **The thermal constraint and the geometric constraint coincide.** Cross-model
 alignment requires a Procrustes solve over paired examples — geometrically necessary
@@ -256,6 +279,40 @@ satisfies both constraints simultaneously.
 dimension approximate angular distance on $S^{n-1}$? The question is: what is the
 natural discrete coordinate system of the L1 unit ball? The answer — four cells per
 dimension — is derived in §2.5.
+
+---
+
+### 1.8 Relational geometry and the lingua franca
+
+The rotation $Q$ is unknown and unrecoverable without paired supervision. Direct
+cross-model coordinate comparison is therefore meaningless. But $Q$ acts uniformly
+on the entire embedding space — it cannot selectively rotate some concepts while
+leaving others fixed — so the *shape* of the space is preserved.
+
+The canonical illustration: $\text{king} - \text{man} + \text{woman} \approx \text{queen}$. This
+vector arithmetic works not because "king" lives at a special absolute address, but
+because the training corpus encodes a consistent geometric offset between gendered
+role-pair concepts. Both Model A and Model B, having trained on the same language,
+construct the same parallelogram in their respective (rotated) frames. The analogical
+relationship is not a coincidence of one model's random initialisation; it is a
+property of the data.
+
+The transition key (§3) exploits this directly. By recording the *sequence of
+semantic directions visited* during inference — the topological trajectory through
+the embedding space — rather than any absolute coordinate, it indexes shape rather
+than position. Two models reading the same passage may produce entirely different
+float32 vectors at each layer, yet execute the same sequence of semantic turns: the
+same "hairpin" at the subordinate clause, the same "commitment" at the topic word.
+The run-reduced key captures that shared structure without requiring knowledge of $Q$.
+
+Embeddings across models are not fully incommensurable. Their coordinate frames are;
+their semantic geometry is not. The gap between those two facts is where Q2 operates.
+
+$$\underbrace{\text{🤴} - \text{🧔} + \text{👩}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{🫅}}_{\text{same answer, rotated frame}}$$
+
+The coordinate frames differ by $Q$. The parallelogram does not. Viewed from the
+right angle — the angle of relational structure rather than absolute position — the
+incommensurability dissolves. 🤓
 
 ---
 
