@@ -662,6 +662,11 @@ export function onEmbedding(msg: EmbeddingMsg): void {
   const n = hiddenDim;
   const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
 
+  if (seqLen < 1) {
+    console.warn(`Q² embedding: seqLen=${seqLen} < 1; skipping quantisation.`);
+    return;
+  }
+
   void (async () => {
     try {
       const kernel = await getKernel();
