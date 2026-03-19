@@ -1276,7 +1276,13 @@ export function runBenchmarks(suiteFilter?: string): void {
       const meanD = rhosD.reduce((a, b) => a + b, 0) / rhosD.length;
       const meanDr = rhosDr.reduce((a, b) => a + b, 0) / rhosDr.length;
       const meanN = rhosN.reduce((a, b) => a + b, 0) / rhosN.length;
-      const pass = meanD > NULL_RHO && meanDr > NULL_RHO - 0.05 && meanDr < NULL_RHO + 0.05 && meanN === 0;
+      const pass =
+        meanD > NULL_RHO &&
+        meanD > meanDr &&
+        meanDr > meanN &&
+        meanDr > NULL_RHO - 0.05 &&
+        meanDr < NULL_RHO + 0.05 &&
+        meanN === 0;
       results.push({ suite: 'T3', test: 'P2: ρ_hp ordering Dialectical>Direct≈1/9>Negated', status: pass ? 'pass' : 'fail', result: `D=${meanD.toFixed(3)}, Direct=${meanDr.toFixed(3)}, N=${meanN.toFixed(3)}` });
     } catch (e) {
       results.push({ suite: 'T3', test: 'P2: ρ_hp ordering Dialectical>Direct≈1/9>Negated', status: 'fail', result: String(e) });
