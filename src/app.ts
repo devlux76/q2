@@ -30,6 +30,7 @@ import {
   getKernel,
   l2Normalise,
   q2EncodeDirect,
+  q2KeyDirect,
   DTYPE_TO_Q2,
   Q2_DTYPE_FP32,
   Q2_INPUT_OFFSET,
@@ -60,6 +61,10 @@ import {
   renderEmbeddingHeatmap as renderHeatmap,
   renderQ2Result as renderQ2,
 } from './embed-panel.js';
+import {
+  complement,
+  leeDistance,
+} from './q2stats.js';
 export { loadSettings, saveSettings };
 export type { HFModel };
 export { fetchHFModels, formatCount };
@@ -93,7 +98,8 @@ const tabPanels = document.querySelectorAll<HTMLDivElement>('.tab-panel');
 // Loading overlay (non-blocking, shown during model download)
 const loadOverlay = $<HTMLDivElement>('#load-overlay');
 const loadStatus = $<HTMLParagraphElement>('#load-status');
-const loadBar = $<HTMLDivElement>('#load-bar-fill');
+const loadBarEl = $<HTMLDivElement>('#load-bar');
+const loadBarFillEl = $<HTMLDivElement>('#load-bar-fill');
 
 // Chat panel
 const messagesEl = $<HTMLDivElement>('#messages');
@@ -484,7 +490,7 @@ export function startWithModel(modelId: string): void {
   // Show loading overlay.
   loadOverlay.classList.remove('hidden');
   loadStatus.textContent = 'Initializing…';
-  loadBar.style.width = '0%';
+  loadBarFillEl.style.width = '0%';
 
   initWorker(modelId);
 }
@@ -584,19 +590,19 @@ export function onStatus(
 export function onProgress(file: string, loaded: number, total: number): void {
   if (total > 0) {
     const pct = Math.round((loaded / total) * 100);
-    loadBar.style.width = `${pct}%`;
+    loadBarFillEl.style.width = `${pct}%`;
     const statusText = file
       ? `Downloading ${file.split('/').pop() ?? file} — ${pct}%`
       : `Downloading… ${pct}%`;
     loadStatus.textContent = statusText;
-    loadBar.setAttribute('aria-valuenow', String(pct));
-    loadBar.setAttribute('aria-valuetext', statusText);
+    loadBarEl.setAttribute('aria-valuenow', String(pct));
+    loadBarEl.setAttribute('aria-valuetext', statusText);
   } else {
     const statusText =
       file ? `Loading ${file.split('/').pop() ?? file}…` : 'Loading…';
     loadStatus.textContent = statusText;
-    loadBar.removeAttribute('aria-valuenow');
-    loadBar.setAttribute('aria-valuetext', statusText);
+    loadBarEl.removeAttribute('aria-valuenow');
+    loadBarEl.setAttribute('aria-valuetext', statusText);
   }
 }
 
@@ -897,6 +903,8 @@ export function switchTab(tabName: string): void {
     const isActive = tab.dataset['tab'] === tabName;
     tab.classList.toggle('active', isActive);
     tab.setAttribute('aria-selected', String(isActive));
+    tab.setAttribute('tabindex', isActive ? '0' : '-1');
+    if (isActive) tab.focus();
   });
   tabPanels.forEach((panel) => {
     const panelName = panel.id.replace('panel-', '');
@@ -923,15 +931,27 @@ function renderBenchRow(r: BenchResult): void {
     : r.status === 'running' ? 'bench-running'
     : 'bench-pending';
 
-  tr.innerHTML =
-    `<td>${r.suite}</td>` +
-    `<td>${r.test}</td>` +
-    `<td class="${statusClass}">${r.status.toUpperCase()}</td>` +
-    `<td>${r.result}</td>`;
+  const tdSuite = document.createElement('td');
+  tdSuite.textContent = r.suite;
+
+  const tdTest = document.createElement('td');
+  tdTest.textContent = r.test;
+
+  const tdStatus = document.createElement('td');
+  tdStatus.className = statusClass;
+  tdStatus.textContent = r.status.toUpperCase();
+
+  const tdResult = document.createElement('td');
+  tdResult.textContent = r.result;
+
+  tr.appendChild(tdSuite);
+  tr.appendChild(tdTest);
+  tr.appendChild(tdStatus);
+  tr.appendChild(tdResult);
   benchResultsBody.appendChild(tr);
 }
 
-export async function runBenchmarks(suiteFilter?: string): Promise<void> {
+export function runBenchmarks(suiteFilter?: string): void {
   if (isBenchmarkRunning) {
     return;
   }
@@ -942,15 +962,11 @@ export async function runBenchmarks(suiteFilter?: string): Promise<void> {
 
     const results: BenchResult[] = [];
 
-    // Import the q2 kernel functions for benchmarking
-    const { q2EncodeDirect, q2KeyDirect, l2Normalise } = await import('./q2.js');
-    const stats = await import('./q2stats.js');
-
   // ── T0: Algebraic invariants ──────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't0') {
     // P1: Complement involution
     try {
-      const p1Pass = [0, 1, 2, 3].every(sym => stats.complement(stats.complement(sym)) === sym);
+      const p1Pass = [0, 1, 2, 3].every(sym => complement(complement(sym)) === sym);
       results.push({ suite: 'T0', test: 'P1: Complement involution θ(θ(z))=z', status: p1Pass ? 'pass' : 'fail', result: p1Pass ? 'θ(θ(z)) = z for all z ∈ Z₄' : 'FAILED' });
     } catch (e) {
       results.push({ suite: 'T0', test: 'P1: Complement involution', status: 'fail', result: String(e) });
@@ -961,7 +977,7 @@ export async function runBenchmarks(suiteFilter?: string): Promise<void> {
       let p2Pass = true;
       for (let a = 0; a < 4; a++) {
         for (let b = 0; b < 4; b++) {
-          if (stats.leeDistance(a, b) !== stats.leeDistance(b, a)) p2Pass = false;
+          if (leeDistance(a, b) !== leeDistance(b, a)) p2Pass = false;
         }
       }
       results.push({ suite: 'T0', test: 'P2: Lee distance symmetry', status: p2Pass ? 'pass' : 'fail', result: p2Pass ? 'd_L(a,b) = d_L(b,a) for all pairs' : 'FAILED' });
@@ -1068,11 +1084,30 @@ repPenaltyEl.addEventListener('input', () => {
   repValueEl.textContent = parseFloat(repPenaltyEl.value).toFixed(2);
 });
 
-// Tab navigation
+// Tab navigation — click + roving tabindex with arrow key support
+const tabOrder = Array.from(navTabs);
 navTabs.forEach((tab) => {
   tab.addEventListener('click', () => {
     const tabName = tab.dataset['tab'];
     if (tabName) switchTab(tabName);
+  });
+  tab.addEventListener('keydown', (e: KeyboardEvent) => {
+    const idx = tabOrder.indexOf(tab);
+    let next = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      next = (idx + 1) % tabOrder.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      next = (idx - 1 + tabOrder.length) % tabOrder.length;
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = tabOrder.length - 1;
+    }
+    if (next >= 0) {
+      e.preventDefault();
+      const tabName = tabOrder[next]!.dataset['tab'];
+      if (tabName) switchTab(tabName);
+    }
   });
 });
 
@@ -1081,9 +1116,9 @@ const benchRunAllBtn = document.querySelector<HTMLButtonElement>('#bench-run-all
 const benchRunT0Btn = document.querySelector<HTMLButtonElement>('#bench-run-t0');
 const benchRunT1Btn = document.querySelector<HTMLButtonElement>('#bench-run-t1');
 
-benchRunAllBtn?.addEventListener('click', () => void runBenchmarks());
-benchRunT0Btn?.addEventListener('click', () => void runBenchmarks('t0'));
-benchRunT1Btn?.addEventListener('click', () => void runBenchmarks('t1'));
+benchRunAllBtn?.addEventListener('click', () => runBenchmarks());
+benchRunT0Btn?.addEventListener('click', () => runBenchmarks('t0'));
+benchRunT1Btn?.addEventListener('click', () => runBenchmarks('t1'));
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 

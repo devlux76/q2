@@ -13,9 +13,9 @@
   <nav id="top-nav">
     <span class="nav-logo">Q²</span>
     <div id="nav-tabs" role="tablist" aria-label="Main navigation">
-      <button class="nav-tab active" role="tab" aria-selected="true" aria-controls="panel-chat" data-tab="chat">Chat</button>
-      <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-benchmarks" data-tab="benchmarks">Benchmarks</button>
-      <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Settings</button>
+      <button id="tab-chat" class="nav-tab active" role="tab" aria-selected="true" aria-controls="panel-chat" data-tab="chat" tabindex="0">Chat</button>
+      <button id="tab-benchmarks" class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-benchmarks" data-tab="benchmarks" tabindex="-1">Benchmarks</button>
+      <button id="tab-settings" class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings" tabindex="-1">Settings</button>
     </div>
     <span id="model-status" class="status-badge">No model</span>
   </nav>

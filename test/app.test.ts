@@ -9,9 +9,9 @@ function setupDom() {
     <nav id="top-nav">
       <span class="nav-logo">Q²</span>
       <div id="nav-tabs" role="tablist">
-        <button class="nav-tab active" role="tab" aria-selected="true" aria-controls="panel-chat" data-tab="chat">Chat</button>
-        <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-benchmarks" data-tab="benchmarks">Benchmarks</button>
-        <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Settings</button>
+        <button id="tab-chat" class="nav-tab active" role="tab" aria-selected="true" aria-controls="panel-chat" data-tab="chat" tabindex="0">Chat</button>
+        <button id="tab-benchmarks" class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-benchmarks" data-tab="benchmarks" tabindex="-1">Benchmarks</button>
+        <button id="tab-settings" class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings" tabindex="-1">Settings</button>
       </div>
       <span id="model-status" class="status-badge">No model</span>
     </nav>
@@ -210,12 +210,14 @@ describe('app.ts helpers and DOM integration', () => {
   });
 
   it('onProgress updates the progress bar and status text', () => {
-    const loadBar = document.querySelector('#load-bar-fill') as HTMLElement;
+    const loadBarFill = document.querySelector('#load-bar-fill') as HTMLElement;
+    const loadBarOuter = document.querySelector('#load-bar') as HTMLElement;
     const loadStatus = document.querySelector('#load-status') as HTMLElement;
 
     app.onProgress('foo.bin', 50, 100);
-    expect(loadBar.style.width).toBe('50%');
+    expect(loadBarFill.style.width).toBe('50%');
     expect(loadStatus.textContent).toContain('foo.bin');
+    expect(loadBarOuter.getAttribute('aria-valuenow')).toBe('50');
 
     app.onProgress('', 5, 0);
     expect(loadStatus.textContent).toContain('Loading');
