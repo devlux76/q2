@@ -148,6 +148,20 @@ const DEVICE_PRIORITY: readonly string[] = isIOS()
   ? ['webgl', 'wasm']
   : ['webnn', 'webgpu', 'webgl', 'wasm'];
 
+/**
+ * Milliseconds of silence (no progress callback) after which a backend is
+ * considered to have hung during ONNX session initialisation.
+ *
+ * Some backends — including WebGPU on iOS WebKit and WebNN on Chrome for
+ * Linux — stall indefinitely instead of throwing a catchable error.  The
+ * hang guard below races the loader against this idle threshold so the
+ * backend loop can fall through to the next candidate automatically.
+ *
+ * Download traffic continuously resets the clock via the progress_callback,
+ * so only a true post-download hang (no activity at all) will trigger it.
+ */
+const BACKEND_HANG_TIMEOUT_MS = 30_000;
+
 // ─── Environment ──────────────────────────────────────────────────────────────
 
 // Only fetch from HuggingFace Hub; disable Node-FS cache (we're in a browser).
@@ -210,10 +224,15 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
     try {
       send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });
 
-      pipe = await loadPipeline('text-generation', modelId, {
+      // Track the last time a progress event was received so the hang guard
+      // can distinguish live downloads from a stalled session init.
+      let lastProgressAt = Date.now();
+
+      const loader = loadPipeline('text-generation', modelId, {
         dtype,
         device,
         progress_callback: (p: DownloadProgress) => {
+          lastProgressAt = Date.now();
           send({
             type: 'progress',
             file: p.file ?? '',
@@ -222,6 +241,23 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
           });
         },
       });
+
+      // Hang guard: some backends (e.g. WebGPU on iOS, WebNN on Chrome/Linux)
+      // stall forever during ONNX session init without throwing.  Race the
+      // loader against an idle-timeout so the loop can fall through.
+      const hangGuard = new Promise<never>((_, reject) => {
+        const id = setInterval(() => {
+          if (Date.now() - lastProgressAt >= BACKEND_HANG_TIMEOUT_MS) {
+            clearInterval(id);
+            reject(new Error(`${device} backend timed out after ${BACKEND_HANG_TIMEOUT_MS / 1000}s of inactivity`));
+          }
+        }, 1_000);
+        // Cancel the watchdog as soon as the loader settles (success or error)
+        // so the interval cannot fire after the race is already decided.
+        void loader.finally(() => clearInterval(id));
+      });
+
+      pipe = await Promise.race([loader, hangGuard]);
 
       // Record the embedding dtype for the loaded model so EmbeddingMsg is typed correctly.
       activeDtype = toEmbeddingDtype(dtype);
