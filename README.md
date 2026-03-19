@@ -24,7 +24,9 @@ The Q² algorithm is implemented in [`src/q2.wat`](src/q2.wat) (WebAssembly Text
 
 ### Algorithm
 
-For a hidden-state activation of shape `[n]` at the selected token position (where `n` is the model's native hidden dimension, a power of 2):
+The WASM kernel expects a hidden-state tensor of shape `[seq_len × n]` (where `n` is the model's native hidden dimension, a power of 2, and `seq_len` is the sequence length). The current exported API always applies Q² to the **last** token's activation (row `seq_len − 1`); callers who only care about that token may pass `seq_len = 1` with just that row populated.
+
+For the selected token, the algorithm operates on its hidden-state activation of shape `[n]`:
 
 1. **L2-normalise** → unit vector on `Sⁿ⁻¹`
 2. **Threshold** `τ* = 0.6745 / √n` (equiprobable 4-cell split for `N(0, 1/n)` activations)
@@ -39,7 +41,7 @@ For a hidden-state activation of shape `[n]` at the selected token position (whe
 
 ```mermaid
 flowchart LR
-    A["Hidden-state activation\n[n] at selected position"] --> B["L2-normalise\nunit vector on Sⁿ⁻¹"]
+    A["Hidden-state tensor\n[seq_len × n]\n(last token row used, or seq_len=1)"] --> B["L2-normalise\nunit vector on Sⁿ⁻¹"]
     B --> C["Threshold τ*\n= 0.6745 / √n"]
     C --> D["Quantise each coord\nA / B / C / D"]
     D --> E["Gray-encode\ng = sym ⊕ (sym >> 1)"]
