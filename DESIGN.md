@@ -541,7 +541,7 @@ The Gray map ensures `popcnt(XOR)` on the 2-bit codes equals Lee distance — no
 
 ```mermaid
 flowchart LR
-    subgraph Z4["ℤ₄ symbols"]
+    subgraph Z4["Z4 symbols"]
         direction TB
         s0["A = 0"]
         s1["B = 1"]
