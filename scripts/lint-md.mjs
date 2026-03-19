@@ -11,7 +11,7 @@
  *   3. Rare Unicode subscript/modifier letters (U+1D00–U+1D9F, U+2080–U+20A0)
  *      in Mermaid diagram source — these characters have limited renderer
  *      support and silently corrupt Mermaid output.
- *   4. Unicode MINUS SIGN (U+2212) anywhere in Mermaid blocks — Mermaid node
+ *   4. Unicode MINUS SIGN (U+2212) anywhere in Mermaid blocks — diagram
  *      labels should use ASCII hyphen-minus.
  *
  * Usage:
