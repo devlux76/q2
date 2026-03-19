@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+gh-pages/
 *.js.map
 package-lock.json
 bun.lock
