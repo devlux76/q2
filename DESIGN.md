@@ -311,8 +311,7 @@ their semantic geometry is not. The gap between those two facts is where Q2 oper
 $$\underbrace{\text{🤴} - \text{🧔} + \text{👩}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{🫅}}_{\text{same answer, rotated frame}}$$
 
 The coordinate frames differ by $Q$. The parallelogram does not. Viewed from the
-right angle — the angle of relational structure rather than absolute position — the
-incommensurability dissolves. 🤓
+right angle 📐, the incommensurability dissolves. 🤓
 
 ---
 
