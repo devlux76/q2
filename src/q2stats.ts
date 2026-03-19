@@ -296,6 +296,129 @@ export function nullCollisionExpectation(n: number, bits = 64): number {
   return (n * (n - 1)) / Math.pow(2, bits + 1);
 }
 
+// ─── P4: Bigram type classification and weighted Lee distance ─────────────────
+
+/**
+ * Classify a consecutive bigram in a transition sequence by its mutation type
+ * under the CGAT mapping (PREDICTIONS.md §P4).
+ *
+ * Under the Gray code, bit-0 (MSB) encodes purine/pyrimidine and bit-1 (LSB)
+ * encodes keto/amino:
+ *
+ * - **Ti (transition):**    Lee distance 1; same ring-class (purine↔purine or
+ *   pyrimidine↔pyrimidine); only the keto/amino bit changes.  Pairs: G↔A, C↔T.
+ * - **Tv1 (transversion type 1):** Lee distance 1; different ring-class; only the
+ *   purine/pyrimidine bit changes.  Pairs: G↔T, A↔C.
+ * - **Tv2 (complement transversion):** Lee distance 2; both chemical bits change.
+ *   Watson–Crick complement pairs: G↔C, A↔T.
+ *
+ * @param a - Z₄ symbol in {0, 1, 2, 3}
+ * @param b - Z₄ symbol in {0, 1, 2, 3}
+ * @returns bigram mutation class, or 'same' if a === b
+ */
+export function bigramType(a: number, b: number): 'Ti' | 'Tv1' | 'Tv2' | 'same' {
+  if (a === b) return 'same';
+  if (leeDistance(a, b) === 2) return 'Tv2';
+  // Lee distance 1 — distinguish by ring-class (MSB of Gray code)
+  const msb = (z: number) => (grayEncode(z) >> 1) & 1;
+  return msb(a) === msb(b) ? 'Ti' : 'Tv1';
+}
+
+/**
+ * Weighted Lee distance between two symbol arrays — PREDICTIONS.md §P4.
+ *
+ * Each symbol-pair contributes a weight according to its mutation class:
+ * - Ti (transition, Lee 1):         `weights.Ti`
+ * - Tv1 (transversion type 1, Lee 1): `weights.Tv1`
+ * - Tv2 (complement transversion, Lee 2): `weights.Tv2`
+ * - Same symbol: 0
+ *
+ * Uniform Lee distance corresponds to `{ Ti: 1, Tv1: 1, Tv2: 2 }`.
+ * The prediction in §P4 is that `{ Ti: 1, Tv1: ≈1.5, Tv2: ≈3 }` outperforms
+ * uniform Lee on retrieval benchmarks.
+ *
+ * @param a       - first Z₄ symbol array
+ * @param b       - second Z₄ symbol array (length need not equal a.length)
+ * @param weights - per-class weights { Ti, Tv1, Tv2 }
+ * @returns total weighted distance over the overlapping prefix
+ */
+export function weightedLeeDistanceSeq(
+  a: number[],
+  b: number[],
+  weights: { Ti: number; Tv1: number; Tv2: number },
+): number {
+  const len = Math.min(a.length, b.length);
+  let dist = 0;
+  for (let i = 0; i < len; i++) {
+    const type = bigramType(a[i]!, b[i]!);
+    if (type !== 'same') dist += weights[type];
+  }
+  return dist;
+}
+
+// ─── P7: Nussinov secondary structure ────────────────────────────────────────
+
+/**
+ * Nussinov score — maximum number of non-crossing complement pairs in a
+ * transition sequence (PREDICTIONS.md §P7).
+ *
+ * A **complement pair** at positions (i, k) with i + 2 ≤ k requires:
+ * - `seq[i] === seq[k]`            (same symbol at both anchors)
+ * - `seq[i+1] === θ(seq[i])`       (interior opens on complement)
+ * - `seq[k-1] === θ(seq[k])`       (interior closes on complement)
+ *
+ * The Nussinov dynamic programming finds the maximum set of such pairs with
+ * no crossing: for pairs (i,k) and (j,l), either i<j<l<k (nested) or
+ * i<k<j<l (sequential) — never i<j<k<l (crossing).
+ *
+ * A minimum valid hairpin (x, θ(x), x) at positions (i, i+2) is the simplest
+ * complement pair: it corresponds to the complement palindrome codon measured
+ * by `hairpinDensity`.  Nested hairpins produce scores > 1.
+ *
+ * Complexity: O(n³) time, O(n²) space.  Cap input at 2 000 symbols for
+ * tractability (as recommended in PREDICTIONS.md §P7).
+ *
+ * @param seq - run-reduced (or raw) transition sequence
+ * @returns   maximum number of non-crossing complement pairs
+ */
+export function nussinovScore(seq: number[]): number {
+  const n = seq.length;
+  if (n < 3) return 0;
+
+  // Allocate dp[i][j] = max pairs in seq[i..j] (inclusive)
+  const dp: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+
+  /** True iff (i, k) is a valid complement pair. */
+  function isPair(i: number, k: number): boolean {
+    return (
+      k - i >= 2 &&
+      seq[i] === seq[k] &&
+      seq[i + 1] === complement(seq[i]!) &&
+      seq[k - 1] === complement(seq[k]!)
+    );
+  }
+
+  // Fill by increasing subsequence length
+  for (let len = 2; len < n; len++) {
+    for (let i = 0; i + len < n; i++) {
+      const j = i + len;
+      // Option 1: position j is unpaired
+      dp[i]![j] = dp[i]![j - 1]!;
+      // Option 2: pair j with some k in [i, j-2]
+      for (let k = i; k + 2 <= j; k++) {
+        if (isPair(k, j)) {
+          const left = k > i ? dp[i]![k - 1]! : 0;
+          const inner = k + 1 <= j - 1 ? dp[k + 1]![j - 1]! : 0;
+          const score = 1 + left + inner;
+          if (score > dp[i]![j]!) dp[i]![j] = score;
+        }
+      }
+    }
+  }
+
+  return dp[0]![n - 1]!;
+}
+
 // ─── Lee distance between transition sequences ───────────────────────────────
 
 /**
