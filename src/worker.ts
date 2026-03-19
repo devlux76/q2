@@ -117,14 +117,36 @@ const workerScope = self as unknown as DedicatedWorkerGlobalScope;
  */
 
 /**
+ * Returns true when running on iOS / iPadOS.
+ *
+ * Apple requires all browsers on iOS to use WebKit, so this covers Safari,
+ * Chrome, Firefox, and every other iOS browser.  WebNN is not implemented on
+ * iOS WebKit, and WebGPU (present in Safari 17+) hangs indefinitely when
+ * loading ONNX models instead of throwing a catchable error.  Skipping both
+ * lets the backend loop fall straight through to WebGL → WASM.
+ */
+function isIOS(): boolean {
+  const ua = navigator.userAgent;
+  // Standard iOS devices; also catches iPadOS in "Request Desktop Website" mode
+  // where the UA reports "MacIntel" but touch points reveal a touchscreen.
+  return /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/**
  * Preferred inference backends in priority order.
  * The worker tries each one in turn and settles on the first that succeeds.
  *   webnn  – Web Neural Network API (hardware-accelerated where available)
  *   webgpu – GPU-accelerated via the WebGPU API
  *   webgl  – Fallback GPU path via WebGL
  *   wasm   – Pure WebAssembly (always available)
+ *
+ * On iOS, WebNN is absent and WebGPU hangs without throwing, so we skip
+ * both and start directly from WebGL.
  */
-const DEVICE_PRIORITY = ['webnn', 'webgpu', 'webgl', 'wasm'] as const;
+const DEVICE_PRIORITY: readonly string[] = isIOS()
+  ? ['webgl', 'wasm']
+  : ['webnn', 'webgpu', 'webgl', 'wasm'];
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 
