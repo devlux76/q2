@@ -951,7 +951,7 @@ export async function runBenchmarks(suiteFilter?: string): Promise<void> {
     // P1: Complement involution
     try {
       const p1Pass = [0, 1, 2, 3].every(sym => stats.complement(stats.complement(sym)) === sym);
-      results.push({ suite: 'T0', test: 'P1: Complement involution θ(θ(z))=z', status: p1Pass ? 'pass' : 'fail', result: p1Pass ? 'All 4 symbols fixed-point free' : 'FAILED' });
+      results.push({ suite: 'T0', test: 'P1: Complement involution θ(θ(z))=z', status: p1Pass ? 'pass' : 'fail', result: p1Pass ? 'θ(θ(z)) = z for all z ∈ Z₄' : 'FAILED' });
     } catch (e) {
       results.push({ suite: 'T0', test: 'P1: Complement involution', status: 'fail', result: String(e) });
     }
