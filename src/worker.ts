@@ -128,7 +128,7 @@ const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 function isIOS(): boolean {
   const ua = navigator.userAgent;
   // Standard iOS devices; also catches iPadOS in "Request Desktop Website" mode
-  // where the UA reports "MacIntel" but touch points reveal a touchscreen.
+  // where navigator.platform reports "MacIntel" but touch points reveal a touchscreen.
   return /iPad|iPhone|iPod/.test(ua) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
