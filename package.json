@@ -28,13 +28,13 @@
   },
   "lint-staged": {
     "*.{js,ts}": [
-      "eslint --no-inline-config --max-warnings 0 --fix"
+      "sh -c \"bun x eslint --no-inline-config --max-warnings 0 --fix --ignore-pattern 'gh-pages/**' --ignore-pattern 'dist/**'\""
     ],
     "*.{html,yml,yaml}": [
-      "eslint --no-inline-config --max-warnings 0 --fix"
+      "sh -c \"bun x eslint --no-inline-config --max-warnings 0 --fix --ignore-pattern 'gh-pages/**' --ignore-pattern 'dist/**'\""
     ],
     "*.{css,html}": [
-      "stylelint --max-warnings 0 --fix"
+      "sh -c \"bun x stylelint --max-warnings 0 --fix --ignore-pattern 'gh-pages/**' --ignore-pattern 'dist/**'\""
     ]
   },
   "repository": {

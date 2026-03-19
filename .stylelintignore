@@ -1,0 +1,7 @@
+# Ignore build output and generated artifacts
+
+dist/
+gh-pages/
+
+# Ignore node modules
+node_modules/
