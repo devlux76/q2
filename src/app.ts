@@ -7,7 +7,7 @@
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
- *  • Embedding panel (Q² kernel: mean-pool, L2-norm, quantise → packed bytes + key)
+ *  • Embedding panel (Q² kernel: L2-norm last token, quantise → packed bytes + key)
  */
 
 // Allow tests to override the worker entrypoint (e.g. a blob URL) and to
@@ -26,7 +26,7 @@ import type {
 } from './types.js';
 import {
   getKernel,
-  meanPoolAndNormalise,
+  l2Normalise,
   q2EncodeDirect,
   DTYPE_TO_Q2,
   Q2_DTYPE_FP32,
@@ -671,7 +671,7 @@ export function onEmbedding(msg: EmbeddingMsg): void {
       const inputBytes = new Uint8Array(msg.data);
       mem.set(inputBytes, Q2_INPUT_OFFSET);
 
-      // Run quantisation: mean-pool, L2-normalise, threshold, Gray-encode.
+      // Run quantisation: L2-normalise last token, threshold, Gray-encode.
       kernel.quantise(Q2_INPUT_OFFSET, seqLen, n, dtypeId, Q2_OUTPUT_OFFSET);
 
       // Derive the 64-bit transition key.
@@ -689,11 +689,8 @@ export function onEmbedding(msg: EmbeddingMsg): void {
         console.warn(`Q² TS fallback: dtype=${dtype} requires WASM kernel; skipping.`);
         return;
       }
-      const vec = meanPoolAndNormalise(
-        new Float32Array(msg.data),
-        seqLen,
-        n,
-      );
+      const all = new Float32Array(msg.data);
+      const vec = l2Normalise(all.subarray((seqLen - 1) * n, seqLen * n), n);
       const { packed, key } = q2EncodeDirect(vec, n);
       renderQ2Result(packed, BigInt.asUintN(64, key), n);
     }

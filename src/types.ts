@@ -64,8 +64,8 @@ export interface TokenMsg {
  * Shape: [batch=1, seq_len, hidden_dim]
  *
  * This data is the input to the quaternary quantization (Q²) WASM kernel
- * (src/q2.wat).  The kernel mean-pools over seq_len, L2-normalises the
- * resulting n-dimensional vector, and produces a packed Uint8Array of n/4
+ * (src/q2.wat).  The kernel L2-normalises the hidden-state activation at the
+ * last token position (seq_len − 1) and produces a packed Uint8Array of n/4
  * Gray-encoded bytes together with a 64-bit transition key.
  */
 export interface EmbeddingMsg {

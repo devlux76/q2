@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   q2EncodeDirect,
   q2KeyDirect,
-  meanPoolAndNormalise,
+  l2Normalise,
   Q2_DTYPE_FP32,
   Q2_DTYPE_FP16,
   Q2_DTYPE_Q8,
@@ -136,22 +136,20 @@ describe('q2KeyDirect', () => {
   });
 });
 
-describe('meanPoolAndNormalise', () => {
-  it('mean-pools seq_len=1 identically (no averaging needed)', () => {
+describe('l2Normalise', () => {
+  it('normalises a unit vector along dim 0 to itself', () => {
     const n = 4;
-    const data = new Float32Array([1, 0, 0, 0]); // unit vector along dim 0
-    const v = meanPoolAndNormalise(data, 1, n);
+    const data = new Float32Array([1, 0, 0, 0]);
+    const v = l2Normalise(data, n);
     expect(v.length).toBe(n);
     expect(v[0]).toBeCloseTo(1, 5);
     for (let i = 1; i < n; i++) expect(v[i]).toBeCloseTo(0, 5);
   });
 
-  it('mean-pools two identical rows to the same normalised vector', () => {
+  it('normalises a scaled vector to unit length', () => {
     const n = 4;
-    const row = new Float32Array([3, 4, 0, 0]); // norm = 5
-    const data = new Float32Array([...row, ...row]); // 2 identical rows
-    const v = meanPoolAndNormalise(data, 2, n);
-    // Mean = same row; normalised: [0.6, 0.8, 0, 0]
+    const data = new Float32Array([3, 4, 0, 0]); // norm = 5
+    const v = l2Normalise(data, n);
     expect(v[0]).toBeCloseTo(0.6, 5);
     expect(v[1]).toBeCloseTo(0.8, 5);
     expect(v[2]).toBeCloseTo(0, 5);
@@ -161,7 +159,7 @@ describe('meanPoolAndNormalise', () => {
   it('returns unit vector (L2 norm ≈ 1)', () => {
     const n = 8;
     const data = new Float32Array(n).map((_, i) => Math.sin(i + 1));
-    const v = meanPoolAndNormalise(data, 1, n);
+    const v = l2Normalise(data, n);
     const normSq = Array.from(v).reduce((s, x) => s + x * x, 0);
     expect(normSq).toBeCloseTo(1, 5);
   });
@@ -169,7 +167,7 @@ describe('meanPoolAndNormalise', () => {
   it('handles zero vector gracefully (no NaN)', () => {
     const n = 4;
     const data = new Float32Array(n); // all zeros
-    const v = meanPoolAndNormalise(data, 1, n);
+    const v = l2Normalise(data, n);
     for (const x of v) expect(isFinite(x)).toBe(true);
   });
 });
