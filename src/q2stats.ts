@@ -375,14 +375,22 @@ export function weightedLeeDistanceSeq(
  * complement pair: it corresponds to the complement palindrome codon measured
  * by `hairpinDensity`.  Nested hairpins produce scores > 1.
  *
- * Complexity: O(n³) time, O(n²) space.  Cap input at 2 000 symbols for
- * tractability (as recommended in PREDICTIONS.md §P7).
+ * Complexity: O(n³) time, O(n²) space.  Input must be at most 2 000 symbols;
+ * a RangeError is thrown for longer sequences.  Use a windowed or greedy
+ * heuristic (e.g. analyse the first 2 000 symbols) for longer texts.
  *
- * @param seq - run-reduced (or raw) transition sequence
+ * @param seq - run-reduced (or raw) transition sequence (length ≤ 2 000)
  * @returns   maximum number of non-crossing complement pairs
+ * @throws    {RangeError} if `seq.length > 2000`
  */
 export function nussinovScore(seq: number[]): number {
   const n = seq.length;
+  if (n > 2000) {
+    throw new RangeError(
+      `nussinovScore: sequence length ${n} exceeds the 2 000-symbol cap. ` +
+      'Truncate the input or analyse a representative 2 000-symbol window.',
+    );
+  }
   if (n < 3) return 0;
 
   // Allocate dp[i][j] = max pairs in seq[i..j] (inclusive)

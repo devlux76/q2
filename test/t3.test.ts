@@ -172,18 +172,20 @@ describe('T3-P3: complement bigram frequency < 1/3 in structured sequences', () 
     }
   });
 
-  it('Dialectical sequences have complement bigram frequency below null (< 1/3)', () => {
+  it('Dialectical sequences have elevated complement bigram frequency (> 1/3, from injected palindromes)', () => {
+    // The dialectical generator inserts complement palindromes at a 50% rate.
+    // Each palindrome contributes 2 complement bigrams out of ~3 new symbols, so
+    // the overall cbf ≈ 2/3 (well above the null 1/3).  This is the complement
+    // of P3 suppression: sequences that explicitly revisit semantic opposites show
+    // elevated complement bigrams, not suppressed ones.
     const cbfs: number[] = [];
     for (let seed = 0; seed < N_SAMPLES; seed++) {
       cbfs.push(complementBigramFreq(dialecticalSeq(SEQ_LENGTH, seed)));
     }
     const mean = cbfs.reduce((a, b) => a + b, 0) / cbfs.length;
-    // With 50% hairpin steps, each hairpin contributes 2 complement bigrams (out of
-    // ~3 symbols), so cbf approaches 2/3.  But the non-hairpin adjacent steps (the
-    // other 50%) contribute 0, so mean cbf ≈ 50%*2/3 / (50%*3+50%*1) ≈ 0.33 / 2 = not quite.
-    // The key test is structural: no segment should exceed 1.0 (it's a rate).
-    expect(mean).toBeGreaterThanOrEqual(0);
-    expect(mean).toBeLessThanOrEqual(1);
+    // Mean cbf should be well above the null (1/3); each hairpin contributes 2
+    // complement bigrams and the non-hairpin steps contribute 0.
+    expect(mean).toBeGreaterThan(NULL_CBF);
   });
 
   it('Direct (random) sequences have complement bigram frequency ≈ 1/3', () => {
@@ -422,7 +424,7 @@ describe('T3-P6: two-stage hash + Lee search reduces candidate set', () => {
     return key;
   }
 
-  it('prefix filter with k=8 bits reduces 200-document corpus to ~1% or fewer candidates', () => {
+  it('prefix filter with k=8 bits reduces 200-document corpus to a small fraction of candidates', () => {
     const CORPUS_SIZE = 200;
     const K = 8; // top 8 bits
 
@@ -433,9 +435,10 @@ describe('T3-P6: two-stage hash + Lee search reduces candidate set', () => {
     // Count corpus documents whose key prefix matches the query
     const candidates = corpusKeys.filter((k) => keyPrefix(k, K) === queryPrefix);
 
-    // Expected: ~CORPUS_SIZE / 2^K = 200 / 256 ≈ 0.78 → 0 or 1 matches on average
-    // The filter should drastically reduce the candidate set.
-    expect(candidates.length).toBeLessThan(CORPUS_SIZE); // strictly fewer than corpus
+    // Expected: ~CORPUS_SIZE / 2^K = 200 / 256 ≈ 0.78 → 0 or 1 matches on average.
+    // Allow a generous 10× slack over the mean; ≤ 10 is still a dramatic reduction
+    // compared to the full corpus size of 200, validating that Stage 1 is effective.
+    expect(candidates.length).toBeLessThanOrEqual(10);
   });
 
   it('prefix filter with larger k=12 is strictly more selective than k=8', () => {
@@ -548,6 +551,19 @@ describe('T3-P7: Nussinov secondary structure score detects nested complement pa
     expect(nussinovScore(twoPalindromes)).toBeLessThanOrEqual(
       nussinovScore(threePalindromes),
     );
+  });
+
+  it('throws RangeError for sequences longer than 2 000 symbols', () => {
+    // The 2 000-symbol cap prevents O(n³) hangs on accidentally large inputs.
+    const longSeq = new Array(2001).fill(0);
+    expect(() => nussinovScore(longSeq)).toThrow(RangeError);
+    expect(() => nussinovScore(longSeq)).toThrow(/2 000-symbol cap/);
+  });
+
+  it('accepts sequences within the 2 000-symbol limit without throwing', () => {
+    // Verify the happy path; avoid running the full O(n³) DP at n=2 000 in tests.
+    const smallSeq = new Array(100).fill(0);
+    expect(() => nussinovScore(smallSeq)).not.toThrow();
   });
 
   it('dialectical sequences score higher than negated sequences on average', () => {

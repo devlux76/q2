@@ -265,9 +265,10 @@ describe('T4-P3: complement bigram suppression < 1/3 in T4 sequences', () => {
     }
     // With random normal activations, cbf should be near null (≈ 1/3)
     const mean = cbfs.reduce((a, b) => a + b, 0) / cbfs.length;
-    // Null expectation; Q² on truly random activations should be near 1/3
-    expect(mean).toBeGreaterThan(0.1);
-    expect(mean).toBeLessThan(0.7);
+    // With random normal activations, cbf should be near the null (≈ 1/3).
+    // Use a ±0.1 tolerance around 1/3 ≈ 0.333 to catch meaningful regressions.
+    expect(mean).toBeGreaterThan(1 / 3 - 0.1);
+    expect(mean).toBeLessThan(1 / 3 + 0.1);
   });
 });
 
@@ -301,7 +302,7 @@ describe('T4-P5: reverse-complement antonym retrieval — above chance, smaller 
 
       // Perturb the antonym at 1–2 positions (simulating LLM noise)
       const noisyAntonym = [...exactAntonym];
-      const noisyPositions = Math.floor(rng() * 2); // 0 or 1 perturbations
+      const noisyPositions = 1 + Math.floor(rng() * 2); // 1 or 2 perturbations
       for (let p = 0; p < noisyPositions; p++) {
         const pos = Math.floor(rng() * len);
         noisyAntonym[pos] = (noisyAntonym[pos]! + 1 + Math.floor(rng() * 3)) % 4;
@@ -417,15 +418,19 @@ describe('T4-P7: secondary structure complexity present but noisier in T4 sequen
     }
   });
 
-  it('T4 variance in Nussinov scores is higher than T3 variance (noisier signal)', () => {
+  it('T4 has higher coefficient of variation (CV) in Nussinov scores than T3 (noisier signal)', () => {
     // T3 dialectical uses 50% hairpin rate; T4 uses 20%.
-    // Higher hairpin rate → more consistent Nussinov scores → lower variance.
+    // Lower hairpin rate → weaker signal relative to its own variability, i.e. higher
+    // coefficient of variation (CV = std / mean).  The CV is the correct measure of
+    // "noisiness" when comparing systems with different mean signal levels.
     const SEQ_LENGTH = 60;
     const N = 50;
 
-    function variance(xs: number[]): number {
+    function cv(xs: number[]): number {
       const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
-      return xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length;
+      if (mean === 0) return Infinity;
+      const variance = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length;
+      return Math.sqrt(variance) / mean;
     }
 
     const t3Scores: number[] = [];
@@ -455,14 +460,9 @@ describe('T4-P7: secondary structure complexity present but noisier in T4 sequen
     const meanT4 = t4Scores.reduce((a, b) => a + b, 0) / N;
     expect(meanT3).toBeGreaterThanOrEqual(meanT4);
 
-    // T3 and T4 scores should both be >= 0
-    for (const s of t3Scores) expect(s).toBeGreaterThanOrEqual(0);
-    for (const s of t4Scores) expect(s).toBeGreaterThanOrEqual(0);
-
-    // The coefficient of variation (std/mean) should be non-negative for both
-    const varT3 = variance(t3Scores);
-    const varT4 = variance(t4Scores);
-    expect(varT3).toBeGreaterThanOrEqual(0);
-    expect(varT4).toBeGreaterThanOrEqual(0);
+    // T4 should have a higher CV (noisier relative to its own mean signal level)
+    const cvT3 = cv(t3Scores);
+    const cvT4 = cv(t4Scores);
+    expect(cvT4).toBeGreaterThan(cvT3);
   });
 });
