@@ -38,8 +38,8 @@
 ### 1.1 Embeddings and the unit hypersphere
 
 A transformer model maps a document to a vector in $\mathbb{R}^n$ by passing its token
-sequence through the network, mean-pooling activations over token positions, and
-L2-normalising the result. The output is a point on the unit hypersphere:
+sequence through the network and L2-normalising the hidden-state activation at a
+selected token position. The output is a point on the unit hypersphere:
 
 $$e \in S^{n-1} = \left\{ x \in \mathbb{R}^n : \|x\| = 1 \right\}$$
 
@@ -49,6 +49,17 @@ measured by cosine similarity, which equals the dot product between normalised v
 $$\text{sim}(u, v) = u \cdot v = \cos\theta_{uv}$$
 
 where $\theta_{uv}$ is the angle between $u$ and $v$.
+
+**Why not mean-pool?** Mean-pooling the token activations — computing
+$\bar{h} = \frac{1}{T}\sum_{t=1}^{T} h_t$ where $h_t \in \mathbb{R}^n$ is the
+hidden-state activation at position $t$ — produces a vector strictly inside the unit
+ball ($\|\bar{h}\| \leq 1$). When the document's tokens activate semantically diverse
+directions, as any non-trivial document does, the centroid is short because distinct
+directions cancel. The subsequent L2 renormalisation stretches $\bar{h}$ back to
+$S^{n-1}$ by the factor $1/\|\bar{h}\|$. The components that survive cancellation are
+those common to all token positions — model-specific bias and positional structure —
+not the document's semantically distinctive content. Mean-pooling as a
+dimensional-reduction technique therefore increases the noise and lowers the signal.
 
 ---
 
@@ -276,7 +287,7 @@ indistinguishable. For activations drawn from $\mathcal{N}(0, \sigma^{2})$:
 
 $$I(v_i;\ q_{\text{bin}}(v_i)) = H(q_{\text{bin}}(v_i)) = 1 \text{ bit}$$
 
-The magnitude information — which for mean-pooled transformer activations is
+The magnitude information — which for transformer activations is
 substantial — is absent from the index.
 
 ---

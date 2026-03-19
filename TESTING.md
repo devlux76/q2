@@ -304,8 +304,7 @@ from a general-purpose LLM rather than a retrieval-optimised model.
 > (double-gated conv) blocks then 6 GQA blocks; the embedding hook uses hidden states
 > from the last LIV block (layer index 9, 0-based).
 
-**Activation source.** Final hidden-layer activations, mean-pooled over token
-positions, L2-normalised. No retrieval fine-tuning.
+**Activation source.** Final hidden-layer activation at the selected token position, L2-normalised. No retrieval fine-tuning.
 
 **Corpus.** Same BEIR benchmark as T3 (corpus C3). General natural language corpus
 (corpus C1, ~200 MB): `togethercomputer/RedPajama-Data-1T` sampling from books,
