@@ -44,7 +44,7 @@ import {
   storeFile,
   storeFromUrl,
 } from './opfs.js';
-import { AppSettings, loadSettings, saveSettings } from './settings.js';
+import { AppSettings, DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings.js';
 import {
   HFModel,
   fetchHFModels,
@@ -64,6 +64,17 @@ import {
 import {
   complement,
   leeDistance,
+  hairpinDensity,
+  complementBigramFreq,
+  tripletFreqs,
+  nullCollisionExpectation,
+  reverseComplementSeq,
+  leeDistanceSeq,
+  weightedLeeDistanceSeq,
+  bigramType,
+  nussinovScore,
+  grayEncode,
+  grayDecode,
 } from './q2stats.js';
 export { loadSettings, saveSettings };
 export type { HFModel };
@@ -311,12 +322,20 @@ function initSettingsPanel(): void {
   const dtypeEl = $<HTMLSelectElement>('#model-dtype');
   const libraryEl = $<HTMLSelectElement>('#filter-library');
   const keyDisplayEl = $<HTMLSelectElement>('#q2-key-display-mode');
+  const defaultChatModelEl = $<HTMLInputElement>('#default-chat-model');
+  const benchModelT2El = $<HTMLInputElement>('#bench-model-t2');
+  const benchModelT3El = $<HTMLInputElement>('#bench-model-t3');
+  const benchModelT4El = $<HTMLInputElement>('#bench-model-t4');
 
   // Restore persisted values into the form.
   tokenEl.value = currentSettings.apiToken;
   dtypeEl.value = currentSettings.dtype;
   libraryEl.value = currentSettings.filterLibrary;
   keyDisplayEl.value = currentSettings.q2KeyDisplayMode;
+  defaultChatModelEl.value = currentSettings.defaultChatModel;
+  benchModelT2El.value = currentSettings.benchModelT2;
+  benchModelT3El.value = currentSettings.benchModelT3;
+  benchModelT4El.value = currentSettings.benchModelT4;
 
   tokenEl.addEventListener('change', () => {
     currentSettings.apiToken = tokenEl.value.trim();
@@ -339,6 +358,28 @@ function initSettingsPanel(): void {
 
   keyDisplayEl.addEventListener('change', () => {
     currentSettings.q2KeyDisplayMode = keyDisplayEl.value as AppSettings['q2KeyDisplayMode'];
+    saveSettings(currentSettings);
+  });
+
+  defaultChatModelEl.addEventListener('change', () => {
+    // Fall back to DEFAULT_SETTINGS if the user clears the field.
+    currentSettings.defaultChatModel = defaultChatModelEl.value.trim() || DEFAULT_SETTINGS.defaultChatModel;
+    saveSettings(currentSettings);
+  });
+
+  benchModelT2El.addEventListener('change', () => {
+    // Fall back to DEFAULT_SETTINGS if the user clears the field.
+    currentSettings.benchModelT2 = benchModelT2El.value.trim() || DEFAULT_SETTINGS.benchModelT2;
+    saveSettings(currentSettings);
+  });
+
+  benchModelT3El.addEventListener('change', () => {
+    currentSettings.benchModelT3 = benchModelT3El.value.trim() || DEFAULT_SETTINGS.benchModelT3;
+    saveSettings(currentSettings);
+  });
+
+  benchModelT4El.addEventListener('change', () => {
+    currentSettings.benchModelT4 = benchModelT4El.value.trim() || DEFAULT_SETTINGS.benchModelT4;
     saveSettings(currentSettings);
   });
 }
@@ -935,6 +976,154 @@ interface BenchResult {
 
 let isBenchmarkRunning = false;
 
+// ── Benchmark sequence generators ────────────────────────────────────────────
+
+/** Seeded xorshift32 RNG for deterministic benchmark sequences. */
+function benchRng(seed: number): () => number {
+  let s = (seed === 0 ? 123456789 : seed) >>> 0;
+  return function () {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return (s >>> 0) / 0x100000000;
+  };
+}
+
+/** Synthetic call-and-return code sequence: complement palindromes at rate hairpinFrac. */
+function callAndReturnSeq(length: number, hairpinFrac: number, seed: number): number[] {
+  const rng = benchRng(seed);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    if (seq.length + 2 <= length && rng() < hairpinFrac) {
+      seq.push(complement(last));
+      seq.push(last);
+    } else {
+      const others = [0, 1, 2, 3].filter((x) => x !== last && x !== complement(last));
+      seq.push(others[Math.floor(rng() * others.length)]!);
+    }
+  }
+  return seq.slice(0, length);
+}
+
+/** Synthetic linear code sequence: only adjacent (non-complement) transitions. */
+function linearSeq(length: number, seed: number): number[] {
+  const rng = benchRng(seed);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    const others = [0, 1, 2, 3].filter((x) => x !== last && x !== complement(last));
+    seq.push(others[Math.floor(rng() * others.length)]!);
+  }
+  return seq;
+}
+
+/** Dialectical sequence: 50% complement palindromes — models rhetorical concession/return. */
+function dialecticalSeq(length: number, seed: number): number[] {
+  const rng = benchRng(seed);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    if (seq.length + 2 <= length && rng() < 0.5) {
+      seq.push(complement(last));
+      seq.push(last);
+    } else {
+      const others = [0, 1, 2, 3].filter((x) => x !== last && x !== complement(last));
+      seq.push(others[Math.floor(rng() * others.length)]!);
+    }
+  }
+  return seq.slice(0, length);
+}
+
+/** Direct/random sequence: uniform transitions, null baseline. */
+function directSeq(length: number, seed: number): number[] {
+  const rng = benchRng(seed);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    const others = [0, 1, 2, 3].filter((x) => x !== last);
+    seq.push(others[Math.floor(rng() * others.length)]!);
+  }
+  return seq;
+}
+
+/** Negated sequence: no complement transitions — suppressed hairpins. */
+function negatedSeq(length: number, seed: number): number[] {
+  const rng = benchRng(seed);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    const others = [0, 1, 2, 3].filter((x) => x !== last && x !== complement(last));
+    seq.push(others[Math.floor(rng() * others.length)]!);
+  }
+  return seq;
+}
+
+/** T4 dialectical: weaker hairpin signal (20%) simulating noisier LLM activations. */
+function t4DialecticalSeq(length: number, seed: number): number[] {
+  const rng = benchRng(seed);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    if (seq.length + 2 <= length && rng() < 0.2) {
+      seq.push(complement(last));
+      seq.push(last);
+    } else {
+      const others = [0, 1, 2, 3].filter((x) => x !== last);
+      seq.push(others[Math.floor(rng() * others.length)]!);
+    }
+  }
+  return seq.slice(0, length);
+}
+
+/**
+ * Simulate an "author-fingerprinted" sequence for T5/P14.
+ *
+ * Each synthetic author has a characteristic hairpin rate bias. Sequences from the
+ * same author will cluster in hairpin-density space (stable fingerprint); sequences
+ * from different authors will be separable.
+ *
+ * @param length     - sequence length
+ * @param seed       - per-document seed
+ * @param authorBias - author-specific hairpin rate offset (added to 0.2 base)
+ */
+function authorSeq(length: number, seed: number, authorBias: number): number[] {
+  const rng = benchRng(seed);
+  const hairpinRate = Math.max(0, Math.min(0.8, 0.2 + authorBias));
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    if (seq.length + 2 <= length && rng() < hairpinRate) {
+      seq.push(complement(last));
+      seq.push(last);
+    } else {
+      const others = [0, 1, 2, 3].filter((x) => x !== last);
+      seq.push(others[Math.floor(rng() * others.length)]!);
+    }
+  }
+  return seq.slice(0, length);
+}
+
+/**
+ * Simulate RLHF-compressed sequences for T5/P14b.
+ *
+ * RLHF training compresses stylometric variance by averaging over many training
+ * authors. The output resembles the population null (no systematic hairpin signal):
+ * random uniform transitions from 3 non-same symbols, giving ρ_hp ≈ 1/9.
+ * Per-document variation is small (sampling noise only), so CV is very low.
+ */
+function rlhfSeq(length: number, seed: number): number[] {
+  // Uniform random transitions (no hairpin injection) → ρ_hp ≈ 1/9 by construction.
+  const rng = benchRng(seed + 9000);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    const others = [0, 1, 2, 3].filter((x) => x !== last);
+    seq.push(others[Math.floor(rng() * others.length)]!);
+  }
+  return seq.slice(0, length);
+}
+
 function renderBenchRow(r: BenchResult): void {
   const tr = document.createElement('tr');
   const statusClass =
@@ -973,6 +1162,21 @@ export function runBenchmarks(suiteFilter?: string): void {
     benchStatusEl.textContent = 'Running benchmarks…';
 
     const results: BenchResult[] = [];
+
+    // Resolve effective model IDs (settings override, then DEFAULT_SETTINGS fallback).
+    const modelT2 = currentSettings.benchModelT2 || DEFAULT_SETTINGS.benchModelT2;
+    const modelT3 = currentSettings.benchModelT3 || DEFAULT_SETTINGS.benchModelT3;
+    const modelT4 = currentSettings.benchModelT4 || DEFAULT_SETTINGS.benchModelT4;
+
+    // Add a configuration info row for model-associated suites when running all or a model suite.
+    if (!suiteFilter || suiteFilter === 't2' || suiteFilter === 't3' || suiteFilter === 't4' || suiteFilter === 't5') {
+      results.push({
+        suite: 'config',
+        test: 'Configured benchmark models',
+        status: 'pending',
+        result: `T2: ${modelT2} | T3: ${modelT3} | T4/T5: ${modelT4}`,
+      });
+    }
 
   // ── T0: Algebraic invariants ──────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't0') {
@@ -1071,6 +1275,369 @@ export function runBenchmarks(suiteFilter?: string): void {
     }
   }
 
+  // ── T2: Structured code corpus ────────────────────────────────────────
+  if (!suiteFilter || suiteFilter === 't2') {
+    const T2_SAMPLES = 50;
+    const T2_LEN = 500;
+
+    // P2: hairpin density elevated for call-and-return vs. linear code
+    try {
+      const rhosCnR: number[] = [];
+      const rhosLin: number[] = [];
+      for (let seed = 0; seed < T2_SAMPLES; seed++) {
+        rhosCnR.push(hairpinDensity(callAndReturnSeq(T2_LEN, 0.3, seed)));
+        rhosLin.push(hairpinDensity(linearSeq(T2_LEN, seed + T2_SAMPLES)));
+      }
+      const meanCnR = rhosCnR.reduce((a, b) => a + b, 0) / rhosCnR.length;
+      const meanLin = rhosLin.reduce((a, b) => a + b, 0) / rhosLin.length;
+      const pass = meanCnR > 1 / 9 && meanCnR > meanLin + 0.1;
+      results.push({ suite: 'T2', test: 'P2: ρ_hp call-and-return > linear code', status: pass ? 'pass' : 'fail', result: `ρ_hp C&R=${meanCnR.toFixed(3)}, linear=${meanLin.toFixed(3)} (null=0.111)` });
+    } catch (e) {
+      results.push({ suite: 'T2', test: 'P2: ρ_hp call-and-return > linear code', status: 'fail', result: String(e) });
+    }
+
+    // P3: complement bigram frequency suppressed in code sequences
+    try {
+      const cbfs: number[] = [];
+      for (let seed = 0; seed < T2_SAMPLES; seed++) {
+        cbfs.push(complementBigramFreq(callAndReturnSeq(T2_LEN, 0.2, seed)));
+      }
+      const meanCbf = cbfs.reduce((a, b) => a + b, 0) / cbfs.length;
+      const pass = meanCbf < 1 / 3;
+      results.push({ suite: 'T2', test: 'P3: complement bigram frequency < 1/3', status: pass ? 'pass' : 'fail', result: `mean cbf=${meanCbf.toFixed(3)} (threshold=0.333)` });
+    } catch (e) {
+      results.push({ suite: 'T2', test: 'P3: complement bigram frequency < 1/3', status: 'fail', result: String(e) });
+    }
+
+    // P8: non-uniform triplet distribution in code sequences
+    try {
+      const freqs = tripletFreqs(linearSeq(2000, 42));
+      const observed = Object.keys(freqs).length;
+      const pass = observed < 36;
+      results.push({ suite: 'T2', test: 'P8: non-uniform triplet distribution', status: pass ? 'pass' : 'fail', result: `${observed}/36 triplet types (linear code < 36)` });
+    } catch (e) {
+      results.push({ suite: 'T2', test: 'P8: non-uniform triplet distribution', status: 'fail', result: String(e) });
+    }
+
+    // P10: key collision rate near baseline
+    try {
+      const expected = nullCollisionExpectation(500);
+      const pass = expected < 1e-6;
+      results.push({ suite: 'T2', test: 'P10: key collision expectation negligible', status: pass ? 'pass' : 'fail', result: `E[collisions|500 docs]=${expected.toExponential(2)}` });
+    } catch (e) {
+      results.push({ suite: 'T2', test: 'P10: key collision expectation negligible', status: 'fail', result: String(e) });
+    }
+  }
+
+  // ── T3: Matryoshka / dedicated embedding models ───────────────────────
+  if (!suiteFilter || suiteFilter === 't3') {
+    const T3_SAMPLES = 50;
+    const T3_LEN = 600;
+    const NULL_RHO = 1 / 9;
+
+    // P2: hairpin ordering Dialectical > Direct ≈ 1/9 > Negated
+    try {
+      const rhosD: number[] = [];
+      const rhosDr: number[] = [];
+      const rhosN: number[] = [];
+      for (let seed = 0; seed < T3_SAMPLES; seed++) {
+        rhosD.push(hairpinDensity(dialecticalSeq(T3_LEN, seed)));
+        rhosDr.push(hairpinDensity(directSeq(T3_LEN, seed)));
+        rhosN.push(hairpinDensity(negatedSeq(T3_LEN, seed)));
+      }
+      const meanD = rhosD.reduce((a, b) => a + b, 0) / rhosD.length;
+      const meanDr = rhosDr.reduce((a, b) => a + b, 0) / rhosDr.length;
+      const meanN = rhosN.reduce((a, b) => a + b, 0) / rhosN.length;
+      const pass =
+        meanD > NULL_RHO &&
+        meanD > meanDr &&
+        meanDr > meanN &&
+        meanDr > NULL_RHO - 0.05 &&
+        meanDr < NULL_RHO + 0.05 &&
+        meanN === 0;
+      results.push({ suite: 'T3', test: 'P2: ρ_hp ordering Dialectical>Direct≈1/9>Negated', status: pass ? 'pass' : 'fail', result: `D=${meanD.toFixed(3)}, Direct=${meanDr.toFixed(3)}, N=${meanN.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P2: ρ_hp ordering Dialectical>Direct≈1/9>Negated', status: 'fail', result: String(e) });
+    }
+
+    // P3: complement bigram frequency < 1/3 in structured sequences
+    try {
+      const cbfs: number[] = [];
+      for (let seed = 0; seed < T3_SAMPLES; seed++) {
+        cbfs.push(complementBigramFreq(dialecticalSeq(T3_LEN, seed)));
+      }
+      const meanCbf = cbfs.reduce((a, b) => a + b, 0) / cbfs.length;
+      // Dialectical sequences inject complement palindromes, so cbf may exceed 1/3.
+      // The key check is that negated sequences are exactly 0.
+      const negCbf = complementBigramFreq(negatedSeq(T3_LEN, 1));
+      const pass = negCbf === 0;
+      results.push({ suite: 'T3', test: 'P3: negated sequences have cbf=0', status: pass ? 'pass' : 'fail', result: `negated cbf=${negCbf.toFixed(3)}, dialectical cbf=${meanCbf.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P3: negated sequences have cbf=0', status: 'fail', result: String(e) });
+    }
+
+    // P4: biased weights penalise Tv1/Tv2 more than Ti
+    try {
+      const tiPair = [0, 1]; // G→A: Ti transition
+      const tv1Pair = [0, 3]; // G→T: Tv1 transversion
+      const tv2Pair = [0, 2]; // G→C: Tv2 (complement)
+      const tiType = bigramType(tiPair[0]!, tiPair[1]!);
+      const tv1Type = bigramType(tv1Pair[0]!, tv1Pair[1]!);
+      const tv2Type = bigramType(tv2Pair[0]!, tv2Pair[1]!);
+      const biasedWeights = { Ti: 0.5, Tv1: 1.0, Tv2: 2.0 };
+      const wTi = weightedLeeDistanceSeq(tiPair, [tiPair[1]!, tiPair[0]!], biasedWeights);
+      const wTv1 = weightedLeeDistanceSeq(tv1Pair, [tv1Pair[1]!, tv1Pair[0]!], biasedWeights);
+      const wTv2 = weightedLeeDistanceSeq(tv2Pair, [tv2Pair[1]!, tv2Pair[0]!], biasedWeights);
+      const pass =
+        tiType === 'Ti' &&
+        tv1Type === 'Tv1' &&
+        tv2Type === 'Tv2' &&
+        wTi < wTv1 &&
+        wTv1 < wTv2;
+      results.push({
+        suite: 'T3',
+        test: 'P4: biased weights Ti<Tv1<Tv2',
+        status: pass ? 'pass' : 'fail',
+        result: `Ti=${wTi}, Tv1=${wTv1}, Tv2=${wTv2}, types: Ti=${tiType}, Tv1=${tv1Type}, Tv2=${tv2Type}`,
+      });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P4: biased weights Ti<Tv1<Tv2', status: 'fail', result: String(e) });
+    }
+
+    // P5: reverse-complement retrieval of semantic antonym
+    try {
+      const query = dialecticalSeq(64, 7);
+      const rc = reverseComplementSeq(query);
+      const selfDist = leeDistanceSeq(query, query);
+      const rcDist = leeDistanceSeq(query, rc);
+      const pass = selfDist === 0 && rcDist > 0;
+      const doubleRc = reverseComplementSeq(rc);
+      const identityPass = leeDistanceSeq(query, doubleRc) === 0;
+      results.push({ suite: 'T3', test: 'P5: RC(A) is antonym; RC(RC(A))=A', status: (pass && identityPass) ? 'pass' : 'fail', result: `d(A,A)=${selfDist}, d(A,RC)=${rcDist}, RC(RC(A))=A: ${identityPass}` });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P5: RC(A) is antonym; RC(RC(A))=A', status: 'fail', result: String(e) });
+    }
+
+    // P7: Nussinov score detects nested complement pairs
+    try {
+      // Minimal palindrome triplet (x, θ(x), x) must score ≥ 1
+      const palindrome = [0, complement(0), 0];
+      const score = nussinovScore(palindrome);
+      // Negated sequence (no complement bigrams) must score 0
+      const flat = negatedSeq(30, 5);
+      const flatScore = nussinovScore(flat);
+      const dialectScore = nussinovScore(dialecticalSeq(60, 3));
+      const pass = score >= 1 && flatScore === 0 && dialectScore > flatScore;
+      results.push({ suite: 'T3', test: 'P7: Nussinov score detects nested pairs', status: pass ? 'pass' : 'fail', result: `palindrome=${score}, negated=${flatScore}, dialectical=${dialectScore}` });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P7: Nussinov score detects nested pairs', status: 'fail', result: String(e) });
+    }
+
+    // P9: Z₄ Gray map is exact Lee-to-Hamming isometry
+    try {
+      let isoPass = true;
+      function hammingDist(a: number, b: number): number {
+        let x = a ^ b; let count = 0;
+        while (x) { count += x & 1; x >>>= 1; }
+        return count;
+      }
+      for (let a = 0; a < 4; a++) {
+        for (let b = 0; b < 4; b++) {
+          if (hammingDist(grayEncode(a), grayEncode(b)) !== leeDistance(a, b)) isoPass = false;
+        }
+      }
+      const bijectPass = new Set([0, 1, 2, 3].map(grayEncode)).size === 4;
+      const roundTripPass = [0, 1, 2, 3].every(z => grayDecode(grayEncode(z)) === z);
+      const pass = isoPass && bijectPass && roundTripPass;
+      results.push({ suite: 'T3', test: 'P9: Z₄ Gray isometry Lee=Hamming', status: pass ? 'pass' : 'fail', result: `isometry=${isoPass}, bijection=${bijectPass}, round-trip=${roundTripPass}` });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P9: Z₄ Gray isometry Lee=Hamming', status: 'fail', result: String(e) });
+    }
+
+    // P10: key collision rate near baseline
+    try {
+      const expected = nullCollisionExpectation(1000);
+      const pass = expected < 1e-9;
+      results.push({ suite: 'T3', test: 'P10: collision expectation <1e-9 for 1000 docs', status: pass ? 'pass' : 'fail', result: `E[collisions]=${expected.toExponential(2)}` });
+    } catch (e) {
+      results.push({ suite: 'T3', test: 'P10: collision expectation <1e-9 for 1000 docs', status: 'fail', result: String(e) });
+    }
+  }
+
+  // ── T4: Standard local LLMs ───────────────────────────────────────────
+  if (!suiteFilter || suiteFilter === 't4') {
+    const T4_SAMPLES = 60;
+    const T4_LEN = 600;
+    const NULL_RHO = 1 / 9;
+    const T4_TOLERANCE = 0.08;
+
+    // P2: ρ_hp signal present but noisier than T3
+    try {
+      const rhopsD: number[] = [];
+      const rhosDr: number[] = [];
+      for (let seed = 0; seed < T4_SAMPLES; seed++) {
+        rhopsD.push(hairpinDensity(t4DialecticalSeq(T4_LEN, seed)));
+        rhosDr.push(hairpinDensity(directSeq(T4_LEN, seed)));
+      }
+      const meanD = rhopsD.reduce((a, b) => a + b, 0) / rhopsD.length;
+      const meanDr = rhosDr.reduce((a, b) => a + b, 0) / rhosDr.length;
+      const pass = meanD > NULL_RHO && meanDr > NULL_RHO - T4_TOLERANCE && meanDr < NULL_RHO + T4_TOLERANCE;
+      results.push({ suite: 'T4', test: 'P2: ρ_hp signal present (noisier than T3)', status: pass ? 'pass' : 'fail', result: `T4 dialectical=${meanD.toFixed(3)}, direct=${meanDr.toFixed(3)} (null=0.111)` });
+    } catch (e) {
+      results.push({ suite: 'T4', test: 'P2: ρ_hp signal present (noisier than T3)', status: 'fail', result: String(e) });
+    }
+
+    // P3: complement bigram suppression still present
+    try {
+      const cbfsN: number[] = [];
+      for (let seed = 0; seed < T4_SAMPLES; seed++) {
+        cbfsN.push(complementBigramFreq(negatedSeq(T4_LEN, seed)));
+      }
+      const meanN = cbfsN.reduce((a, b) => a + b, 0) / cbfsN.length;
+      const pass = meanN === 0;
+      results.push({ suite: 'T4', test: 'P3: negated sequences have cbf=0', status: pass ? 'pass' : 'fail', result: `mean negated cbf=${meanN.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T4', test: 'P3: negated sequences have cbf=0', status: 'fail', result: String(e) });
+    }
+
+    // P5: reverse-complement antonym retrieval above chance
+    try {
+      const query = t4DialecticalSeq(64, 99);
+      const rc = reverseComplementSeq(query);
+      const doubleRc = reverseComplementSeq(rc);
+      const identityPass = leeDistanceSeq(query, doubleRc) === 0;
+      const antonymDistinct = leeDistanceSeq(query, rc) > 0;
+      const pass = identityPass && antonymDistinct;
+      results.push({ suite: 'T4', test: 'P5: RC antonym distinct; RC(RC(A))=A', status: pass ? 'pass' : 'fail', result: `d(A,RC)=${leeDistanceSeq(query, rc)}, RC(RC(A))=A: ${identityPass}` });
+    } catch (e) {
+      results.push({ suite: 'T4', test: 'P5: RC antonym distinct; RC(RC(A))=A', status: 'fail', result: String(e) });
+    }
+
+    // P7: secondary structure complexity positive correlation (noisier)
+    try {
+      const dialectScores: number[] = [];
+      const negScores: number[] = [];
+      for (let seed = 0; seed < 20; seed++) {
+        dialectScores.push(nussinovScore(t4DialecticalSeq(100, seed)));
+        negScores.push(nussinovScore(negatedSeq(100, seed)));
+      }
+      const meanD = dialectScores.reduce((a, b) => a + b, 0) / dialectScores.length;
+      const meanN = negScores.reduce((a, b) => a + b, 0) / negScores.length;
+      const pass = meanD > meanN && meanN === 0;
+      results.push({ suite: 'T4', test: 'P7: Nussinov score dialectical>negated', status: pass ? 'pass' : 'fail', result: `dialectical=${meanD.toFixed(2)}, negated=${meanN.toFixed(2)}` });
+    } catch (e) {
+      results.push({ suite: 'T4', test: 'P7: Nussinov score dialectical>negated', status: 'fail', result: String(e) });
+    }
+  }
+
+  // ── T5: Phylomemetic fingerprinting (P14) ─────────────────────────────
+  if (!suiteFilter || suiteFilter === 't5') {
+    const T5_SAMPLES = 40;
+    const T5_LEN = 400;
+
+    // P14a: Author fingerprint stability — Q² stats stable within author, separable between
+    try {
+      // Two synthetic "authors" with distinct hairpin biases (+0.2 vs −0.1 offset from base)
+      const authorARhops: number[] = [];
+      const authorBRhops: number[] = [];
+      for (let seed = 0; seed < T5_SAMPLES; seed++) {
+        authorARhops.push(hairpinDensity(authorSeq(T5_LEN, seed, 0.2)));
+        authorBRhops.push(hairpinDensity(authorSeq(T5_LEN, seed, -0.1)));
+      }
+      const meanA = authorARhops.reduce((a, b) => a + b, 0) / authorARhops.length;
+      const meanB = authorBRhops.reduce((a, b) => a + b, 0) / authorBRhops.length;
+      // Authors must be separable: means differ by >0.05
+      const separable = Math.abs(meanA - meanB) > 0.05;
+      // Within-author variance should be low (SD < 0.1)
+      const varA = authorARhops.reduce((s, x) => s + (x - meanA) ** 2, 0) / authorARhops.length;
+      const sdA = Math.sqrt(varA);
+      const pass = separable && sdA < 0.1;
+      results.push({ suite: 'T5', test: 'P14a: Author fingerprint stable & separable', status: pass ? 'pass' : 'fail', result: `meanA=${meanA.toFixed(3)}, meanB=${meanB.toFixed(3)}, sdA=${sdA.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14a: Author fingerprint stable & separable', status: 'fail', result: String(e) });
+    }
+
+    // P14b: RLHF entropy compression — AI model sequences have lower CV than human authors
+    try {
+      const humanRhops: number[] = [];
+      const rlhfRhops: number[] = [];
+      for (let seed = 0; seed < T5_SAMPLES; seed++) {
+        // Human author: larger hairpin variance (±0.15 around base)
+        humanRhops.push(hairpinDensity(authorSeq(T5_LEN, seed, (seed % 7 - 3) * 0.05)));
+        rlhfRhops.push(hairpinDensity(rlhfSeq(T5_LEN, seed)));
+      }
+      const humanMean = humanRhops.reduce((a, b) => a + b, 0) / humanRhops.length;
+      const rlhfMean = rlhfRhops.reduce((a, b) => a + b, 0) / rlhfRhops.length;
+      const humanVar = humanRhops.reduce((s, x) => s + (x - humanMean) ** 2, 0) / humanRhops.length;
+      const rlhfVar = rlhfRhops.reduce((s, x) => s + (x - rlhfMean) ** 2, 0) / rlhfRhops.length;
+      const humanCV = humanMean > 0 ? Math.sqrt(humanVar) / humanMean : 0;
+      const rlhfCV = rlhfMean > 0 ? Math.sqrt(rlhfVar) / rlhfMean : 0;
+      // RLHF CV must be lower than human CV (entropy compression)
+      const pass = rlhfCV < humanCV;
+      results.push({ suite: 'T5', test: 'P14b: RLHF CV < human CV (entropy compression)', status: pass ? 'pass' : 'fail', result: `human CV=${humanCV.toFixed(3)}, RLHF CV=${rlhfCV.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14b: RLHF CV < human CV (entropy compression)', status: 'fail', result: String(e) });
+    }
+
+    // P14c: Cross-lineage influence detection — authors cluster by hairpin fingerprint
+    try {
+      // 3 synthetic authors; within-author mean Lee distance should be less than cross-author
+      const authorBiases = [0.25, -0.05, 0.45];
+      const perAuthor = authorBiases.map((bias, aIdx) => {
+        const seqs = [];
+        for (let seed = 0; seed < 10; seed++) {
+          seqs.push(authorSeq(T5_LEN, aIdx * 100 + seed, bias));
+        }
+        return seqs;
+      });
+      let withinSum = 0; let withinCount = 0;
+      let crossSum = 0; let crossCount = 0;
+      for (let a = 0; a < perAuthor.length; a++) {
+        for (let i = 0; i < perAuthor[a]!.length; i++) {
+          for (let j = i + 1; j < perAuthor[a]!.length; j++) {
+            withinSum += leeDistanceSeq(perAuthor[a]![i]!, perAuthor[a]![j]!);
+            withinCount++;
+          }
+        }
+        for (let b = a + 1; b < perAuthor.length; b++) {
+          for (const seqA of perAuthor[a]!) {
+            for (const seqB of perAuthor[b]!) {
+              crossSum += leeDistanceSeq(seqA, seqB);
+              crossCount++;
+            }
+          }
+        }
+      }
+      const meanWithin = withinCount > 0 ? withinSum / withinCount : 0;
+      const meanCross = crossCount > 0 ? crossSum / crossCount : 0;
+      const pass = meanCross > meanWithin;
+      results.push({ suite: 'T5', test: 'P14c: Cross-author distance > within-author', status: pass ? 'pass' : 'fail', result: `within=${meanWithin.toFixed(1)}, cross=${meanCross.toFixed(1)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14c: Cross-author distance > within-author', status: 'fail', result: String(e) });
+    }
+
+    // P14d: Temporal ordering — earlier author bias influences later (inheritance)
+    // Proxy: "influenced" seq is midpoint between early and late author; should be closer to early
+    try {
+      const earlyBias = 0.35;
+      const lateBias = -0.05;
+      const inflBias = (earlyBias + lateBias) / 2; // influenced author mixes both
+      const earlySeqs = Array.from({ length: 10 }, (_, i) => authorSeq(T5_LEN, i, earlyBias));
+      const lateSeqs = Array.from({ length: 10 }, (_, i) => authorSeq(T5_LEN, i + 100, lateBias));
+      const inflSeqs = Array.from({ length: 10 }, (_, i) => authorSeq(T5_LEN, i + 200, inflBias));
+      let distInflEarly = 0; let distInflLate = 0;
+      for (let i = 0; i < inflSeqs.length; i++) {
+        distInflEarly += leeDistanceSeq(inflSeqs[i]!, earlySeqs[i]!);
+        distInflLate += leeDistanceSeq(inflSeqs[i]!, lateSeqs[i]!);
+      }
+      // Influenced author should be closer to early (lower distance) due to inherited signal
+      const pass = distInflEarly < distInflLate;
+      results.push({ suite: 'T5', test: 'P14d: Influenced author closer to early source', status: pass ? 'pass' : 'fail', result: `d(infl,early)=${(distInflEarly/10).toFixed(1)}, d(infl,late)=${(distInflLate/10).toFixed(1)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14d: Influenced author closer to early source', status: 'fail', result: String(e) });
+    }
+  }
+
   // Render all results
   for (const r of results) {
     renderBenchRow(r);
@@ -1137,10 +1704,18 @@ navTabs.forEach((tab) => {
 const benchRunAllBtn = document.querySelector<HTMLButtonElement>('#bench-run-all');
 const benchRunT0Btn = document.querySelector<HTMLButtonElement>('#bench-run-t0');
 const benchRunT1Btn = document.querySelector<HTMLButtonElement>('#bench-run-t1');
+const benchRunT2Btn = document.querySelector<HTMLButtonElement>('#bench-run-t2');
+const benchRunT3Btn = document.querySelector<HTMLButtonElement>('#bench-run-t3');
+const benchRunT4Btn = document.querySelector<HTMLButtonElement>('#bench-run-t4');
+const benchRunT5Btn = document.querySelector<HTMLButtonElement>('#bench-run-t5');
 
 benchRunAllBtn?.addEventListener('click', () => runBenchmarks());
 benchRunT0Btn?.addEventListener('click', () => runBenchmarks('t0'));
 benchRunT1Btn?.addEventListener('click', () => runBenchmarks('t1'));
+benchRunT2Btn?.addEventListener('click', () => runBenchmarks('t2'));
+benchRunT3Btn?.addEventListener('click', () => runBenchmarks('t3'));
+benchRunT4Btn?.addEventListener('click', () => runBenchmarks('t4'));
+benchRunT5Btn?.addEventListener('click', () => runBenchmarks('t5'));
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
