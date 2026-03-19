@@ -18,7 +18,7 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request;
-            const text = `${pr.title}\n${pr.body ?? ''}`;
+            const text = pr.body ?? '';
 
             // Match GitHub issue/PR references:
             //   - #123
