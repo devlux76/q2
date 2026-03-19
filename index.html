@@ -3,21 +3,164 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Q² — ONNX Chat</title>
+  <title>Q² — Quaternary Quantization</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <!-- ── Model loading screen ──────────────────────────────────────────────── -->
-  <div id="load-screen">
-    <div class="load-card">
-      <div class="load-logo">Q²</div>
+  <!-- ── Top navigation ────────────────────────────────────────────────────── -->
+  <nav id="top-nav">
+    <span class="nav-logo">Q²</span>
+    <div id="nav-tabs" role="tablist" aria-label="Main navigation">
+      <button id="tab-chat" class="nav-tab active" role="tab" aria-selected="true" aria-controls="panel-chat" data-tab="chat" tabindex="0">Chat</button>
+      <button id="tab-benchmarks" class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-benchmarks" data-tab="benchmarks" tabindex="-1">Benchmarks</button>
+      <button id="tab-settings" class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings" tabindex="-1">Settings</button>
+    </div>
+    <span id="model-status" class="status-badge">No model</span>
+  </nav>
 
-      <!-- Phase 1: Model selection ───────────────────────────────────────── -->
-      <div id="model-picker">
-        <h1 class="load-title">Choose a Model</h1>
-        <p class="load-subtitle">Pre‑quantized ONNX weights (q4/q8/fp16/fp32) · Runs entirely in your browser</p>
+  <!-- ── Loading overlay (shown during model download) ─────────────────────── -->
+  <div id="load-overlay" class="hidden">
+    <div class="load-card">
+      <h2 class="load-title" id="load-model-name">Loading model…</h2>
+      <div id="load-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+        <div id="load-bar-fill"></div>
+      </div>
+      <p id="load-status">Initializing…</p>
+      <p class="load-note">Weights are cached in your browser after the first download.</p>
+    </div>
+  </div>
+
+  <!-- ── Chat panel ────────────────────────────────────────────────────────── -->
+  <div id="panel-chat" class="tab-panel" role="tabpanel" aria-labelledby="tab-chat">
+    <div id="chat-app">
+
+      <!-- Sidebar -->
+      <aside id="sidebar">
+        <section class="settings-section">
+          <h2>Generation</h2>
+
+          <label for="max-tokens">Max tokens
+            <input id="max-tokens" type="number" min="64" max="8192" step="64" value="2048" />
+          </label>
+
+          <label for="temperature">Temperature
+            <span id="temp-value" class="value-badge">0.00</span>
+            <input id="temperature" type="range" min="0" max="2" step="0.05" value="0" />
+          </label>
+
+          <label for="rep-penalty">Repetition penalty
+            <span id="rep-value" class="value-badge">1.10</span>
+            <input id="rep-penalty" type="range" min="1" max="2" step="0.05" value="1.1" />
+          </label>
+        </section>
+
+        <section class="settings-section" id="storage-section">
+          <h2>Local files</h2>
+          <div id="local-file-drop" class="drop-zone" tabindex="0">
+            Drop a ZIP/model/corpus file here (or use the URL below)
+          </div>
+          <div class="local-file-row">
+            <input id="local-file-url" type="url" placeholder="https://example.com/model.zip" />
+            <button id="local-file-add">Save</button>
+          </div>
+          <ul id="local-files-list" class="local-files-list"></ul>
+        </section>
+
+        <!-- Q² Embedding panel — populated by the worker when hidden states are available -->
+        <section id="embedding-panel" class="hidden">
+          <h2>Last LIV layer embeddings</h2>
+          <p class="section-note">Input to the Q² WASM kernel (last conv layer before GQA)</p>
+          <canvas id="embedding-canvas" width="280" height="64" aria-label="Embedding heat-map"></canvas>
+          <p id="embedding-stats" class="stats-text"></p>
+        </section>
+
+        <div class="sidebar-footer">
+          <a
+            href="https://huggingface.co/onnx-community"
+            target="_blank"
+            rel="noopener noreferrer"
+          >onnx-community ↗</a>
+        </div>
+      </aside>
+
+      <!-- Chat area -->
+      <main id="chat-main">
+        <header id="chat-header">
+          <span id="header-title" class="header-title-text">Q² Chat</span>
+          <span id="sidebar-model-tag" class="model-tag">No model loaded</span>
+        </header>
+
+        <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
+
+        <footer id="input-area">
+          <div id="input-wrapper">
+            <textarea
+              id="user-input"
+              rows="1"
+              placeholder="Load a model in Settings to start chatting"
+              aria-label="Message input"
+              autocomplete="off"
+              spellcheck="true"
+            ></textarea>
+            <div id="btn-group">
+              <button id="send-btn" aria-label="Send message" title="Send (Enter)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21 23 12 2 3v7l15 2-15 2z"/></svg>
+              </button>
+              <button id="stop-btn" class="hidden" aria-label="Stop generation" title="Stop">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </button>
+            </div>
+          </div>
+          <p class="input-hint">Powered by <strong>transformers.js</strong> · Runs entirely in your browser</p>
+        </footer>
+      </main>
+
+    </div>
+  </div>
+
+  <!-- ── Benchmarks panel ──────────────────────────────────────────────────── -->
+  <div id="panel-benchmarks" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-benchmarks">
+    <div class="bench-container">
+      <div class="bench-header">
+        <h1>Q² Benchmarks</h1>
+        <p class="bench-subtitle">Embedding quantization hypothesis tests · No model required for T0/T1 baselines</p>
+      </div>
+
+      <div class="bench-controls">
+        <button id="bench-run-all" class="bench-btn primary">▶ Run All Benchmarks</button>
+        <button id="bench-run-t0" class="bench-btn">T0 — Algebraic Invariants</button>
+        <button id="bench-run-t1" class="bench-btn">T1 — Null Baselines</button>
+      </div>
+
+      <div id="bench-status" class="bench-status">Ready to run benchmarks. T0 and T1 tests require no model download.</div>
+
+      <div id="bench-results" class="bench-results">
+        <table class="bench-table">
+          <thead>
+            <tr>
+              <th>Suite</th>
+              <th>Test</th>
+              <th>Status</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="bench-results-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Settings panel ────────────────────────────────────────────────────── -->
+  <div id="panel-settings" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-settings">
+    <div class="settings-container">
+      <h1>Settings</h1>
+
+      <!-- Model selection card -->
+      <div class="settings-card">
+        <h2>Model</h2>
+        <p class="settings-card-desc">Select and load an ONNX model for chat inference. Models download in the background and are cached locally.</p>
 
         <div class="picker-search">
           <input
@@ -42,21 +185,8 @@
           aria-label="Custom Hugging Face model ID"
         />
 
-        <!-- Settings toggle -->
-        <button id="settings-toggle" aria-expanded="false" aria-controls="settings-panel">
-          ⚙ Settings
-        </button>
-
-        <!-- Settings panel (collapsed by default) -->
-        <div id="settings-panel" class="hidden" role="region" aria-label="Settings">
-          <div class="settings-group">
-            <div class="settings-group-title">API</div>
-            <label for="hf-token">HF API Token <span class="optional-badge">optional</span></label>
-            <input id="hf-token" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" />
-            <p class="settings-hint">For private models and higher rate limits. Stored locally only.</p>
-          </div>
-          <div class="settings-group">
-            <div class="settings-group-title">Model</div>
+        <div class="settings-row">
+          <div class="settings-field">
             <label for="model-dtype">ONNX dtype</label>
             <select id="model-dtype">
               <option value="q4">q4 — 4-bit quantized</option>
@@ -64,6 +194,8 @@
               <option value="fp16">fp16 — half precision</option>
               <option value="fp32">fp32 — full precision</option>
             </select>
+          </div>
+          <div class="settings-field">
             <label for="filter-library">Library filter</label>
             <select id="filter-library">
               <option value="transformers.js">transformers.js</option>
@@ -76,113 +208,15 @@
         <button id="load-btn" disabled>Load Model</button>
       </div>
 
-      <!-- Phase 2: Loading progress ──────────────────────────────────────── -->
-      <div id="load-progress" class="hidden">
-        <h1 class="load-title" id="load-model-name">Loading model…</h1>
-
-        <div id="load-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-          <div id="load-bar-fill"></div>
-        </div>
-        <p id="load-status">Initializing…</p>
-
-        <p class="load-note">
-          Weights are cached in your browser after the first download.
-        </p>
+      <!-- API card -->
+      <div class="settings-card">
+        <h2>API</h2>
+        <label for="hf-token">HF API Token <span class="optional-badge">optional</span></label>
+        <input id="hf-token" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" />
+        <p class="settings-hint">For private models and higher rate limits. Stored locally only.</p>
       </div>
-
     </div>
   </div>
-
-  <!-- ── Main chat application ─────────────────────────────────────────────── -->
-  <div id="chat-app" class="hidden">
-
-    <!-- Sidebar -->
-    <aside id="sidebar">
-      <div class="sidebar-header">
-        <span class="logo">Q²</span>
-        <span class="model-tag" id="sidebar-model-tag">…</span>
-      </div>
-
-      <section class="settings-section">
-        <h2>Generation</h2>
-
-        <label for="max-tokens">Max tokens
-          <input id="max-tokens" type="number" min="64" max="8192" step="64" value="2048" />
-        </label>
-
-        <label for="temperature">Temperature
-          <span id="temp-value" class="value-badge">0.00</span>
-          <input id="temperature" type="range" min="0" max="2" step="0.05" value="0" />
-        </label>
-
-        <label for="rep-penalty">Repetition penalty
-          <span id="rep-value" class="value-badge">1.10</span>
-          <input id="rep-penalty" type="range" min="1" max="2" step="0.05" value="1.1" />
-        </label>
-      </section>
-
-      <section class="settings-section" id="storage-section">
-        <h2>Local files</h2>
-        <div id="local-file-drop" class="drop-zone" tabindex="0">
-          Drop a ZIP/model/corpus file here (or use the URL below)
-        </div>
-        <div class="local-file-row">
-          <input id="local-file-url" type="url" placeholder="https://example.com/model.zip" />
-          <button id="local-file-add">Save</button>
-        </div>
-        <ul id="local-files-list" class="local-files-list"></ul>
-      </section>
-
-      <!-- Q² Embedding panel — populated by the worker when hidden states are available -->
-      <section id="embedding-panel" class="hidden">
-        <h2>Last LIV layer embeddings</h2>
-        <p class="section-note">Input to the Q² WASM kernel (last conv layer before GQA)</p>
-        <canvas id="embedding-canvas" width="280" height="64" aria-label="Embedding heat-map"></canvas>
-        <p id="embedding-stats" class="stats-text"></p>
-      </section>
-
-      <div class="sidebar-footer">
-        <a
-          href="https://huggingface.co/onnx-community"
-          target="_blank"
-          rel="noopener noreferrer"
-        >onnx-community ↗</a>
-      </div>
-    </aside>
-
-    <!-- Chat area -->
-    <main id="chat-main">
-      <header id="chat-header">
-        <span id="header-title" class="header-title-text">Q² Chat</span>
-        <span id="model-status" class="status-badge">Ready</span>
-      </header>
-
-      <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
-
-      <footer id="input-area">
-        <div id="input-wrapper">
-          <textarea
-            id="user-input"
-            rows="1"
-            placeholder="Message the model… (Enter to send, Shift+Enter for newline)"
-            aria-label="Message input"
-            autocomplete="off"
-            spellcheck="true"
-          ></textarea>
-          <div id="btn-group">
-            <button id="send-btn" aria-label="Send message" title="Send (Enter)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21 23 12 2 3v7l15 2-15 2z"/></svg>
-            </button>
-            <button id="stop-btn" class="hidden" aria-label="Stop generation" title="Stop">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-            </button>
-          </div>
-        </div>
-        <p class="input-hint">Powered by <strong>transformers.js</strong> · Runs entirely in your browser</p>
-      </footer>
-    </main>
-
-  </div><!-- /#chat-app -->
 
   <script type="module" src="dist/app.js"></script>
 </body>
