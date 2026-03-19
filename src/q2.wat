@@ -255,6 +255,14 @@
       )
     )
 
+    ;; If there are no tokens, nothing to quantise; avoid underflow in
+    ;; (seq_len - 1) and return 0 bytes written.
+    (if (i32.eqz (local.get $seq_len))
+      (then
+        (return (i32.const 0))
+      )
+    )
+
     ;; ── Step 1: Load last token position into working buffer ────────────────
     ;; element index of last token, dimension d: (seq_len − 1) × n + d
     (local.set $d (i32.const 0))
