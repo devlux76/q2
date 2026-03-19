@@ -49,7 +49,7 @@ See #<issue-number>
 # Install dependencies
 bun install
 
-# Run the linter, type-checker, and formatter
+# Run the linter and type-checker
 bun run check
 
 # Run the test suite
