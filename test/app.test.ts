@@ -6,38 +6,60 @@ function setupDom() {
   localStorage.clear();
 
   document.body.innerHTML = `
-    <div id="load-screen">
-      <p id="load-status"></p>
-      <div id="load-bar" role="progressbar"><div id="load-bar-fill"></div></div>
-      <div id="model-picker">
-        <input id="model-search" type="search" />
-        <ul id="model-list"></ul>
-        <input id="model-custom-id" type="text" />
-        <button id="settings-toggle" aria-expanded="false">⚙ Settings</button>
-        <div id="settings-panel" class="hidden">
-          <input id="hf-token" type="password" />
-          <select id="model-dtype">
-            <option value="q4" selected>q4</option>
-            <option value="q8">q8</option>
-            <option value="fp16">fp16</option>
-            <option value="fp32">fp32</option>
-          </select>
-          <select id="filter-library">
-            <option value="transformers.js" selected>transformers.js</option>
-            <option value="onnx">onnx</option>
-            <option value="">All</option>
-          </select>
-        </div>
-        <button id="load-btn" disabled>Load</button>
+    <nav id="top-nav">
+      <span class="nav-logo">Q²</span>
+      <div id="nav-tabs" role="tablist">
+        <button class="nav-tab active" role="tab" aria-selected="true" aria-controls="panel-chat" data-tab="chat">Chat</button>
+        <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-benchmarks" data-tab="benchmarks">Benchmarks</button>
+        <button class="nav-tab" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Settings</button>
       </div>
-      <div id="load-progress" class="hidden"></div>
+      <span id="model-status" class="status-badge">No model</span>
+    </nav>
+
+    <div id="load-overlay" class="hidden">
+      <div class="load-card">
+        <h2 id="load-model-name">Loading model…</h2>
+        <div id="load-bar" role="progressbar"><div id="load-bar-fill"></div></div>
+        <p id="load-status">Initializing…</p>
+      </div>
     </div>
-    <div id="chat-app" class="hidden">
-      <div id="messages"></div>
+
+    <div id="panel-chat" class="tab-panel" role="tabpanel">
+      <div id="chat-app">
+        <div id="messages"></div>
+        <textarea id="user-input"></textarea>
+        <button id="send-btn"></button>
+        <button id="stop-btn"></button>
+      </div>
     </div>
-    <textarea id="user-input"></textarea>
-    <button id="send-btn"></button>
-    <button id="stop-btn"></button>
+
+    <div id="panel-benchmarks" class="tab-panel hidden" role="tabpanel">
+      <div id="bench-status">Ready</div>
+      <table><tbody id="bench-results-body"></tbody></table>
+      <button id="bench-run-all"></button>
+      <button id="bench-run-t0"></button>
+      <button id="bench-run-t1"></button>
+    </div>
+
+    <div id="panel-settings" class="tab-panel hidden" role="tabpanel">
+      <input id="model-search" type="search" />
+      <ul id="model-list"></ul>
+      <input id="model-custom-id" type="text" />
+      <input id="hf-token" type="password" />
+      <select id="model-dtype">
+        <option value="q4" selected>q4</option>
+        <option value="q8">q8</option>
+        <option value="fp16">fp16</option>
+        <option value="fp32">fp32</option>
+      </select>
+      <select id="filter-library">
+        <option value="transformers.js" selected>transformers.js</option>
+        <option value="onnx">onnx</option>
+        <option value="">All</option>
+      </select>
+      <button id="load-btn" disabled>Load</button>
+    </div>
+
     <div id="embedding-panel" class="hidden"></div>
     <canvas id="embedding-canvas" width="280" height="64"></canvas>
     <p id="embedding-stats"></p>
@@ -161,16 +183,15 @@ describe('app.ts helpers and DOM integration', () => {
 
   it('onStatus updates UI state when ready', () => {
     const input = document.querySelector('#user-input') as HTMLTextAreaElement;
-    const loadScreen = document.querySelector('#load-screen') as HTMLElement;
-    const chatApp = document.querySelector('#chat-app') as HTMLElement;
+    const loadOverlay = document.querySelector('#load-overlay') as HTMLElement;
+    const modelStatus = document.querySelector('#model-status') as HTMLElement;
 
     app.onStatus('loading', 'Loading…');
-    expect(loadScreen.classList.contains('hidden')).toBe(false);
-    expect(chatApp.classList.contains('hidden')).toBe(true);
+    expect(modelStatus.textContent).toBe('Loading…');
 
     app.onStatus('ready');
-    expect(loadScreen.classList.contains('hidden')).toBe(true);
-    expect(chatApp.classList.contains('hidden')).toBe(false);
+    expect(loadOverlay.classList.contains('hidden')).toBe(true);
+    expect(modelStatus.textContent).toBe('Ready');
 
     // jsdom may not fully implement focus behavior; ensure input is present.
     expect(input).toBeInstanceOf(HTMLTextAreaElement);
@@ -415,17 +436,14 @@ describe('app.ts helpers and DOM integration', () => {
     expect(selectedItem.dataset['modelId']).toBe('test-org/model-alpha');
   });
 
-  it('startWithModel hides model-picker and shows load-progress, then creates worker', () => {
-    const pickerEl = document.querySelector('#model-picker') as HTMLElement;
-    const progressEl = document.querySelector('#load-progress') as HTMLElement;
+  it('startWithModel shows load overlay and creates worker', () => {
+    const loadOverlay = document.querySelector('#load-overlay') as HTMLElement;
 
-    expect(pickerEl.classList.contains('hidden')).toBe(false);
-    expect(progressEl.classList.contains('hidden')).toBe(true);
+    expect(loadOverlay.classList.contains('hidden')).toBe(true);
 
     app.startWithModel('onnx-community/Qwen2.5-0.5B-Instruct');
 
-    expect(pickerEl.classList.contains('hidden')).toBe(true);
-    expect(progressEl.classList.contains('hidden')).toBe(false);
+    expect(loadOverlay.classList.contains('hidden')).toBe(false);
     expect(app.worker).not.toBeNull();
 
     // The first message sent to the worker should include modelId and dtype.
@@ -445,5 +463,44 @@ describe('app.ts helpers and DOM integration', () => {
     expect(workerRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'load', dtype: 'q8' }),
     );
+  });
+
+  it('switchTab changes active tab and shows correct panel', () => {
+    const chatPanel = document.querySelector('#panel-chat') as HTMLElement;
+    const benchPanel = document.querySelector('#panel-benchmarks') as HTMLElement;
+    const settingsPanel = document.querySelector('#panel-settings') as HTMLElement;
+
+    // Initially chat is active
+    expect(chatPanel.classList.contains('hidden')).toBe(false);
+    expect(benchPanel.classList.contains('hidden')).toBe(true);
+
+    // Switch to benchmarks
+    app.switchTab('benchmarks');
+    expect(chatPanel.classList.contains('hidden')).toBe(true);
+    expect(benchPanel.classList.contains('hidden')).toBe(false);
+    expect(settingsPanel.classList.contains('hidden')).toBe(true);
+
+    // Switch to settings
+    app.switchTab('settings');
+    expect(chatPanel.classList.contains('hidden')).toBe(true);
+    expect(benchPanel.classList.contains('hidden')).toBe(true);
+    expect(settingsPanel.classList.contains('hidden')).toBe(false);
+
+    // Switch back to chat
+    app.switchTab('chat');
+    expect(chatPanel.classList.contains('hidden')).toBe(false);
+    expect(benchPanel.classList.contains('hidden')).toBe(true);
+    expect(settingsPanel.classList.contains('hidden')).toBe(true);
+  });
+
+  it('sendMessage shows error when no model is loaded', () => {
+    const input = document.querySelector('#user-input') as HTMLTextAreaElement;
+    input.value = 'hello';
+    app.sendMessage();
+
+    // Should show an error bubble since no model is loaded
+    const errorBubble = document.querySelector('#messages .bubble.error') as HTMLElement;
+    expect(errorBubble).toBeTruthy();
+    expect(errorBubble.textContent).toContain('No model loaded');
   });
 });

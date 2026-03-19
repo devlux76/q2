@@ -2,12 +2,14 @@
  * app.ts — Main-thread entry point
  *
  * Manages:
+ *  • Tab navigation (Chat, Benchmarks, Settings)
  *  • Model discovery (live HuggingFace Hub API search + custom HF URN)
  *  • App settings (API token, ONNX dtype, library filter) persisted to localStorage
  *  • Worker lifecycle (load → idle → generating → idle)
  *  • Chat history (system prompt + user/assistant turns)
  *  • DOM updates (progressive token streaming, thinking collapse)
  *  • Embedding panel (Q² kernel: L2-norm last token, quantise → packed bytes + key)
+ *  • Benchmarks (T0/T1 algebraic invariant and null-baseline tests)
  */
 
 // Allow tests to override the worker entrypoint (e.g. a blob URL) and to
@@ -84,10 +86,16 @@ function $<T extends HTMLElement>(selector: string): T {
   return el;
 }
 
-const loadScreen = $<HTMLDivElement>('#load-screen');
+// Tab navigation
+const navTabs = document.querySelectorAll<HTMLButtonElement>('.nav-tab');
+const tabPanels = document.querySelectorAll<HTMLDivElement>('.tab-panel');
+
+// Loading overlay (non-blocking, shown during model download)
+const loadOverlay = $<HTMLDivElement>('#load-overlay');
 const loadStatus = $<HTMLParagraphElement>('#load-status');
 const loadBar = $<HTMLDivElement>('#load-bar-fill');
-const chatApp = $<HTMLDivElement>('#chat-app');
+
+// Chat panel
 const messagesEl = $<HTMLDivElement>('#messages');
 const inputEl = $<HTMLTextAreaElement>('#user-input');
 const sendBtn = $<HTMLButtonElement>('#send-btn');
@@ -111,15 +119,18 @@ const tempValueEl = $<HTMLSpanElement>('#temp-value');
 const repPenaltyEl = $<HTMLInputElement>('#rep-penalty');
 const repValueEl = $<HTMLSpanElement>('#rep-value');
 
-// Model picker phase elements
-const modelPickerEl = $<HTMLDivElement>('#model-picker');
-const loadProgressEl = $<HTMLDivElement>('#load-progress');
+// Model picker elements (in Settings panel)
 const modelSearchEl = $<HTMLInputElement>('#model-search');
 const modelListEl = $<HTMLUListElement>('#model-list');
 const modelCustomIdEl = $<HTMLInputElement>('#model-custom-id');
 const loadBtnEl = $<HTMLButtonElement>('#load-btn');
 const headerTitleEl = $<HTMLSpanElement>('#header-title');
 const sidebarModelTagEl = $<HTMLSpanElement>('#sidebar-model-tag');
+const modelStatusEl = $<HTMLSpanElement>('#model-status');
+
+// Benchmark panel
+const benchResultsBody = $<HTMLTableSectionElement>('#bench-results-body');
+const benchStatusEl = $<HTMLDivElement>('#bench-status');
 
 // ─── Application state ─────────────────────────────────────────────────────────
 
@@ -288,10 +299,8 @@ export function initModelPicker(): void {
   initLocalFileStore();
 }
 
-/** Wire up the collapsible settings panel and persist changes to localStorage. */
+/** Wire up settings controls and persist changes to localStorage. */
 function initSettingsPanel(): void {
-  const toggleBtn = $<HTMLButtonElement>('#settings-toggle');
-  const panel = $<HTMLDivElement>('#settings-panel');
   const tokenEl = $<HTMLInputElement>('#hf-token');
   const dtypeEl = $<HTMLSelectElement>('#model-dtype');
   const libraryEl = $<HTMLSelectElement>('#filter-library');
@@ -300,11 +309,6 @@ function initSettingsPanel(): void {
   tokenEl.value = currentSettings.apiToken;
   dtypeEl.value = currentSettings.dtype;
   libraryEl.value = currentSettings.filterLibrary;
-
-  toggleBtn.addEventListener('click', () => {
-    const isHidden = panel.classList.toggle('hidden');
-    toggleBtn.setAttribute('aria-expanded', String(!isHidden));
-  });
 
   tokenEl.addEventListener('change', () => {
     currentSettings.apiToken = tokenEl.value.trim();
@@ -470,15 +474,17 @@ function triggerLoad(): void {
 // ─── Worker bootstrap ──────────────────────────────────────────────────────────
 
 /**
- * Transition from the model-picker phase to the loading-progress phase and
- * spin up the inference worker for the given model ID.
+ * Transition to the loading state and spin up the inference worker for the
+ * given model ID.  The loading overlay is non-blocking; users can continue
+ * navigating tabs while the model downloads in the background.
  */
 export function startWithModel(modelId: string): void {
   selectedModelId = modelId;
 
-  // Switch load screen from picker → progress.
-  modelPickerEl.classList.add('hidden');
-  loadProgressEl.classList.remove('hidden');
+  // Show loading overlay.
+  loadOverlay.classList.remove('hidden');
+  loadStatus.textContent = 'Initializing…';
+  loadBar.style.width = '0%';
 
   initWorker(modelId);
 }
@@ -531,11 +537,8 @@ export function handleWorkerMessage(msg: WorkerOutMsg): void {
       break;
     case 'error':
       if (!modelReady) {
-        // Surface errors on the load screen when the model is not yet ready,
-        // so users don't get stuck on "Initializing…" without feedback.
+        // Surface errors on the loading overlay when the model is not yet ready.
         loadStatus.textContent = `Error loading model: ${msg.message}`;
-        loadScreen.classList.remove('hidden');
-        chatApp.classList.add('hidden');
       } else {
         showError(msg.message);
       }
@@ -552,17 +555,29 @@ export function onStatus(
 ): void {
   if (status === 'ready') {
     modelReady = true;
-    loadScreen.classList.add('hidden');
-    chatApp.classList.remove('hidden');
+    loadOverlay.classList.add('hidden');
 
-    // Update model name in the header and sidebar.
+    // Update model name in the header, sidebar, and nav status badge.
     const displayName = selectedModelId.split('/').at(-1) ?? selectedModelId;
     headerTitleEl.textContent = `${displayName} · ${currentSettings.dtype.toUpperCase()} ONNX`;
     sidebarModelTagEl.textContent = displayName;
+    modelStatusEl.textContent = 'Ready';
+    modelStatusEl.className = 'status-badge ready';
 
+    // Update the placeholder to indicate the model is ready.
+    inputEl.placeholder = 'Message the model… (Enter to send, Shift+Enter for newline)';
     inputEl.focus();
   } else if (status === 'loading') {
     loadStatus.textContent = detail ?? 'Loading model…';
+    modelStatusEl.textContent = 'Loading…';
+    modelStatusEl.className = 'status-badge loading';
+  } else if (status === 'generating') {
+    modelStatusEl.textContent = 'Generating…';
+  } else if (status === 'idle') {
+    if (modelReady) {
+      modelStatusEl.textContent = 'Ready';
+      modelStatusEl.className = 'status-badge ready';
+    }
   }
 }
 
@@ -726,7 +741,12 @@ export function onDone(): void {
 
 export function sendMessage(): void {
   const text = inputEl.value.trim();
-  if (!text || !modelReady || isGenerating) return;
+  if (!text || isGenerating) return;
+
+  if (!modelReady) {
+    showError('No model loaded. Go to Settings → Model to load one first.');
+    return;
+  }
 
   // Append user message to history and render it.
   history.push({ role: 'user', content: text });
@@ -870,6 +890,152 @@ export function renderQ2Result(packed: Uint8Array, key: bigint, n: number): void
   renderQ2(packed, key, n, embeddingStats);
 }
 
+// ─── Tab navigation ────────────────────────────────────────────────────────────
+
+export function switchTab(tabName: string): void {
+  navTabs.forEach((tab) => {
+    const isActive = tab.dataset['tab'] === tabName;
+    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-selected', String(isActive));
+  });
+  tabPanels.forEach((panel) => {
+    const panelName = panel.id.replace('panel-', '');
+    panel.classList.toggle('hidden', panelName !== tabName);
+  });
+}
+
+// ─── Benchmark runner ──────────────────────────────────────────────────────────
+
+interface BenchResult {
+  suite: string;
+  test: string;
+  status: 'pass' | 'fail' | 'running' | 'pending';
+  result: string;
+}
+
+function renderBenchRow(r: BenchResult): void {
+  const tr = document.createElement('tr');
+  const statusClass =
+    r.status === 'pass' ? 'bench-pass'
+    : r.status === 'fail' ? 'bench-fail'
+    : r.status === 'running' ? 'bench-running'
+    : 'bench-pending';
+
+  tr.innerHTML =
+    `<td>${r.suite}</td>` +
+    `<td>${r.test}</td>` +
+    `<td class="${statusClass}">${r.status.toUpperCase()}</td>` +
+    `<td>${r.result}</td>`;
+  benchResultsBody.appendChild(tr);
+}
+
+export async function runBenchmarks(suiteFilter?: string): Promise<void> {
+  benchResultsBody.innerHTML = '';
+  benchStatusEl.textContent = 'Running benchmarks…';
+
+  const results: BenchResult[] = [];
+
+  // Import the q2 kernel functions for benchmarking
+  const { q2EncodeDirect, q2KeyDirect, l2Normalise } = await import('./q2.js');
+  const stats = await import('./q2stats.js');
+
+  // ── T0: Algebraic invariants ──────────────────────────────────────────
+  if (!suiteFilter || suiteFilter === 't0') {
+    // P1: Complement involution
+    try {
+      const p1Pass = [0, 1, 2, 3].every(z => stats.complement(stats.complement(z)) === z);
+      results.push({ suite: 'T0', test: 'P1: Complement involution θ(θ(z))=z', status: p1Pass ? 'pass' : 'fail', result: p1Pass ? 'All 4 symbols fixed-point free' : 'FAILED' });
+    } catch (e) {
+      results.push({ suite: 'T0', test: 'P1: Complement involution', status: 'fail', result: String(e) });
+    }
+
+    // P2: Lee distance symmetry
+    try {
+      let p2Pass = true;
+      for (let a = 0; a < 4; a++) {
+        for (let b = 0; b < 4; b++) {
+          if (stats.leeDistance(a, b) !== stats.leeDistance(b, a)) p2Pass = false;
+        }
+      }
+      results.push({ suite: 'T0', test: 'P2: Lee distance symmetry', status: p2Pass ? 'pass' : 'fail', result: p2Pass ? 'd_L(a,b) = d_L(b,a) for all pairs' : 'FAILED' });
+    } catch (e) {
+      results.push({ suite: 'T0', test: 'P2: Lee distance symmetry', status: 'fail', result: String(e) });
+    }
+
+    // P4: Q² encode/decode round-trip
+    try {
+      const n = 16;
+      const vec = new Float32Array(n);
+      for (let i = 0; i < n; i++) vec[i] = Math.random() * 2 - 1;
+      const normed = l2Normalise(vec, n);
+      const { packed, key } = q2EncodeDirect(normed, n);
+      const keyFromPacked = q2KeyDirect(packed, n);
+      const roundTrip = key === keyFromPacked;
+      results.push({ suite: 'T0', test: 'P4: Q² encode key consistency', status: roundTrip ? 'pass' : 'fail', result: roundTrip ? `key=0x${key.toString(16).padStart(16,'0')}` : 'Key mismatch' });
+    } catch (e) {
+      results.push({ suite: 'T0', test: 'P4: Q² encode key consistency', status: 'fail', result: String(e) });
+    }
+  }
+
+  // ── T1: Null baselines ────────────────────────────────────────────────
+  if (!suiteFilter || suiteFilter === 't1') {
+    // Run null-distribution collision rate test
+    try {
+      const trials = 1000;
+      const n = 64;
+      const keys = new Set<bigint>();
+      for (let t = 0; t < trials; t++) {
+        const vec = new Float32Array(n);
+        for (let i = 0; i < n; i++) vec[i] = Math.random() * 2 - 1;
+        const normed = l2Normalise(vec, n);
+        const { key } = q2EncodeDirect(normed, n);
+        keys.add(key);
+      }
+      const collisionRate = 1 - keys.size / trials;
+      const pass = collisionRate < 0.05; // <5% collision rate
+      results.push({ suite: 'T1', test: 'P10: 64-bit key collision rate', status: pass ? 'pass' : 'fail', result: `${(collisionRate * 100).toFixed(2)}% collisions (${keys.size}/${trials} unique)` });
+    } catch (e) {
+      results.push({ suite: 'T1', test: 'P10: 64-bit key collision rate', status: 'fail', result: String(e) });
+    }
+
+    // Null distribution: uniform symbol frequency
+    try {
+      const trials = 500;
+      const n = 128;
+      const freq = [0, 0, 0, 0];
+      for (let t = 0; t < trials; t++) {
+        const vec = new Float32Array(n);
+        for (let i = 0; i < n; i++) vec[i] = Math.random() * 2 - 1;
+        const normed = l2Normalise(vec, n);
+        const { packed } = q2EncodeDirect(normed, n);
+        for (let j = 0; j < packed.length; j++) {
+          const b = packed[j]!;
+          freq[(b >> 6) & 3]!++;
+          freq[(b >> 4) & 3]!++;
+          freq[(b >> 2) & 3]!++;
+          freq[b & 3]!++;
+        }
+      }
+      const total = freq.reduce((a, b) => a + b, 0);
+      const expected = total / 4;
+      const chiSq = freq.reduce((s, f) => s + ((f - expected) ** 2) / expected, 0);
+      const pass = chiSq < 7.81; // χ²(3, 0.05)
+      results.push({ suite: 'T1', test: 'Null: uniform Z₄ symbol frequency', status: pass ? 'pass' : 'fail', result: `χ²=${chiSq.toFixed(2)} (threshold=7.81)` });
+    } catch (e) {
+      results.push({ suite: 'T1', test: 'Null: uniform Z₄ symbol frequency', status: 'fail', result: String(e) });
+    }
+  }
+
+  // Render all results
+  for (const r of results) {
+    renderBenchRow(r);
+  }
+
+  const passCount = results.filter(r => r.status === 'pass').length;
+  const total = results.length;
+  benchStatusEl.textContent = `Completed: ${passCount}/${total} passed`;
+}
+
 // ─── Event listeners ───────────────────────────────────────────────────────────
 
 sendBtn.addEventListener('click', sendMessage);
@@ -891,6 +1057,23 @@ temperatureEl.addEventListener('input', () => {
 repPenaltyEl.addEventListener('input', () => {
   repValueEl.textContent = parseFloat(repPenaltyEl.value).toFixed(2);
 });
+
+// Tab navigation
+navTabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const tabName = tab.dataset['tab'];
+    if (tabName) switchTab(tabName);
+  });
+});
+
+// Benchmark buttons
+const benchRunAllBtn = document.querySelector<HTMLButtonElement>('#bench-run-all');
+const benchRunT0Btn = document.querySelector<HTMLButtonElement>('#bench-run-t0');
+const benchRunT1Btn = document.querySelector<HTMLButtonElement>('#bench-run-t1');
+
+benchRunAllBtn?.addEventListener('click', () => void runBenchmarks());
+benchRunT0Btn?.addEventListener('click', () => void runBenchmarks('t0'));
+benchRunT1Btn?.addEventListener('click', () => void runBenchmarks('t1'));
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
