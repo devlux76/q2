@@ -254,7 +254,7 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
         }, 1_000);
         // Cancel the watchdog as soon as the loader settles (success or error)
         // so the interval cannot fire after the race is already decided.
-        void loader.finally(() => clearInterval(id));
+        void loader.then(() => clearInterval(id), () => clearInterval(id));
       });
 
       pipe = await Promise.race([loader, hangGuard]);
