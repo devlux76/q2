@@ -1033,7 +1033,8 @@ export function runBenchmarks(suiteFilter?: string): void {
         const vec = new Float32Array(n);
         // Box-Muller: pairs of uniform samples → standard normal pairs
         for (let i = 0; i < n; i += 2) {
-          const u1 = Math.random(), u2 = Math.random();
+          const u1 = 1 - Math.random();
+          const u2 = Math.random();
           const r = Math.sqrt(-2 * Math.log(u1));
           vec[i] = r * Math.cos(2 * Math.PI * u2);
           if (i + 1 < n) vec[i + 1] = r * Math.sin(2 * Math.PI * u2);
