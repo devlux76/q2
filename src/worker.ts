@@ -266,6 +266,16 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
       return;
     } catch (err) {
       lastErr = err;
+      // Summarise the failure for the loading screen so the user can see
+      // which backend was skipped and why before the next attempt starts.
+      const maxLen = 80;
+      const reason = err instanceof Error ? err.message : String(err);
+      const shortReason = reason.length > maxLen ? reason.slice(0, maxLen - 3) + '…' : reason;
+      send({
+        type: 'status',
+        status: 'loading',
+        detail: `${device.toUpperCase()} unavailable — ${shortReason}`,
+      });
       // Fall through to the next device in the priority list.
     }
   }
