@@ -52,14 +52,15 @@ where $\theta_{uv}$ is the angle between $u$ and $v$.
 
 **Why not mean-pool?** Mean-pooling the token activations — computing
 $\bar{h} = \frac{1}{T}\sum_{t=1}^{T} h_t$ where $h_t \in \mathbb{R}^n$ is the
-hidden-state activation at position $t$ — produces a vector strictly inside the unit
-ball ($\|\bar{h}\| \leq 1$). When the document's tokens activate semantically diverse
-directions, as any non-trivial document does, the centroid is short because distinct
-directions cancel. The subsequent L2 renormalisation stretches $\bar{h}$ back to
-$S^{n-1}$ by the factor $1/\|\bar{h}\|$. The components that survive cancellation are
-those common to all token positions — model-specific bias and positional structure —
-not the document's semantically distinctive content. Mean-pooling as a
-dimensional-reduction technique therefore increases the noise and lowers the signal.
+hidden-state activation at position $t$ — produces, for unit-normalised token vectors
+$h_t$, a vector inside the unit ball ($\|\bar{h}\| \leq 1$). When the document's tokens
+activate semantically diverse directions, as any non-trivial document does, the
+centroid is short because distinct directions cancel. The subsequent L2 renormalisation
+stretches $\bar{h}$ back to $S^{n-1}$ by the factor $1/\|\bar{h}\|$. The components that
+survive cancellation are those common to all token positions — model-specific bias and
+positional structure — not the document's semantically distinctive content.
+Mean-pooling as a dimensional-reduction technique therefore increases the noise and
+lowers the signal.
 
 ---
 
