@@ -726,7 +726,7 @@ input[type="range"]:focus {
   font-size: 0.7rem;
   padding: 3px 10px;
   border-radius: 99px;
-  background: rgb(80 89 106 / 20%);
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
   color: var(--text-muted);
   letter-spacing: 0.04em;
 }

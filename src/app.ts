@@ -943,7 +943,7 @@ export async function runBenchmarks(suiteFilter?: string): Promise<void> {
   if (!suiteFilter || suiteFilter === 't0') {
     // P1: Complement involution
     try {
-      const p1Pass = [0, 1, 2, 3].every(z => stats.complement(stats.complement(z)) === z);
+      const p1Pass = [0, 1, 2, 3].every(sym => stats.complement(stats.complement(sym)) === sym);
       results.push({ suite: 'T0', test: 'P1: Complement involution θ(θ(z))=z', status: p1Pass ? 'pass' : 'fail', result: p1Pass ? 'All 4 symbols fixed-point free' : 'FAILED' });
     } catch (e) {
       results.push({ suite: 'T0', test: 'P1: Complement involution', status: 'fail', result: String(e) });
@@ -1009,11 +1009,11 @@ export async function runBenchmarks(suiteFilter?: string): Promise<void> {
         const normed = l2Normalise(vec, n);
         const { packed } = q2EncodeDirect(normed, n);
         for (let j = 0; j < packed.length; j++) {
-          const b = packed[j]!;
-          freq[(b >> 6) & 3]!++;
-          freq[(b >> 4) & 3]!++;
-          freq[(b >> 2) & 3]!++;
-          freq[b & 3]!++;
+          const packedByte = packed[j]!;
+          freq[(packedByte >> 6) & 3]!++;
+          freq[(packedByte >> 4) & 3]!++;
+          freq[(packedByte >> 2) & 3]!++;
+          freq[packedByte & 3]!++;
         }
       }
       const total = freq.reduce((a, b) => a + b, 0);
