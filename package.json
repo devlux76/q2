@@ -10,6 +10,7 @@
     "prepare": "bun x husky install",
     "lint": "eslint --no-inline-config --max-warnings 0 --fix src test --ext .js,.ts,.html,.yml,.yaml && eslint --no-inline-config --max-warnings 0 src test --ext .js,.ts,.html,.yml,.yaml",
     "lint:css": "stylelint --max-warnings 0 --allow-empty-input --fix \"**/*.{css,html}\" && stylelint --max-warnings 0 --allow-empty-input \"**/*.{css,html}\"",
+    "lint:md": "bun scripts/lint-md.mjs",
     "check": "bun run lint && bun run typecheck",
     "prebuild": "bun run check && bun run lint:css",
     "build:wat": "wat2wasm src/q2.wat -o src/q2.wasm && bun run embed-wat",
@@ -35,6 +36,9 @@
     ],
     "*.{css,html}": [
       "sh -c \"bun x stylelint --max-warnings 0 --fix --ignore-pattern 'gh-pages/**' --ignore-pattern 'dist/**'\""
+    ],
+    "*.md": [
+      "bun scripts/lint-md.mjs"
     ]
   },
   "repository": {

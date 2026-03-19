@@ -308,7 +308,7 @@ The run-reduced key captures that shared structure without requiring knowledge o
 Embeddings across models are not fully incommensurable. Their coordinate frames are;
 their semantic geometry is not. The gap between those two facts is where Q2 operates.
 
-$$\underbrace{\text{🤴} - \text{🧔} + \text{👩}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{🫅}}_{\text{same answer, rotated frame}}$$
+$$\underbrace{\text{king} - \text{man} + \text{woman}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{queen}}_{\text{same answer, rotated frame}}$$
 
 The coordinate frames differ by $Q$. The parallelogram does not. Viewed from the
 right angle, the incommensurability dissolves. 🤓
@@ -402,7 +402,7 @@ valid image. Four is the minimum.
 
 **The four states** are labelled by signed magnitude class:
 
-$$\{A,\ B,\ C,\ D\} \;\longleftrightarrow\; \{\text{strong−},\ \text{weak−},\ \text{weak+},\ \text{strong+}\}$$
+$$\{A,\ B,\ C,\ D\} \;\longleftrightarrow\; \{\text{strong-},\ \text{weak-},\ \text{weak+},\ \text{strong+}\}$$
 
 **The quantization threshold.** For activations drawn from $\mathcal{N}(0, 1/n_s)$
 where $n_s$ is the embedding dimension[^1], the maximum-entropy condition requires
@@ -422,7 +422,7 @@ The four equiprobable zones on the real line, separated by $-\tau^{*}$, $0$, and
 
 ```mermaid
 graph LR
-    A["A\nstrong −\n≤ −τ*"] --- B["B\nweak −\n(−τ*, 0]"] --- C["C\nweak +\n(0, τ*]"] --- D["D\nstrong +\n> τ*"]
+    A["A\nstrong -\n≤ -τ*"] --- B["B\nweak -\n(-τ*, 0]"] --- C["C\nweak +\n(0, τ*]"] --- D["D\nstrong +\n> τ*"]
 ```
 
 **Empirical calibration.** In practice $\tau^{*}$ is estimated from a reservoir sample
@@ -479,7 +479,7 @@ The four symbols arranged on the $\mathbb{Z}_4$ cycle, with Lee distances annota
 
 ```mermaid
 graph LR
-    A("A = 0\nstrong −") -- "Lee 1" --- B("B = 1\nweak −")
+    A("A = 0\nstrong -") -- "Lee 1" --- B("B = 1\nweak -")
     B -- "Lee 1" --- C("C = 2\nweak +")
     C -- "Lee 1" --- D("D = 3\nstrong +")
     D -- "Lee 1\n(cyclic wrap)" --- A
@@ -541,7 +541,7 @@ The Gray map ensures `popcnt(XOR)` on the 2-bit codes equals Lee distance — no
 
 ```mermaid
 flowchart LR
-    subgraph Z4["ℤ₄ symbols"]
+    subgraph Z4["Z4 symbols"]
         direction TB
         s0["A = 0"]
         s1["B = 1"]
