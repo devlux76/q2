@@ -15,6 +15,7 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 - [T2 — Structured code corpus](#t2--structured-code-corpus)
 - [T3 — Matryoshka and dedicated embedding models](#t3--matryoshka-and-dedicated-embedding-models)
 - [T4 — Standard local LLMs](#t4--standard-local-llms)
+- [T5 — Phylomemetic fingerprinting](#t5--phylomemetic-fingerprinting)
 - [Corpus layout](#corpus-layout)
 - [Cross-phase prediction matrix](#cross-phase-prediction-matrix)
 - [Model and corpus matrix](#model-and-corpus-matrix)
@@ -47,6 +48,7 @@ flowchart TD
     T2["T2 — Structured code corpus\nmachine-verifiable ground truth\n(TypeScript functions)"]
     T3["T3 — Matryoshka &\ndedicated embedding models\n(BEIR benchmark)"]
     T4["T4 — Standard local LLMs\n(LFM-2.5, Qwen2.5)"]
+    T5["T5 — Phylomemetic fingerprinting\n(Gutenberg + AI attributed\ncorpora; P14a–d)"]
 
     T0 -->|"null baselines\nestablished"| T1
     T1 -->|"validate against\nnull"| T2
@@ -54,12 +56,14 @@ flowchart TD
     T1 -->|"validate against\nnull"| T4
     T2 -->|"P2, P3, P8, P10"| T3
     T3 -->|"P2, P3, P5, P7"| T4
+    T3 -->|"stylometric baselines\nP8 null distributions"| T5
 
     style T0 fill:#ddf,stroke:#99c
     style T1 fill:#ffd,stroke:#cc9
     style T2 fill:#dfd,stroke:#9c9
     style T3 fill:#fdd,stroke:#c99
     style T4 fill:#eee,stroke:#999
+    style T5 fill:#efe,stroke:#6a6
 ```
 
 ## T0 — Unit tests and invariants
@@ -341,6 +345,117 @@ optimisation.
 
 ---
 
+## T5 — Phylomemetic fingerprinting
+
+**Purpose.** Test whether Q² transition-sequence statistics support author attribution
+and influence detection across the human–AI boundary. This phase operationalises P14
+using two clean, attributable corpora: Project Gutenberg (human, pre-1927) and
+model-attributed AI synthetic datasets. The pre-1927 boundary is a deliberate design
+choice: these authors represent the *origin layer* of English conceptual vocabulary.
+Constructions they introduced propagated into all subsequent text, including AI training
+data, making their stylometric signal potentially detectable at the terminal node even
+after dilution by a century of subsequent writing.
+
+See: Dawkins, R. (1976). *The Selfish Gene*, Ch. 11: "Memes: the new replicators."
+Oxford University Press. The phylomemetic framework applies quantitative phylogenetic
+methods to the transmission and variation of stylometric units across authors and
+generations.
+
+**Models.** The same embedding models used in T3 (Nomic, EmbeddingGemma, MiniLM) plus
+the raw AI model outputs themselves, which do not require embedding — their stylometric
+feature vectors are computed directly from output text.
+
+**Corpus.** C8 (Gutenberg + AI attributed datasets; see below).
+
+**Phase structure.** T5 has three sub-phases corresponding to P14a–P14d:
+
+### T5-A — Author fingerprint stability (§P-14a)
+
+Select 10 Gutenberg authors with $\geq 20$ documents each, spanning at least three
+distinct topics per author (fiction, essay, correspondence where available). Compute
+the Q² feature vector $v_d = (\rho_{\text{hp}},\ f_{\text{cb}},\ H_{\text{triplet}})$
+for each document $d$.
+
+**Measurement.** Fit a one-way ANOVA with author as factor. The prediction is:
+
+$$F_{\text{between}} \gg F_{\text{within}}$$
+
+with $\eta^2 > 0.3$ (a medium effect size). Separately, fit a Dirichlet-Multinomial
+per author on the triplet frequency vector and compute the posterior concentration rate
+as a function of document count $N$. Report $N^*$, defined as the minimum $N$ at which
+top-1 attribution accuracy on held-out documents exceeds 90%.
+
+**Prediction sub-tests.**
+
+| Prediction | Measurement | Expected result |
+|:----------:|:------------|:----------------|
+| §P-14a | Within-author vs. between-author variance, ANOVA | $\eta^2 > 0.3$; statistically significant |
+| §P-14a | Bayesian attribution accuracy vs. $N$ | Top-1 accuracy $> 90\%$ at $N^* < 50$ |
+
+### T5-B — RLHF variance compression (§P-14b)
+
+Compute the triplet entropy $H_{\text{triplet}}$ for each AI model corpus and each
+Gutenberg author corpus. Pool documents per source and estimate the entropy of the
+pooled triplet frequency distribution.
+
+**Measurement.** Test $H_{\text{AI}} < H_{\text{human}}$ using a one-sided Wilcoxon
+rank-sum test (AI model entropies vs. Gutenberg author entropies). Additionally,
+compare base models against instruction-tuned and RLHF-tuned variants of the same
+architecture to measure the marginal compression introduced by each training stage.
+
+**Prediction sub-tests.**
+
+| Prediction | Measurement | Expected result |
+|:----------:|:------------|:----------------|
+| §P-14b | $H_{\text{AI}}$ vs. $H_{\text{human}}$ | $H_{\text{AI}} < H_{\text{human}}$, $p < 0.05$ |
+| §P-14b | Base vs. RLHF entropy within model family | RLHF compression is measurable and monotone |
+
+### T5-C — Cross-lineage influence detection (§P-14c, §P-14d)
+
+Fit the mixture model:
+
+$$\hat{f}_{\text{AI}} = \sum_i \alpha_i \cdot f_i + \epsilon$$
+
+using non-negative least squares over the Gutenberg author triplet vectors $f_i$.
+Normalise the $\alpha_i$ to sum to 1. Compare each $\hat{\alpha}_i$ to the author's
+estimated share of the AI model's training corpus (approximated from known data
+composition disclosures where available, or treated as uniform otherwise).
+
+**Candidate authors for non-null signal.** The following are the primary test cases,
+selected for distinctiveness of stylometric signal and subject-matter adjacency to AI
+outputs:
+
+| Author | Gutenberg texts | Hypothesis |
+|:-------|:---------------|:-----------|
+| Carroll, Lewis | *Alice's Adventures* (1865), *Through the Looking-Glass* (1871), *The Hunting of the Snark* (1876) | Elevated $\alpha$ in AI reasoning/creative outputs |
+| Shelley, Mary | *Frankenstein* (1818) | Elevated $\alpha$ in AI self-description outputs |
+| Doyle, Arthur Conan | Holmes stories (1887–1927) | Elevated $\alpha$ in AI analytical/deductive outputs |
+| Poe, Edgar Allan | Stories and essays (1838–1849) | Elevated $\alpha$ in AI mystery/logic outputs |
+| Twain, Mark | *Adventures of Huckleberry Finn* (1884), essays | Baseline: distinctive but less adjacent |
+
+**Temporal ordering check (§P-14d).** Verify that $\alpha_i$ for each author is not
+driven by features that only appear *after* the author's death. This is estimated by
+splitting the Gutenberg corpus into pre- and post-death strata for each author's
+imitators and checking whether the author's own texts contribute more to the recovered
+$\alpha_i$ than the imitator texts do.
+
+**Prediction sub-tests.**
+
+| Prediction | Measurement | Expected result |
+|:----------:|:------------|:----------------|
+| §P-14c | $\hat{\alpha}_{Carroll}$ vs. estimated corpus share | $\hat{\alpha} >$ corpus share, $p < 0.05$, in reasoning/creative outputs |
+| §P-14c | $\hat{\alpha}_{Shelley}$ in AI self-description outputs | Detectable elevation |
+| §P-14c | Flat mixture null: $\hat{\alpha}_i \approx$ uniform | Rejected for at least two candidate authors |
+| §P-14d | Temporal ordering constraint | $\alpha_i$ for each author driven by pre-death texts, not imitators |
+
+**Falsification.** If no $\hat{\alpha}_i$ differs significantly from the estimated
+corpus share across all candidate authors and at least two AI models, P14c is
+falsified. If $\hat{\alpha}_i$ for authors whose imitators are more common in the
+training corpus than the originals is driven by imitator features rather than original
+features, P14d is falsified.
+
+---
+
 ## Corpus layout
 
 The complete corpus stays comfortably under 1 GB of raw text, leaving headroom for
@@ -514,6 +629,45 @@ conversational speech, etc.), contrasted against C1 and C3 written text.
 
 ---
 
+### C8 — Gutenberg authors + AI attributed datasets (~150 MB)
+
+**Source (human):** Project Gutenberg public-domain texts via `gutenberg` Python
+package or `pgcorpus` on Hugging Face. Select 10–15 authors with $\geq 20$ documents
+each, spanning at least three topic domains per author. Restrict to pre-1927
+publications (copyright-safe; and the origin-layer rationale described in §T5).
+
+Target authors: Carroll, Shelley (M.), Doyle, Poe, Twain, Dickens, Hardy, Austen,
+Melville, Wilde. These provide a range of stylometric distinctiveness and
+subject-matter adjacency to AI training content.
+
+**Source (AI):** Model-attributed synthetic text from existing open datasets:
+
+- `Hello-SimpleAI/HC3` — human/ChatGPT comparison corpus, model-attributed
+- `RAID` benchmark — outputs from GPT-4, Claude, Llama, Mistral, and others
+- `MAGE` (Machine-Generated text detection dataset) — multi-model attribution
+
+Select balanced samples per AI model (~5 MB each) to keep the AI subcorpus under
+50 MB total. Use instruction-following outputs for the P14c cross-lineage test, since
+those most directly reflect the model's generative style under RLHF.
+
+**Phases:** T5 (primary). Statistics from C8 human subcorpus also inform P11/P12 as
+a cross-temporal comparison against C6 (cross-lingual) and C7 (spoken).
+
+**Predictions exercised:** P14a, P14b, P14c, P14d.
+
+**How it proves/falsifies:**
+
+- **P14a:** Within-author variance vs. between-author variance ANOVA; Bayesian
+  attribution accuracy as a function of $N$.
+- **P14b:** Triplet entropy comparison between AI model subcorpora and Gutenberg author
+  subcorpora.
+- **P14c:** Mixture model fit; $\hat{\alpha}_i$ comparison to estimated corpus-share
+  priors for candidate authors.
+- **P14d:** Temporal ordering check using author death dates and imitator subcorpus
+  split.
+
+---
+
 ### Size budget summary
 
 | Segment   | Description                                  | Target size     |
@@ -526,7 +680,8 @@ conversational speech, etc.), contrasted against C1 and C3 written text.
 | C5        | Antonym documents corpus                     | ≤10 MB          |
 | C6        | Cross-lingual matched-content corpus         | ~75–100 MB      |
 | C7        | Spoken vs. written language corpus           | ~50 MB          |
-| **Total** |                                              | **~735–810 MB** |
+| C8        | Gutenberg authors + AI attributed datasets   | ~150 MB         |
+| **Total** |                                              | **~885–960 MB** |
 
 This leaves comfortable headroom for indices and probe corpora within the 1 GB budget.
 
@@ -534,17 +689,21 @@ This leaves comfortable headroom for indices and probe corpora within the 1 GB b
 
 ## Cross-phase prediction matrix
 
-| Prediction | T1 | T2 | T3 | T4 |
-|:----------:|:--:|:--:|:--:|:--:|
-| §P-2 Hairpin density ordering | Null baseline | Hairpin in call-and-return code | Full probe corpus test | Noisy probe test |
-| §P-3 CpG suppression | Null baseline | Confirm or falsify | Confirm at scale | Partial test |
-| §P-4 Weighted Lee | — | — | Full benchmark | — |
-| §P-5 Reverse complement = antonym | — | — | Full antonym test | Partial test |
-| §P-6 Two-stage search | — | — | Latency-matched benchmark | — |
-| §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) |
-| §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — |
-| §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — |
-| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — |
+| Prediction | T1 | T2 | T3 | T4 | T5 |
+|:----------:|:--:|:--:|:--:|:--:|:--:|
+| §P-2 Hairpin density ordering | Null baseline | Hairpin in call-and-return code | Full probe corpus test | Noisy probe test | — |
+| §P-3 CpG suppression | Null baseline | Confirm or falsify | Confirm at scale | Partial test | — |
+| §P-4 Weighted Lee | — | — | Full benchmark | — | — |
+| §P-5 Reverse complement = antonym | — | — | Full antonym test | Partial test | — |
+| §P-6 Two-stage search | — | — | Latency-matched benchmark | — | — |
+| §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) | — |
+| §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — | Author-specific biases (C8) |
+| §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — | — |
+| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — | — |
+| §P-14a Author fingerprint stability | — | — | — | — | ANOVA + Bayesian attribution on C8 |
+| §P-14b RLHF entropy compression | — | — | — | — | AI vs. human entropy on C8 |
+| §P-14c Cross-lineage influence | — | — | — | — | Mixture model on C8 |
+| §P-14d Temporal ordering | — | — | — | — | Author-date consistency on C8 |
 
 Tests in the T1 column establish baseline distributions. A prediction is
 **confirmed** when the T3 or T4 result is statistically significant relative to the
@@ -567,8 +726,12 @@ the null at the 95% confidence level across at least two model/corpus combinatio
 | P9 (Z₄ vs. Z₈) | C1 + C3 | Nomic or EmbeddingGemma with Q² vs. Z₈ variant |
 | P10 (key entropy / collisions) | C2 (code), C1/C3 (NL) | All models |
 | P11–P13 (regime, grounding, cross-lingual) | C1 vs. C7, C6 | Nomic, EmbeddingGemma, MiniLM, Qwen2 activations |
+| P14a (author fingerprint stability) | C8 human subcorpus | Nomic, EmbeddingGemma; no embedding required for raw text features |
+| P14b (RLHF entropy compression) | C8 AI + human subcorpora | Triplet entropy on raw text; embedding models for transition sequences |
+| P14c (cross-lineage influence) | C8 AI + human subcorpora | Raw text stylometric features; mixture model fit |
+| P14d (temporal ordering) | C8 human subcorpus (with author dates) | Same as P14c |
 
 A concrete model matrix with rows corresponding to
 `{MiniLM, Nomic, EmbeddingGemma, mxbai, UniXcoder, Qwen2, Qwen2.5-Coder}` and columns
-corresponding to `{T1–T4, P2–P13}` clarifies exactly which model–phase combinations
+corresponding to `{T1–T5, P2–P14}` clarifies exactly which model–phase combinations
 need to be run vs. which can be pruned for an MVP.
