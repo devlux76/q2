@@ -42,6 +42,7 @@ function setupDom() {
       <button id="bench-run-t2"></button>
       <button id="bench-run-t3"></button>
       <button id="bench-run-t4"></button>
+      <button id="bench-run-t5"></button>
     </div>
 
     <div id="panel-settings" class="tab-panel hidden" role="tabpanel">
@@ -49,6 +50,7 @@ function setupDom() {
       <ul id="model-list"></ul>
       <input id="model-custom-id" type="text" />
       <input id="hf-token" type="password" />
+      <input id="default-chat-model" type="text" />
       <select id="model-dtype">
         <option value="q4" selected>q4</option>
         <option value="q8">q8</option>
@@ -534,8 +536,9 @@ describe('app.ts helpers and DOM integration', () => {
 
     const rows = body.querySelectorAll('tr');
     expect(rows.length).toBeGreaterThan(0);
-    // All rows should be T2 suite
-    rows.forEach((row) => {
+    // All rows should be T2 suite (config row is 'config', not a suite name)
+    const suiteRows = Array.from(rows).filter((row) => row.cells[0]?.textContent !== 'config');
+    suiteRows.forEach((row) => {
       expect(row.cells[0]?.textContent).toBe('T2');
     });
     expect(status.textContent).toMatch(/Completed:/);
@@ -546,7 +549,8 @@ describe('app.ts helpers and DOM integration', () => {
     app.runBenchmarks('t3');
     const rows = body.querySelectorAll('tr');
     expect(rows.length).toBeGreaterThan(0);
-    rows.forEach((row) => {
+    const suiteRows = Array.from(rows).filter((row) => row.cells[0]?.textContent !== 'config');
+    suiteRows.forEach((row) => {
       expect(row.cells[0]?.textContent).toBe('T3');
     });
   });
@@ -556,22 +560,45 @@ describe('app.ts helpers and DOM integration', () => {
     app.runBenchmarks('t4');
     const rows = body.querySelectorAll('tr');
     expect(rows.length).toBeGreaterThan(0);
-    rows.forEach((row) => {
+    const suiteRows = Array.from(rows).filter((row) => row.cells[0]?.textContent !== 'config');
+    suiteRows.forEach((row) => {
       expect(row.cells[0]?.textContent).toBe('T4');
     });
   });
 
-  it('runBenchmarks() runs all suites T0–T4 with no filter', () => {
+  it('runBenchmarks(t5) populates bench-results-body with T5 rows', () => {
+    const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
+    app.runBenchmarks('t5');
+    const rows = body.querySelectorAll('tr');
+    expect(rows.length).toBeGreaterThan(0);
+    const suiteRows = Array.from(rows).filter((row) => row.cells[0]?.textContent !== 'config');
+    suiteRows.forEach((row) => {
+      expect(row.cells[0]?.textContent).toBe('T5');
+    });
+  });
+
+  it('runBenchmarks() runs all suites T0–T5 with no filter', () => {
     const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
     app.runBenchmarks();
     const rows = body.querySelectorAll('tr');
-    // Should have rows from all five suites
+    // Should have rows from all six suites (plus config row)
     const suites = new Set(Array.from(rows).map((row) => row.cells[0]?.textContent));
     expect(suites.has('T0')).toBe(true);
     expect(suites.has('T1')).toBe(true);
     expect(suites.has('T2')).toBe(true);
     expect(suites.has('T3')).toBe(true);
     expect(suites.has('T4')).toBe(true);
+    expect(suites.has('T5')).toBe(true);
+  });
+
+  it('runBenchmarks config row shows configured benchmark model IDs', () => {
+    const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
+    app.runBenchmarks('t4');
+    const rows = Array.from(body.querySelectorAll('tr'));
+    const configRow = rows.find((row) => row.cells[0]?.textContent === 'config');
+    expect(configRow).toBeTruthy();
+    // Should contain the configured T4 model ID
+    expect(configRow?.cells[3]?.textContent).toContain('Qwen3.5-0.8B-ONNX');
   });
 
   it('runBenchmarks all-pass produces status "Completed: N/N passed"', () => {
@@ -598,5 +625,33 @@ describe('app.ts helpers and DOM integration', () => {
     expect(loadedSettings.benchModelT2).toBe('custom-org/my-code-model');
     expect(loadedSettings.benchModelT3).toBe('custom-org/my-embed-model');
     expect(loadedSettings.benchModelT4).toBe('custom-org/my-llm-model');
+  });
+
+  it('clearing bench-model-t4 falls back to DEFAULT_SETTINGS value', () => {
+    const t4El = document.querySelector('#bench-model-t4') as HTMLInputElement;
+    // First set a custom value
+    t4El.value = 'custom-org/my-llm-model';
+    t4El.dispatchEvent(new Event('change'));
+    // Then clear it
+    t4El.value = '';
+    t4El.dispatchEvent(new Event('change'));
+
+    const loadedSettings = app.loadSettings();
+    expect(loadedSettings.benchModelT4).toBe('onnx-community/Qwen3.5-0.8B-ONNX');
+  });
+
+  it('defaultChatModel setting is persisted and restored', () => {
+    const el = document.querySelector('#default-chat-model') as HTMLInputElement;
+    el.value = 'custom-org/my-chat-model';
+    el.dispatchEvent(new Event('change'));
+
+    const loadedSettings = app.loadSettings();
+    expect(loadedSettings.defaultChatModel).toBe('custom-org/my-chat-model');
+  });
+
+  it('DEFAULT_SETTINGS defaultChatModel is Qwen3.5-0.8B-ONNX', () => {
+    const loadedSettings = app.loadSettings();
+    // With empty localStorage, defaultChatModel should be the Qwen3.5 default
+    expect(loadedSettings.defaultChatModel).toBe('onnx-community/Qwen3.5-0.8B-ONNX');
   });
 });

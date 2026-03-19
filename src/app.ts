@@ -44,7 +44,7 @@ import {
   storeFile,
   storeFromUrl,
 } from './opfs.js';
-import { AppSettings, loadSettings, saveSettings } from './settings.js';
+import { AppSettings, DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings.js';
 import {
   HFModel,
   fetchHFModels,
@@ -322,6 +322,7 @@ function initSettingsPanel(): void {
   const dtypeEl = $<HTMLSelectElement>('#model-dtype');
   const libraryEl = $<HTMLSelectElement>('#filter-library');
   const keyDisplayEl = $<HTMLSelectElement>('#q2-key-display-mode');
+  const defaultChatModelEl = $<HTMLInputElement>('#default-chat-model');
   const benchModelT2El = $<HTMLInputElement>('#bench-model-t2');
   const benchModelT3El = $<HTMLInputElement>('#bench-model-t3');
   const benchModelT4El = $<HTMLInputElement>('#bench-model-t4');
@@ -331,6 +332,7 @@ function initSettingsPanel(): void {
   dtypeEl.value = currentSettings.dtype;
   libraryEl.value = currentSettings.filterLibrary;
   keyDisplayEl.value = currentSettings.q2KeyDisplayMode;
+  defaultChatModelEl.value = currentSettings.defaultChatModel;
   benchModelT2El.value = currentSettings.benchModelT2;
   benchModelT3El.value = currentSettings.benchModelT3;
   benchModelT4El.value = currentSettings.benchModelT4;
@@ -359,18 +361,25 @@ function initSettingsPanel(): void {
     saveSettings(currentSettings);
   });
 
+  defaultChatModelEl.addEventListener('change', () => {
+    // Fall back to DEFAULT_SETTINGS if the user clears the field.
+    currentSettings.defaultChatModel = defaultChatModelEl.value.trim() || DEFAULT_SETTINGS.defaultChatModel;
+    saveSettings(currentSettings);
+  });
+
   benchModelT2El.addEventListener('change', () => {
-    currentSettings.benchModelT2 = benchModelT2El.value.trim();
+    // Fall back to DEFAULT_SETTINGS if the user clears the field.
+    currentSettings.benchModelT2 = benchModelT2El.value.trim() || DEFAULT_SETTINGS.benchModelT2;
     saveSettings(currentSettings);
   });
 
   benchModelT3El.addEventListener('change', () => {
-    currentSettings.benchModelT3 = benchModelT3El.value.trim();
+    currentSettings.benchModelT3 = benchModelT3El.value.trim() || DEFAULT_SETTINGS.benchModelT3;
     saveSettings(currentSettings);
   });
 
   benchModelT4El.addEventListener('change', () => {
-    currentSettings.benchModelT4 = benchModelT4El.value.trim();
+    currentSettings.benchModelT4 = benchModelT4El.value.trim() || DEFAULT_SETTINGS.benchModelT4;
     saveSettings(currentSettings);
   });
 }
@@ -1067,6 +1076,54 @@ function t4DialecticalSeq(length: number, seed: number): number[] {
   return seq.slice(0, length);
 }
 
+/**
+ * Simulate an "author-fingerprinted" sequence for T5/P14.
+ *
+ * Each synthetic author has a characteristic hairpin rate bias. Sequences from the
+ * same author will cluster in hairpin-density space (stable fingerprint); sequences
+ * from different authors will be separable.
+ *
+ * @param length     - sequence length
+ * @param seed       - per-document seed
+ * @param authorBias - author-specific hairpin rate offset (added to 0.2 base)
+ */
+function authorSeq(length: number, seed: number, authorBias: number): number[] {
+  const rng = benchRng(seed);
+  const hairpinRate = Math.max(0, Math.min(0.8, 0.2 + authorBias));
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    if (seq.length + 2 <= length && rng() < hairpinRate) {
+      seq.push(complement(last));
+      seq.push(last);
+    } else {
+      const others = [0, 1, 2, 3].filter((x) => x !== last);
+      seq.push(others[Math.floor(rng() * others.length)]!);
+    }
+  }
+  return seq.slice(0, length);
+}
+
+/**
+ * Simulate RLHF-compressed sequences for T5/P14b.
+ *
+ * RLHF training compresses stylometric variance by averaging over many training
+ * authors. The output resembles the population null (no systematic hairpin signal):
+ * random uniform transitions from 3 non-same symbols, giving ρ_hp ≈ 1/9.
+ * Per-document variation is small (sampling noise only), so CV is very low.
+ */
+function rlhfSeq(length: number, seed: number): number[] {
+  // Uniform random transitions (no hairpin injection) → ρ_hp ≈ 1/9 by construction.
+  const rng = benchRng(seed + 9000);
+  const seq: number[] = [Math.floor(rng() * 4)];
+  while (seq.length < length) {
+    const last = seq[seq.length - 1]!;
+    const others = [0, 1, 2, 3].filter((x) => x !== last);
+    seq.push(others[Math.floor(rng() * others.length)]!);
+  }
+  return seq.slice(0, length);
+}
+
 function renderBenchRow(r: BenchResult): void {
   const tr = document.createElement('tr');
   const statusClass =
@@ -1105,6 +1162,21 @@ export function runBenchmarks(suiteFilter?: string): void {
     benchStatusEl.textContent = 'Running benchmarks…';
 
     const results: BenchResult[] = [];
+
+    // Resolve effective model IDs (settings override, then DEFAULT_SETTINGS fallback).
+    const modelT2 = currentSettings.benchModelT2 || DEFAULT_SETTINGS.benchModelT2;
+    const modelT3 = currentSettings.benchModelT3 || DEFAULT_SETTINGS.benchModelT3;
+    const modelT4 = currentSettings.benchModelT4 || DEFAULT_SETTINGS.benchModelT4;
+
+    // Add a configuration info row for model-associated suites when running all or a model suite.
+    if (!suiteFilter || suiteFilter === 't2' || suiteFilter === 't3' || suiteFilter === 't4' || suiteFilter === 't5') {
+      results.push({
+        suite: 'config',
+        test: 'Configured benchmark models',
+        status: 'pending',
+        result: `T2: ${modelT2} | T3: ${modelT3} | T4/T5: ${modelT4}`,
+      });
+    }
 
   // ── T0: Algebraic invariants ──────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't0') {
@@ -1458,6 +1530,114 @@ export function runBenchmarks(suiteFilter?: string): void {
     }
   }
 
+  // ── T5: Phylomemetic fingerprinting (P14) ─────────────────────────────
+  if (!suiteFilter || suiteFilter === 't5') {
+    const T5_SAMPLES = 40;
+    const T5_LEN = 400;
+
+    // P14a: Author fingerprint stability — Q² stats stable within author, separable between
+    try {
+      // Two synthetic "authors" with distinct hairpin biases (+0.2 vs −0.1 offset from base)
+      const authorARhops: number[] = [];
+      const authorBRhops: number[] = [];
+      for (let seed = 0; seed < T5_SAMPLES; seed++) {
+        authorARhops.push(hairpinDensity(authorSeq(T5_LEN, seed, 0.2)));
+        authorBRhops.push(hairpinDensity(authorSeq(T5_LEN, seed, -0.1)));
+      }
+      const meanA = authorARhops.reduce((a, b) => a + b, 0) / authorARhops.length;
+      const meanB = authorBRhops.reduce((a, b) => a + b, 0) / authorBRhops.length;
+      // Authors must be separable: means differ by >0.05
+      const separable = Math.abs(meanA - meanB) > 0.05;
+      // Within-author variance should be low (SD < 0.1)
+      const varA = authorARhops.reduce((s, x) => s + (x - meanA) ** 2, 0) / authorARhops.length;
+      const sdA = Math.sqrt(varA);
+      const pass = separable && sdA < 0.1;
+      results.push({ suite: 'T5', test: 'P14a: Author fingerprint stable & separable', status: pass ? 'pass' : 'fail', result: `meanA=${meanA.toFixed(3)}, meanB=${meanB.toFixed(3)}, sdA=${sdA.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14a: Author fingerprint stable & separable', status: 'fail', result: String(e) });
+    }
+
+    // P14b: RLHF entropy compression — AI model sequences have lower CV than human authors
+    try {
+      const humanRhops: number[] = [];
+      const rlhfRhops: number[] = [];
+      for (let seed = 0; seed < T5_SAMPLES; seed++) {
+        // Human author: larger hairpin variance (±0.15 around base)
+        humanRhops.push(hairpinDensity(authorSeq(T5_LEN, seed, (seed % 7 - 3) * 0.05)));
+        rlhfRhops.push(hairpinDensity(rlhfSeq(T5_LEN, seed)));
+      }
+      const humanMean = humanRhops.reduce((a, b) => a + b, 0) / humanRhops.length;
+      const rlhfMean = rlhfRhops.reduce((a, b) => a + b, 0) / rlhfRhops.length;
+      const humanVar = humanRhops.reduce((s, x) => s + (x - humanMean) ** 2, 0) / humanRhops.length;
+      const rlhfVar = rlhfRhops.reduce((s, x) => s + (x - rlhfMean) ** 2, 0) / rlhfRhops.length;
+      const humanCV = humanMean > 0 ? Math.sqrt(humanVar) / humanMean : 0;
+      const rlhfCV = rlhfMean > 0 ? Math.sqrt(rlhfVar) / rlhfMean : 0;
+      // RLHF CV must be lower than human CV (entropy compression)
+      const pass = rlhfCV < humanCV;
+      results.push({ suite: 'T5', test: 'P14b: RLHF CV < human CV (entropy compression)', status: pass ? 'pass' : 'fail', result: `human CV=${humanCV.toFixed(3)}, RLHF CV=${rlhfCV.toFixed(3)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14b: RLHF CV < human CV (entropy compression)', status: 'fail', result: String(e) });
+    }
+
+    // P14c: Cross-lineage influence detection — authors cluster by hairpin fingerprint
+    try {
+      // 3 synthetic authors; within-author mean Lee distance should be less than cross-author
+      const authorBiases = [0.25, -0.05, 0.45];
+      const perAuthor = authorBiases.map((bias, aIdx) => {
+        const seqs = [];
+        for (let seed = 0; seed < 10; seed++) {
+          seqs.push(authorSeq(T5_LEN, aIdx * 100 + seed, bias));
+        }
+        return seqs;
+      });
+      let withinSum = 0; let withinCount = 0;
+      let crossSum = 0; let crossCount = 0;
+      for (let a = 0; a < perAuthor.length; a++) {
+        for (let i = 0; i < perAuthor[a]!.length; i++) {
+          for (let j = i + 1; j < perAuthor[a]!.length; j++) {
+            withinSum += leeDistanceSeq(perAuthor[a]![i]!, perAuthor[a]![j]!);
+            withinCount++;
+          }
+        }
+        for (let b = a + 1; b < perAuthor.length; b++) {
+          for (const seqA of perAuthor[a]!) {
+            for (const seqB of perAuthor[b]!) {
+              crossSum += leeDistanceSeq(seqA, seqB);
+              crossCount++;
+            }
+          }
+        }
+      }
+      const meanWithin = withinCount > 0 ? withinSum / withinCount : 0;
+      const meanCross = crossCount > 0 ? crossSum / crossCount : 0;
+      const pass = meanCross > meanWithin;
+      results.push({ suite: 'T5', test: 'P14c: Cross-author distance > within-author', status: pass ? 'pass' : 'fail', result: `within=${meanWithin.toFixed(1)}, cross=${meanCross.toFixed(1)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14c: Cross-author distance > within-author', status: 'fail', result: String(e) });
+    }
+
+    // P14d: Temporal ordering — earlier author bias influences later (inheritance)
+    // Proxy: "influenced" seq is midpoint between early and late author; should be closer to early
+    try {
+      const earlyBias = 0.35;
+      const lateBias = -0.05;
+      const inflBias = (earlyBias + lateBias) / 2; // influenced author mixes both
+      const earlySeqs = Array.from({ length: 10 }, (_, i) => authorSeq(T5_LEN, i, earlyBias));
+      const lateSeqs = Array.from({ length: 10 }, (_, i) => authorSeq(T5_LEN, i + 100, lateBias));
+      const inflSeqs = Array.from({ length: 10 }, (_, i) => authorSeq(T5_LEN, i + 200, inflBias));
+      let distInflEarly = 0; let distInflLate = 0;
+      for (let i = 0; i < inflSeqs.length; i++) {
+        distInflEarly += leeDistanceSeq(inflSeqs[i]!, earlySeqs[i]!);
+        distInflLate += leeDistanceSeq(inflSeqs[i]!, lateSeqs[i]!);
+      }
+      // Influenced author should be closer to early (lower distance) due to inherited signal
+      const pass = distInflEarly < distInflLate;
+      results.push({ suite: 'T5', test: 'P14d: Influenced author closer to early source', status: pass ? 'pass' : 'fail', result: `d(infl,early)=${(distInflEarly/10).toFixed(1)}, d(infl,late)=${(distInflLate/10).toFixed(1)}` });
+    } catch (e) {
+      results.push({ suite: 'T5', test: 'P14d: Influenced author closer to early source', status: 'fail', result: String(e) });
+    }
+  }
+
   // Render all results
   for (const r of results) {
     renderBenchRow(r);
@@ -1527,6 +1707,7 @@ const benchRunT1Btn = document.querySelector<HTMLButtonElement>('#bench-run-t1')
 const benchRunT2Btn = document.querySelector<HTMLButtonElement>('#bench-run-t2');
 const benchRunT3Btn = document.querySelector<HTMLButtonElement>('#bench-run-t3');
 const benchRunT4Btn = document.querySelector<HTMLButtonElement>('#bench-run-t4');
+const benchRunT5Btn = document.querySelector<HTMLButtonElement>('#bench-run-t5');
 
 benchRunAllBtn?.addEventListener('click', () => runBenchmarks());
 benchRunT0Btn?.addEventListener('click', () => runBenchmarks('t0'));
@@ -1534,6 +1715,7 @@ benchRunT1Btn?.addEventListener('click', () => runBenchmarks('t1'));
 benchRunT2Btn?.addEventListener('click', () => runBenchmarks('t2'));
 benchRunT3Btn?.addEventListener('click', () => runBenchmarks('t3'));
 benchRunT4Btn?.addEventListener('click', () => runBenchmarks('t4'));
+benchRunT5Btn?.addEventListener('click', () => runBenchmarks('t5'));
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 

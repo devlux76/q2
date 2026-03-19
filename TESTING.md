@@ -15,6 +15,7 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 - [T2 — Structured code corpus](#t2--structured-code-corpus)
 - [T3 — Matryoshka and dedicated embedding models](#t3--matryoshka-and-dedicated-embedding-models)
 - [T4 — Standard local LLMs](#t4--standard-local-llms)
+- [T5 — Phylomemetic fingerprinting](#t5--phylomemetic-fingerprinting)
 - [Corpus layout](#corpus-layout)
 - [Cross-phase prediction matrix](#cross-phase-prediction-matrix)
 - [Model and corpus matrix](#model-and-corpus-matrix)
@@ -23,11 +24,11 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 
 ## Overview
 
-Testing is organized into an initial pre-phase **T0** and four main phases **T1–T4**.
-The four main phases progress from the least constrained (random text, no semantic
-structure) to the most constrained (code, where ground truth is machine-verifiable)
-and then broaden to measure what the encoding adds over current best-practice
-embedding models.
+Testing is organized into an initial pre-phase **T0** and five main phases **T1–T5**.
+The phases progress from the least constrained (random text, no semantic
+structure) to the most constrained (code, where ground truth is machine-verifiable),
+then broaden to measure what the encoding adds over current best-practice embedding
+models, and finally test stylometric fingerprinting and RLHF entropy compression.
 
 The expected performance ordering across phases is:
 
@@ -46,7 +47,8 @@ flowchart TD
     T1["T1 — Random text\nnull distribution\n(character-frequency corpus)"]
     T2["T2 — Structured code corpus\nmachine-verifiable ground truth\n(TypeScript functions)"]
     T3["T3 — Matryoshka &\ndedicated embedding models\n(BEIR benchmark)"]
-    T4["T4 — Standard local LLMs\n(LFM-2.5, Qwen2.5)"]
+    T4["T4 — Standard local LLMs\n(Qwen3.5-0.8B-ONNX)"]
+    T5["T5 — Phylomemetic fingerprinting\n(P14a–d: author attribution\n& RLHF entropy compression)"]
 
     T0 -->|"null baselines\nestablished"| T1
     T1 -->|"validate against\nnull"| T2
@@ -54,12 +56,14 @@ flowchart TD
     T1 -->|"validate against\nnull"| T4
     T2 -->|"P2, P3, P8, P10"| T3
     T3 -->|"P2, P3, P5, P7"| T4
+    T4 -->|"P14a–d"| T5
 
     style T0 fill:#ddf,stroke:#99c
     style T1 fill:#ffd,stroke:#cc9
     style T2 fill:#dfd,stroke:#9c9
     style T3 fill:#fdd,stroke:#c99
     style T4 fill:#eee,stroke:#999
+    style T5 fill:#ede,stroke:#9a9
 ```
 
 ## T0 — Unit tests and invariants
@@ -291,9 +295,11 @@ from a general-purpose LLM rather than a retrieval-optimised model.
 
 **Models.** General-purpose local LLMs with accessible intermediate activations:
 
-- **General language model:** `onnx-community/Qwen2-0.5B-Instruct-ONNX` — 0.5B
-  parameter general instruction model with explicit ONNX Runtime and Transformers.js
-  usage.
+- **General language model:** `onnx-community/Qwen3.5-0.8B-ONNX` — 0.8B parameter
+  instruction model; improved benchmark scores over Qwen2-0.5B with wider accessibility
+  through Transformers.js and ONNX Runtime.
+- **Legacy baseline:** `onnx-community/Qwen2-0.5B-Instruct-ONNX` — retained for
+  comparison; represents the older 0.5B generation.
 - **Code-centric LLM:** `onnx-community/Qwen2.5-Coder-0.5B-Instruct` — provides a
   second activation geometry tuned heavily on code.
 - LFM-2.5 1.2B (Liquid AI) — available if the 1B ceiling is relaxed; not recommended
@@ -338,6 +344,37 @@ is informative about what retrieval fine-tuning does to the structure of the L1 
 **If §P-2 sub-test passes in T4:** the hairpin signal is a property of the Q² encoding
 applied to any sufficiently trained transformer, not an artefact of retrieval
 optimisation.
+
+---
+
+## T5 — Phylomemetic fingerprinting
+
+**Purpose.** Test P14 (author fingerprint stability and RLHF entropy compression).
+Grounded in the Box-Muller result (PR #9), which demonstrated that author-specific
+signal is measurable in Q² transition-sequence statistics. T5 tests whether
+Q²-derived stylometric features are (a) stable within an author, (b) separable across
+authors, and (c) compressed by RLHF training relative to human variance.
+
+**Models.** Same as T4 — `onnx-community/Qwen3.5-0.8B-ONNX` (or any model with
+accessible intermediate activations).
+
+**Corpus.** C8 — Gutenberg pre-1927 texts (Carroll, Shelley, Doyle, Poe, Twain,
+Dickens, Hardy, Austen, Melville, Wilde; ~100 MB) plus balanced AI-generated text
+samples from HC3, RAID, MAGE benchmarks (~50 MB).
+
+**Prediction sub-tests.**
+
+| Prediction | Measurement | Expected result |
+|:----------:|:------------|:----------------|
+| §P-14a | Within-author Q² hairpin-density CV vs. cross-author | Within-author CV < cross-author separation (stable fingerprint) |
+| §P-14b | CV of Q² statistics for RLHF model vs. human authors | RLHF CV < human CV (entropy compression) |
+| §P-14c | Cross-author Lee-distance clustering | Cross-author mean distance > within-author (separable fingerprints) |
+| §P-14d | Temporal influence: "influenced" author closer to earlier source | Lee distance to early author < late author (inheritance signal) |
+
+**Falsification condition.** If CV is equivalent between RLHF outputs and human
+authors (P14b fails), the entropy-compression hypothesis is falsified. If within-author
+and cross-author distances are indistinguishable (P14a/P14c fail), the fingerprinting
+signal is not present in Q² statistics.
 
 ---
 
@@ -534,17 +571,21 @@ This leaves comfortable headroom for indices and probe corpora within the 1 GB b
 
 ## Cross-phase prediction matrix
 
-| Prediction | T1 | T2 | T3 | T4 |
-|:----------:|:--:|:--:|:--:|:--:|
-| §P-2 Hairpin density ordering | Null baseline | Hairpin in call-and-return code | Full probe corpus test | Noisy probe test |
-| §P-3 CpG suppression | Null baseline | Confirm or falsify | Confirm at scale | Partial test |
-| §P-4 Weighted Lee | — | — | Full benchmark | — |
-| §P-5 Reverse complement = antonym | — | — | Full antonym test | Partial test |
-| §P-6 Two-stage search | — | — | Latency-matched benchmark | — |
-| §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) |
-| §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — |
-| §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — |
-| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — |
+| Prediction | T1 | T2 | T3 | T4 | T5 |
+|:----------:|:--:|:--:|:--:|:--:|:--:|
+| §P-2 Hairpin density ordering | Null baseline | Hairpin in call-and-return code | Full probe corpus test | Noisy probe test | — |
+| §P-3 CpG suppression | Null baseline | Confirm or falsify | Confirm at scale | Partial test | — |
+| §P-4 Weighted Lee | — | — | Full benchmark | — | — |
+| §P-5 Reverse complement = antonym | — | — | Full antonym test | Partial test | — |
+| §P-6 Two-stage search | — | — | Latency-matched benchmark | — | — |
+| §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) | — |
+| §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — | — |
+| §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — | — |
+| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — | — |
+| §P-14a Author fingerprint stability | — | — | — | — | Within vs. cross-author CV |
+| §P-14b RLHF entropy compression | — | — | — | — | RLHF CV < human CV |
+| §P-14c Cross-lineage influence | — | — | — | — | Author clustering |
+| §P-14d Temporal ordering | — | — | — | — | Influenced → earlier source |
 
 Tests in the T1 column establish baseline distributions. A prediction is
 **confirmed** when the T3 or T4 result is statistically significant relative to the
@@ -560,15 +601,17 @@ the null at the 95% confidence level across at least two model/corpus combinatio
 | P2 (hairpin density) | C0 (null), C2 (code), C1/C3/C4 (probes) | All — MiniLM (null), UniXcoder (T2), Nomic / EmbeddingGemma (T3/T4) |
 | P3 (complement suppression) | C0 (null), C1, C2, C3, C7 | All embedding models; spoken vs. written comparison via C7 |
 | P4 (weighted Lee) | C1 + C3 | Nomic, EmbeddingGemma |
-| P5 (reverse-complement antonyms) | C5 (primary), C3 (secondary) | Nomic, EmbeddingGemma (T3); Qwen2 activations (T4) |
+| P5 (reverse-complement antonyms) | C5 (primary), C3 (secondary) | Nomic, EmbeddingGemma (T3); Qwen3.5 activations (T4) |
 | P6 (two-stage hash + Lee search) | C3 | Nomic, EmbeddingGemma with Q² keys |
 | P7 (secondary structure) | C4 (primary), C1 (longform) | Nomic, EmbeddingGemma |
 | P8 (codon usage bias) | C0, C1, C2 | MiniLM, Nomic, EmbeddingGemma, UniXcoder |
 | P9 (Z₄ vs. Z₈) | C1 + C3 | Nomic or EmbeddingGemma with Q² vs. Z₈ variant |
 | P10 (key entropy / collisions) | C2 (code), C1/C3 (NL) | All models |
-| P11–P13 (regime, grounding, cross-lingual) | C1 vs. C7, C6 | Nomic, EmbeddingGemma, MiniLM, Qwen2 activations |
+| P11–P13 (regime, grounding, cross-lingual) | C1 vs. C7, C6 | Nomic, EmbeddingGemma, MiniLM, Qwen3.5 activations |
+
+| P14 (author fingerprint / RLHF compression) | C8 (Gutenberg + AI datasets) | Qwen3.5-0.8B-ONNX (T5) |
 
 A concrete model matrix with rows corresponding to
-`{MiniLM, Nomic, EmbeddingGemma, mxbai, UniXcoder, Qwen2, Qwen2.5-Coder}` and columns
-corresponding to `{T1–T4, P2–P13}` clarifies exactly which model–phase combinations
+`{MiniLM, Nomic, EmbeddingGemma, mxbai, UniXcoder, Qwen3.5, Qwen2.5-Coder}` and columns
+corresponding to `{T1–T5, P2–P14}` clarifies exactly which model–phase combinations
 need to be run vs. which can be pruned for an MVP.

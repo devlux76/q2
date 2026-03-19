@@ -125,7 +125,7 @@
     <div class="bench-container">
       <div class="bench-header">
         <h1>Q² Benchmarks</h1>
-        <p class="bench-subtitle">Embedding quantization hypothesis tests · T0–T4 all run without model download</p>
+        <p class="bench-subtitle">Embedding quantization hypothesis tests · T0–T5 all run without model download</p>
       </div>
 
       <div class="bench-controls">
@@ -135,9 +135,10 @@
         <button id="bench-run-t2" class="bench-btn">T2 — Code Corpus</button>
         <button id="bench-run-t3" class="bench-btn">T3 — Embedding Models</button>
         <button id="bench-run-t4" class="bench-btn">T4 — Local LLMs</button>
+        <button id="bench-run-t5" class="bench-btn">T5 — Phylomemetics</button>
       </div>
 
-      <div id="bench-status" class="bench-status">Ready to run benchmarks. All suites (T0–T4) run without model download.</div>
+      <div id="bench-status" class="bench-status">Ready to run benchmarks. All suites (T0–T5) run without model download.</div>
 
       <div id="bench-results" class="bench-results">
         <table class="bench-table">
@@ -164,6 +165,18 @@
       <div class="settings-card">
         <h2>Model</h2>
         <p class="settings-card-desc">Select and load an ONNX model for chat inference. Models download in the background and are cached locally.</p>
+
+        <div class="settings-field">
+          <label for="default-chat-model">Default chat model</label>
+          <input
+            id="default-chat-model"
+            type="text"
+            placeholder="onnx-community/Qwen3.5-0.8B-ONNX"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Default chat model ID"
+          />
+        </div>
 
         <div class="picker-search">
           <input
@@ -230,7 +243,7 @@
       <!-- Benchmark models card -->
       <div class="settings-card">
         <h2>Benchmark Models</h2>
-        <p class="settings-card-desc">Default models used when running model-based benchmarks. Leave blank to use the recommended default. These settings let you compare results across models.</p>
+        <p class="settings-card-desc">Model IDs shown in the benchmark results config row. These identify which model would be used for live model-based benchmark phases. Leave blank to use the recommended default from TESTING.md.</p>
         <div class="settings-row">
           <div class="settings-field">
             <label for="bench-model-t2">T2 — Code corpus model</label>
@@ -255,18 +268,18 @@
             />
           </div>
           <div class="settings-field">
-            <label for="bench-model-t4">T4 — Local LLM model</label>
+            <label for="bench-model-t4">T4/T5 — Local LLM model</label>
             <input
               id="bench-model-t4"
               type="text"
-              placeholder="onnx-community/Qwen2-0.5B-Instruct-ONNX"
+              placeholder="onnx-community/Qwen3.5-0.8B-ONNX"
               autocomplete="off"
               spellcheck="false"
-              aria-label="T4 benchmark model override"
+              aria-label="T4/T5 benchmark model override"
             />
           </div>
         </div>
-        <p class="settings-hint">Changes take effect on the next benchmark run. Blank fields use the defaults specified in TESTING.md.</p>
+        <p class="settings-hint">Model IDs are recorded in the benchmark config row for comparison and reproducibility. Blank fields fall back to TESTING.md defaults.</p>
       </div>
     </div>
   </div>
