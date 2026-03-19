@@ -18,6 +18,24 @@ export interface AppSettings {
   filterLibrary: FilterLibrary;
   /** Q² transition key display mode in the embedding panel. */
   q2KeyDisplayMode: Q2KeyDisplayMode;
+  /**
+   * Default model for T2 (structured code corpus) benchmarks.
+   * Per TESTING.md §T2: sailesh27/unixcoder-base-onnx is the primary recommendation.
+   * Users can override to compare models; leave blank to use the default.
+   */
+  benchModelT2: string;
+  /**
+   * Default model for T3 (Matryoshka / dedicated embedding) benchmarks.
+   * Per TESTING.md §T3: Xenova/all-MiniLM-L6-v2 is the recommended tiny baseline.
+   * Users can override to compare models; leave blank to use the default.
+   */
+  benchModelT3: string;
+  /**
+   * Default model for T4 (standard local LLM) benchmarks.
+   * Per TESTING.md §T4: onnx-community/Qwen2-0.5B-Instruct-ONNX is the primary recommendation.
+   * Users can override to compare models; leave blank to use the default.
+   */
+  benchModelT4: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -25,6 +43,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dtype: 'q4',
   filterLibrary: 'transformers.js',
   q2KeyDisplayMode: 'q2',
+  benchModelT2: 'sailesh27/unixcoder-base-onnx',
+  benchModelT3: 'Xenova/all-MiniLM-L6-v2',
+  benchModelT4: 'onnx-community/Qwen2-0.5B-Instruct-ONNX',
 };
 
 const SETTINGS_KEY = 'q2_settings';

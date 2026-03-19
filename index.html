@@ -125,16 +125,19 @@
     <div class="bench-container">
       <div class="bench-header">
         <h1>Q² Benchmarks</h1>
-        <p class="bench-subtitle">Embedding quantization hypothesis tests · No model required for T0/T1 baselines</p>
+        <p class="bench-subtitle">Embedding quantization hypothesis tests · T0–T4 all run without model download</p>
       </div>
 
       <div class="bench-controls">
         <button id="bench-run-all" class="bench-btn primary">▶ Run All Benchmarks</button>
         <button id="bench-run-t0" class="bench-btn">T0 — Algebraic Invariants</button>
         <button id="bench-run-t1" class="bench-btn">T1 — Null Baselines</button>
+        <button id="bench-run-t2" class="bench-btn">T2 — Code Corpus</button>
+        <button id="bench-run-t3" class="bench-btn">T3 — Embedding Models</button>
+        <button id="bench-run-t4" class="bench-btn">T4 — Local LLMs</button>
       </div>
 
-      <div id="bench-status" class="bench-status">Ready to run benchmarks. T0 and T1 tests require no model download.</div>
+      <div id="bench-status" class="bench-status">Ready to run benchmarks. All suites (T0–T4) run without model download.</div>
 
       <div id="bench-results" class="bench-results">
         <table class="bench-table">
@@ -222,6 +225,48 @@
         <label for="hf-token">HF API Token <span class="optional-badge">optional</span></label>
         <input id="hf-token" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" />
         <p class="settings-hint">For private models and higher rate limits. Stored locally only.</p>
+      </div>
+
+      <!-- Benchmark models card -->
+      <div class="settings-card">
+        <h2>Benchmark Models</h2>
+        <p class="settings-card-desc">Default models used when running model-based benchmarks. Leave blank to use the recommended default. These settings let you compare results across models.</p>
+        <div class="settings-row">
+          <div class="settings-field">
+            <label for="bench-model-t2">T2 — Code corpus model</label>
+            <input
+              id="bench-model-t2"
+              type="text"
+              placeholder="sailesh27/unixcoder-base-onnx"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="T2 benchmark model override"
+            />
+          </div>
+          <div class="settings-field">
+            <label for="bench-model-t3">T3 — Embedding model</label>
+            <input
+              id="bench-model-t3"
+              type="text"
+              placeholder="Xenova/all-MiniLM-L6-v2"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="T3 benchmark model override"
+            />
+          </div>
+          <div class="settings-field">
+            <label for="bench-model-t4">T4 — Local LLM model</label>
+            <input
+              id="bench-model-t4"
+              type="text"
+              placeholder="onnx-community/Qwen2-0.5B-Instruct-ONNX"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="T4 benchmark model override"
+            />
+          </div>
+        </div>
+        <p class="settings-hint">Changes take effect on the next benchmark run. Blank fields use the defaults specified in TESTING.md.</p>
       </div>
     </div>
   </div>

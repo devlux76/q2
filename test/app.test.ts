@@ -39,6 +39,9 @@ function setupDom() {
       <button id="bench-run-all"></button>
       <button id="bench-run-t0"></button>
       <button id="bench-run-t1"></button>
+      <button id="bench-run-t2"></button>
+      <button id="bench-run-t3"></button>
+      <button id="bench-run-t4"></button>
     </div>
 
     <div id="panel-settings" class="tab-panel hidden" role="tabpanel">
@@ -62,6 +65,9 @@ function setupDom() {
         <option value="cgAt">cgAt</option>
         <option value="hex">hex</option>
       </select>
+      <input id="bench-model-t2" type="text" />
+      <input id="bench-model-t3" type="text" />
+      <input id="bench-model-t4" type="text" />
       <button id="load-btn" disabled>Load</button>
     </div>
 
@@ -518,5 +524,79 @@ describe('app.ts helpers and DOM integration', () => {
     const errorBubble = document.querySelector('#messages .bubble.error') as HTMLElement;
     expect(errorBubble).toBeTruthy();
     expect(errorBubble.textContent).toContain('No model loaded');
+  });
+
+  it('runBenchmarks(t2) populates bench-results-body with T2 rows', () => {
+    const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
+    const status = document.querySelector('#bench-status') as HTMLDivElement;
+
+    app.runBenchmarks('t2');
+
+    const rows = body.querySelectorAll('tr');
+    expect(rows.length).toBeGreaterThan(0);
+    // All rows should be T2 suite
+    rows.forEach((row) => {
+      expect(row.cells[0]?.textContent).toBe('T2');
+    });
+    expect(status.textContent).toMatch(/Completed:/);
+  });
+
+  it('runBenchmarks(t3) populates bench-results-body with T3 rows', () => {
+    const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
+    app.runBenchmarks('t3');
+    const rows = body.querySelectorAll('tr');
+    expect(rows.length).toBeGreaterThan(0);
+    rows.forEach((row) => {
+      expect(row.cells[0]?.textContent).toBe('T3');
+    });
+  });
+
+  it('runBenchmarks(t4) populates bench-results-body with T4 rows', () => {
+    const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
+    app.runBenchmarks('t4');
+    const rows = body.querySelectorAll('tr');
+    expect(rows.length).toBeGreaterThan(0);
+    rows.forEach((row) => {
+      expect(row.cells[0]?.textContent).toBe('T4');
+    });
+  });
+
+  it('runBenchmarks() runs all suites T0–T4 with no filter', () => {
+    const body = document.querySelector('#bench-results-body') as HTMLTableSectionElement;
+    app.runBenchmarks();
+    const rows = body.querySelectorAll('tr');
+    // Should have rows from all five suites
+    const suites = new Set(Array.from(rows).map((row) => row.cells[0]?.textContent));
+    expect(suites.has('T0')).toBe(true);
+    expect(suites.has('T1')).toBe(true);
+    expect(suites.has('T2')).toBe(true);
+    expect(suites.has('T3')).toBe(true);
+    expect(suites.has('T4')).toBe(true);
+  });
+
+  it('runBenchmarks all-pass produces status "Completed: N/N passed"', () => {
+    const status = document.querySelector('#bench-status') as HTMLDivElement;
+    app.runBenchmarks('t0');
+    expect(status.textContent).toMatch(/Completed: \d+\/\d+ passed/);
+    const [passed, total] = (status.textContent?.match(/(\d+)\/(\d+)/) ?? []).slice(1).map(Number);
+    expect(passed).toBe(total);
+  });
+
+  it('bench-model settings are persisted and restored', () => {
+    const t2El = document.querySelector('#bench-model-t2') as HTMLInputElement;
+    const t3El = document.querySelector('#bench-model-t3') as HTMLInputElement;
+    const t4El = document.querySelector('#bench-model-t4') as HTMLInputElement;
+
+    t2El.value = 'custom-org/my-code-model';
+    t2El.dispatchEvent(new Event('change'));
+    t3El.value = 'custom-org/my-embed-model';
+    t3El.dispatchEvent(new Event('change'));
+    t4El.value = 'custom-org/my-llm-model';
+    t4El.dispatchEvent(new Event('change'));
+
+    const loadedSettings = app.loadSettings();
+    expect(loadedSettings.benchModelT2).toBe('custom-org/my-code-model');
+    expect(loadedSettings.benchModelT3).toBe('custom-org/my-embed-model');
+    expect(loadedSettings.benchModelT4).toBe('custom-org/my-llm-model');
   });
 });
