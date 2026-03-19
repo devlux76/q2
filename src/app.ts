@@ -310,11 +310,13 @@ function initSettingsPanel(): void {
   const tokenEl = $<HTMLInputElement>('#hf-token');
   const dtypeEl = $<HTMLSelectElement>('#model-dtype');
   const libraryEl = $<HTMLSelectElement>('#filter-library');
+  const keyDisplayEl = $<HTMLSelectElement>('#q2-key-display-mode');
 
   // Restore persisted values into the form.
   tokenEl.value = currentSettings.apiToken;
   dtypeEl.value = currentSettings.dtype;
   libraryEl.value = currentSettings.filterLibrary;
+  keyDisplayEl.value = currentSettings.q2KeyDisplayMode;
 
   tokenEl.addEventListener('change', () => {
     currentSettings.apiToken = tokenEl.value.trim();
@@ -333,6 +335,11 @@ function initSettingsPanel(): void {
     saveSettings(currentSettings);
     // Re-fetch the model list with the updated library filter.
     void refreshModelList(modelSearchEl.value);
+  });
+
+  keyDisplayEl.addEventListener('change', () => {
+    currentSettings.q2KeyDisplayMode = keyDisplayEl.value as AppSettings['q2KeyDisplayMode'];
+    saveSettings(currentSettings);
   });
 }
 
@@ -706,7 +713,7 @@ export function onEmbedding(msg: EmbeddingMsg): void {
 
       // Read back packed bytes.
       const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2);
-      renderQ2Result(packed, key, n);
+      renderQ2Result(packed, key, n, currentSettings.q2KeyDisplayMode);
     } catch {
       // WASM unavailable — use the pure-TypeScript fallback (fp32 only).
       // This path is taken in test environments and SSR contexts.
@@ -718,7 +725,7 @@ export function onEmbedding(msg: EmbeddingMsg): void {
       const all = new Float32Array(msg.data);
       const vec = l2Normalise(all.subarray((seqLen - 1) * n, seqLen * n), n);
       const { packed, key } = q2EncodeDirect(vec, n);
-      renderQ2Result(packed, BigInt.asUintN(64, key), n);
+      renderQ2Result(packed, BigInt.asUintN(64, key), n, currentSettings.q2KeyDisplayMode);
     }
   })();
 }
@@ -892,8 +899,13 @@ export function renderEmbeddingHeatmap(
  * Appends the Q² quantisation result to the application embedding stats element.
  * Delegates to embed-panel.ts which accepts an explicit statsEl argument.
  */
-export function renderQ2Result(packed: Uint8Array, key: bigint, n: number): void {
-  renderQ2(packed, key, n, embeddingStats);
+export function renderQ2Result(
+  packed: Uint8Array,
+  key: bigint,
+  n: number,
+  mode: 'q2' | 'cgAt' | 'hex' = 'q2',
+): void {
+  renderQ2(packed, key, n, embeddingStats, mode);
 }
 
 // ─── Tab navigation ────────────────────────────────────────────────────────────

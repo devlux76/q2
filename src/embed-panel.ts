@@ -15,11 +15,42 @@ export function min(arr: Float32Array): number {
   return m;
 }
 
+import { runReduce, unpackSymbols } from './q2stats.js';
+
 /** Return the maximum value in a Float32Array. */
 export function max(arr: Float32Array): number {
   let m = -Infinity;
   for (const v of arr) if (v > m) m = v;
   return m;
+}
+
+export type Q2KeyDisplayMode = 'q2' | 'cgAt' | 'hex';
+
+const Q2_SYMBOLS = ['A', 'B', 'C', 'D'] as const;
+const CGAT_SYMBOLS = ['G', 'A', 'C', 'T'] as const;
+
+export function formatQ2KeyDisplay(
+  packed: Uint8Array,
+  n: number,
+  key: bigint,
+  mode: Q2KeyDisplayMode,
+): string {
+  const keyHex = key.toString(16).padStart(16, '0');
+
+  if (mode === 'hex') {
+    return `0x${keyHex}`;
+  }
+
+  const symbols = unpackSymbols(packed, n);
+  const transitions = runReduce(symbols);
+
+  const mapping = mode === 'q2' ? Q2_SYMBOLS : CGAT_SYMBOLS;
+  const label = mode === 'q2' ? 'Q²' : 'CGAT';
+
+  const rendered = transitions.map((s) => mapping[s]).join('');
+  const capped = rendered.length > 32 ? `${rendered.slice(0, 32)}…` : rendered;
+
+  return `${label}:${capped} (0x${keyHex})`;
 }
 
 /**
@@ -88,14 +119,16 @@ export function renderQ2Result(
   key: bigint,
   n: number,
   statsEl: HTMLParagraphElement,
+  mode: Q2KeyDisplayMode = 'q2',
 ): void {
   // Hex dump of the first 8 bytes (32 symbols) for display.
   const hexBytes = Array.from(packed.slice(0, 8))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
   const ellipsis = packed.length > 8 ? '…' : '';
-  // Display the key as a zero-padded 16-hex-digit unsigned 64-bit value.
-  const keyHex = key.toString(16).padStart(16, '0');
+
+  const keyDisplay = formatQ2KeyDisplay(packed, n, key, mode);
+
   statsEl.textContent +=
-    `\nQ²: [${hexBytes}${ellipsis}] (${n >> 2} bytes, ${n} dims)  key=0x${keyHex}`;
+    `\nQ²: [${hexBytes}${ellipsis}] (${n >> 2} bytes, ${n} dims)  key=${keyDisplay}`;
 }

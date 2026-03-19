@@ -14,6 +14,9 @@ export type Dtype = 'q4' | 'q8' | 'fp16' | 'fp32';
  */
 export type FilterLibrary = 'transformers.js' | 'onnx' | '';
 
+/** Q² transition key display mode in the embedding panel. */
+export type Q2KeyDisplayMode = 'q2' | 'cgAt' | 'hex';
+
 // ─── Main thread → Worker ────────────────────────────────────────────────────
 
 export interface LoadModelMsg {
