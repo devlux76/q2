@@ -52,11 +52,12 @@
  * unit-norm vector ready for thresholding.
  *
  * **q2 (dtype = 4)**
- * The input buffer is already the output of a prior q2_quantise call:
- * n/4 bytes, each holding four 2-bit Gray-encoded Z₄ symbols (MSB-first).
- * The kernel bypasses mean-pooling, L2 normalisation, and thresholding and
- * copies the n/4 bytes directly to the output — a zero-cost re-encoding pass
- * useful when chaining multiple quantisation stages.
+ * The input buffer must already contain n/4 bytes of packed q2 data from a
+ * prior quantisation step: each byte holds four 2-bit Gray-encoded Z₄
+ * symbols (MSB-first).
+ * For this dtype the kernel performs a pure byte-for-byte pass-through:
+ * it copies the n/4 input bytes directly to the output and returns without
+ * running any preprocessing, L2 normalisation, thresholding, or re-encoding.
  */
 export type Q2Dtype = 0 | 1 | 2 | 3 | 4;
 
@@ -83,23 +84,21 @@ export const DTYPE_TO_Q2: Record<string, Q2Dtype> = {
  */
 const WASM_B64 =
   'AGFzbQEAAAABHARgAX8BfWADf39/AX1gBX9/f39/AX9gAn9/AX4DBQQAAQIDBQMBAAgGBgF/AEEACwce' +
-  'AwNtZW0CAAtxMl9xdWFudGlzZQACBnEyX2tleQADCroHBFgBA38gAEGAgAJxQRB0IQEgAEEKdkEfcSEC' +
+  'AwNtZW0CAAtxMl9xdWFudGlzZQACBnEyX2tleQADCrsGBFgBA38gAEGAgAJxQRB0IQEgAEEKdkEfcSEC' +
   'IABB/wdxIQMgAkUEQCABvg8LIAJBH0YEQCABQYCAgPwHIANBDXRycr4PCyABIAJB8ABqQRd0IANBDXRy' +
   'cr4LigEBAX8CQAJAAkACQAJAIAIOBAABAgMECyAAIAFBAnRqKgIADwsgACABQQF0ai8BABAADwsgACAB' +
   'aiwAALIPCyAAIAFBAXZqLQAAIQMgAUEBcQRAIANBD3EhAwUgA0EEdiEDCyADQQhrsg8LIAAgAUECdmot' +
-  'AAAhAyADQQMgAUEDcWtBAXR2QQNxswu7BAQFfwR9BH8BfSACQQJ2IQUgA0EERgRAQQAhBgJAA0AgBiAF' +
-  'Tw0BIAQgBmogACAGai0AADoAACAGQQFqIQYMAAsLIAUPC0EAIQYCQANAIAYgAk8NASMAIAZBAnRqQwAA' +
-  'AAA4AgAgBkEBaiEGDAALC0EAIQcCQANAIAcgAU8NAUEAIQYCQANAIAYgAk8NASAHIAJsIAZqIQgjACAG' +
-  'QQJ0aiEJIAkgCSoCACAAIAggAxABkjgCACAGQQFqIQYMAAsLIAdBAWohBwwACwsgAbMhEkEAIQYCQANA' +
-  'IAYgAk8NASMAIAZBAnRqIQkgCSAJKgIAIBKVOAIAIAZBAWohBgwACwtDAAAAACELQQAhBgJAA0AgBiAC' +
-  'Tw0BIwAgBkECdGoqAgAhCiALIAogCpSSIQsgBkEBaiEGDAALCyALQ5WV5iReBEBDAACAPyALkZUhDEEA' +
-  'IQYCQANAIAYgAk8NASMAIAZBAnRqIQkgCSAJKgIAIAyUOAIAIAZBAWohBgwACwsLQwisLD8gArORlSEN' +
-  'QQAhBgJAA0AgBiAFTw0BIAQgBmpBADoAACAGQQFqIQYMAAsLQQAhBgJAA0AgBiACTw0BIwAgBkECdGoq' +
-  'AgAhCkEDIQ4gCiANjF8EQEEAIQ4FIApDAAAAAF8EQEEBIQ4FIAogDV8EQEECIQ4LCwsgDiAOQQF2cyEP' +
-  'IAZBAnYhEEEDIAZBA3FrQQF0IREgBCAQaiAEIBBqLQAAIA8gEXRyOgAAIAZBAWohBgwACwsgBQuVAQMG' +
-  'fwF+AX9B/wEhB0IAIQhBACEJQQAhAgJAA0AgAiABTw0BIAJBAnYhA0EDIAJBA3FrQQF0IQQgACADai0A' +
-  'ACAEdkEDcSEFIAVBAnEgBUEBdiAFQQFxc3IhBiAGIAdHBEAgBiEHIAlBIEkEQCAIIAatQT4gCUEBdGut' +
-  'hoQhCCAJQQFqIQkLCyACQQFqIQIMAAsLIAgL';
+  'AAAhAyADQQMgAUEDcWtBAXR2QQNxswu8AwMEfwR9BH8gAkECdiEFIANBBEYEQEEAIQYCQANAIAYgBU8N' +
+  'ASAEIAZqIAAgBmotAAA6AAAgBkEBaiEGDAALCyAFDwtBACEGAkADQCAGIAJPDQEgAUEBayACbCAGaiEH' +
+  'IwAgBkECdGohCCAIIAAgByADEAE4AgAgBkEBaiEGDAALC0MAAAAAIQpBACEGAkADQCAGIAJPDQEjACAG' +
+  'QQJ0aioCACEJIAogCSAJlJIhCiAGQQFqIQYMAAsLIApDlZXmJF4EQEMAAIA/IAqRlSELQQAhBgJAA0Ag' +
+  'BiACTw0BIwAgBkECdGohCCAIIAgqAgAgC5Q4AgAgBkEBaiEGDAALCwtDCKwsPyACs5GVIQxBACEGAkAD' +
+  'QCAGIAVPDQEgBCAGakEAOgAAIAZBAWohBgwACwtBACEGAkADQCAGIAJPDQEjACAGQQJ0aioCACEJQQMh' +
+  'DSAJIAyMXwRAQQAhDQUgCUMAAAAAXwRAQQEhDQUgCSAMXwRAQQIhDQsLCyANIA1BAXZzIQ4gBkECdiEP' +
+  'QQMgBkEDcWtBAXQhECAEIA9qIAQgD2otAAAgDiAQdHI6AAAgBkEBaiEGDAALCyAFC5UBAwZ/AX4Bf0H/' +
+  'ASEHQgAhCEEAIQlBACECAkADQCACIAFPDQEgAkECdiEDQQMgAkEDcWtBAXQhBCAAIANqLQAAIAR2QQNx' +
+  'IQUgBUECcSAFQQF2IAVBAXFzciEGIAYgB0cEQCAGIQcgCUEgSQRAIAggBq1BPiAJQQF0a62GhCEIIAlB' +
+  'AWohCQsLIAJBAWohAgwACwsgCAs=';
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64.replace(/\s+/g, ''));
@@ -129,10 +128,11 @@ export interface Q2Kernel {
   readonly memory: WebAssembly.Memory;
 
   /**
-   * Quantise a [seq_len × n] embedding tensor to n/4 packed Gray-encoded bytes.
+   * Quantise a [seq_len × n] activation tensor to n/4 packed Gray-encoded bytes,
+   * using the hidden-state activation at the last token position (seq_len − 1).
    *
    * @param inputOffset - byte offset in WASM memory where the tensor is stored
-   * @param seqLen      - number of token positions (rows)
+   * @param seqLen      - number of token positions; the last one (seq_len − 1) is used
    * @param n           - native embedding dimension (columns); power of 2, ≤ 16 384
    * @param dtype       - element dtype (Q2_DTYPE_*)
    * @param outOffset   - byte offset in WASM memory for the output
@@ -210,7 +210,7 @@ export interface Q2Result {
 }
 
 /**
- * Quantise a Float32Array embedding vector (already mean-pooled to shape [n])
+ * Quantise an L2-normalised Float32Array embedding vector of shape [n]
  * using the Q² algorithm and return the packed bytes and transition key.
  *
  * This function operates entirely in TypeScript and does not require the WASM
@@ -279,35 +279,20 @@ export function q2KeyDirect(packed: Uint8Array, n: number): bigint {
 }
 
 /**
- * Mean-pool a [seqLen × n] Float32Array tensor and L2-normalise the result.
+ * L2-normalise a Float32Array activation vector of logical shape [n].
  *
- * @param data   - raw tensor values, row-major layout [seqLen × n]
- * @param seqLen - number of rows (token positions)
- * @param n      - number of columns (embedding dimension)
- * @returns      L2-normalised Float32Array of length n
+ * The first `n` elements of `data` are copied into a new Float32Array; if
+ * `data.length < n`, the remaining elements are treated as 0 and padded with
+ * zeros. Any elements beyond index `n - 1` in `data` are ignored.
+ *
+ * @param data - raw activation values at the selected token position
+ * @param n    - embedding dimension (length of the returned vector)
+ * @returns    L2-normalised Float32Array of length n
  */
-export function meanPoolAndNormalise(
-  data: Float32Array,
-  seqLen: number,
-  n: number,
-): Float32Array {
+export function l2Normalise(data: Float32Array, n: number): Float32Array {
   const v = new Float32Array(n);
+  for (let d = 0; d < n; d++) v[d] = data[d] ?? 0;
 
-  if (seqLen <= 0) {
-    throw new Error(`meanPoolAndNormalise: seqLen must be > 0, got ${seqLen}`);
-  }
-
-  // Accumulate over sequence positions
-  for (let s = 0; s < seqLen; s++) {
-    for (let d = 0; d < n; d++) {
-      v[d]! += data[s * n + d] ?? 0;
-    }
-  }
-
-  // Mean-pool
-  for (let d = 0; d < n; d++) v[d]! /= seqLen;
-
-  // L2-normalise
   let normSq = 0;
   for (let d = 0; d < n; d++) { const x = v[d]!; normSq += x * x; }
   if (normSq > 1e-16) {

@@ -38,7 +38,7 @@ import {
   leeDistance,
   grayDecode,
 } from '../src/q2stats.ts';
-import { q2EncodeDirect, meanPoolAndNormalise } from '../src/q2.ts';
+import { q2EncodeDirect, l2Normalise } from '../src/q2.ts';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -419,7 +419,7 @@ describe('T3-P6: two-stage hash + Lee search reduces candidate set', () => {
       const u2 = rng();
       vec[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
     }
-    const normed = meanPoolAndNormalise(vec, 1, n);
+    const normed = l2Normalise(vec, n);
     const { key } = q2EncodeDirect(normed, n);
     return key;
   }
@@ -673,7 +673,7 @@ describe('T3-P10: key collision rate near baseline for embedding-model corpus', 
         const u2 = rng();
         vec[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
       }
-      const normed = meanPoolAndNormalise(vec, 1, n);
+      const normed = l2Normalise(vec, n);
       const { key } = q2EncodeDirect(normed, n);
       keys.push(key);
     }
@@ -719,7 +719,7 @@ describe('T3-P10: key collision rate near baseline for embedding-model corpus', 
       const u2 = rng();
       vec[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
     }
-    const normed = meanPoolAndNormalise(vec, 1, n);
+    const normed = l2Normalise(vec, n);
     const { key, packed } = q2EncodeDirect(normed, n);
 
     // Key must be a valid BigInt in [0, 2^64)

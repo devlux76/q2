@@ -34,7 +34,7 @@ import {
 import {
   q2EncodeDirect,
   q2KeyDirect,
-  meanPoolAndNormalise,
+  l2Normalise,
 } from '../src/q2.ts';
 
 // ─── T0-P1: CGAT mapping and complement involution ───────────────────────────
@@ -216,7 +216,7 @@ describe('T0-Q: Quantisation smoke tests', () => {
         const u2 = rng();
         raw[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
       }
-      const vec = meanPoolAndNormalise(raw, 1, n);
+      const vec = l2Normalise(raw, n);
       const { packed, key } = q2EncodeDirect(vec, n);
 
       // Packed bytes must be n/4 bytes
@@ -234,7 +234,7 @@ describe('T0-Q: Quantisation smoke tests', () => {
   it('same input always produces the same key (deterministic)', () => {
     const n = 128;
     const vec = new Float32Array(n).map((_, i) => Math.sin(i * 0.31));
-    const normed = meanPoolAndNormalise(vec, 1, n);
+    const normed = l2Normalise(vec, n);
 
     const results = Array.from({ length: 5 }, () => q2EncodeDirect(normed, n));
     for (const r of results) {
@@ -246,7 +246,7 @@ describe('T0-Q: Quantisation smoke tests', () => {
   it('unpackSymbols + runReduce + q2KeyDirect round-trip matches q2EncodeDirect', () => {
     const n = 64;
     const vec = new Float32Array(n).map((_, i) => (i % 3 - 1) * 0.4);
-    const normed = meanPoolAndNormalise(vec, 1, n);
+    const normed = l2Normalise(vec, n);
 
     const { packed, key } = q2EncodeDirect(normed, n);
     const syms = unpackSymbols(packed, n);
@@ -309,7 +309,7 @@ describe('T0-P10: Key entropy and collision rate', () => {
         const u2 = rng();
         vec[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
       }
-      const normed = meanPoolAndNormalise(vec, 1, n);
+      const normed = l2Normalise(vec, n);
       const { key } = q2EncodeDirect(normed, n);
       keys.push(key);
     }

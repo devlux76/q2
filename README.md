@@ -9,7 +9,7 @@ Quaternary Quantization
 
 Q² converts a model's hidden activations into a compact, retrieval-friendly 64‑bit key:
 
-- Mean‑pool and L2‑normalise the model's final hidden-state embedding.
+- L2‑normalise the model's hidden-state activation at the selected token position.
 - Quantise each coordinate into one of four symbols (A/B/C/D) using a fixed threshold.
 - Gray‑encode and pack symbols into bytes, then run‑reduce into a transition sequence.
 - Emit the first 32 transitions as a 64‑bit key, which can be searched efficiently with a Lee distance.
@@ -24,30 +24,30 @@ The Q² algorithm is implemented in [`src/q2.wat`](src/q2.wat) (WebAssembly Text
 
 ### Algorithm
 
-For an embedding tensor of shape `[seq_len × n]` (where `n` is the model's native hidden dimension, a power of 2):
+The WASM kernel expects a hidden-state tensor of shape `[seq_len × n]` (where `n` is the model's native hidden dimension, a power of 2, and `seq_len` is the sequence length). The current exported API always applies Q² to the **last** token's activation (row `seq_len − 1`); callers who only care about that token may pass `seq_len = 1` with just that row populated.
 
-1. **Mean-pool** over `seq_len` token positions → vector `v ∈ ℝⁿ`
-2. **L2-normalise** → unit vector on `Sⁿ⁻¹`
-3. **Threshold** `τ* = 0.6745 / √n` (equiprobable 4-cell split for `N(0, 1/n)` activations)
-4. **Quantise** each coordinate to `{A, B, C, D} = {0, 1, 2, 3}`:
+For the selected token, the algorithm operates on its hidden-state activation of shape `[n]`:
+
+1. **L2-normalise** → unit vector on `Sⁿ⁻¹`
+2. **Threshold** `τ* = 0.6745 / √n` (equiprobable 4-cell split for `N(0, 1/n)` activations)
+3. **Quantise** each coordinate to `{A, B, C, D} = {0, 1, 2, 3}`:
    - `A` (strong−): `v[i] ≤ −τ*`
    - `B` (weak−): `−τ* < v[i] ≤ 0`
    - `C` (weak+): `0 < v[i] ≤ τ*`
    - `D` (strong+): `v[i] > τ*`
-5. **Gray-encode**: `g = sym ⊕ (sym >> 1)` → `A=00, B=01, C=11, D=10`
-6. **Pack** 4 symbols per byte (MSB-first) → `n/4` bytes
-7. **Run-reduce** to the transition sequence; pack the first 32 transitions into a **64-bit key** (2 bits per symbol, MSB-aligned)
+4. **Gray-encode**: `g = sym ⊕ (sym >> 1)` → `A=00, B=01, C=11, D=10`
+5. **Pack** 4 symbols per byte (MSB-first) → `n/4` bytes
+6. **Run-reduce** to the transition sequence; pack the first 32 transitions into a **64-bit key** (2 bits per symbol, MSB-aligned)
 
 ```mermaid
 flowchart LR
-    A["Embedding tensor\n[seq_len × n]"] --> B["Mean-pool\nover token positions"]
-    B --> C["L2-normalise\nunit vector on Sⁿ⁻¹"]
-    C --> D["Threshold τ*\n= 0.6745 / √n"]
-    D --> E["Quantise each coord\nA / B / C / D"]
-    E --> F["Gray-encode\ng = sym ⊕ (sym >> 1)"]
-    F --> G["Pack\n4 symbols / byte\n→ n/4 bytes"]
-    G --> H["Run-reduce\ntransition sequence R"]
-    H --> I["64-bit key K\n(first 32 transitions)"]
+    A["Hidden-state tensor\n[seq_len × n]\n(last token row used, or seq_len=1)"] --> B["L2-normalise\nunit vector on Sⁿ⁻¹"]
+    B --> C["Threshold τ*\n= 0.6745 / √n"]
+    C --> D["Quantise each coord\nA / B / C / D"]
+    D --> E["Gray-encode\ng = sym ⊕ (sym >> 1)"]
+    E --> F["Pack\n4 symbols / byte\n→ n/4 bytes"]
+    F --> G["Run-reduce\ntransition sequence R"]
+    G --> H["64-bit key K\n(first 32 transitions)"]
 ```
 
 ### Sub-fp32 element dtypes
@@ -60,7 +60,7 @@ The ONNX dtype setting controls model weight precision; the ONNX runtime (transf
 | `fp16` | 2 B/elem | Sign preserved; 5-bit exponent rebiased +112 (15→127); 10-bit mantissa shifted left 13 to fill 23 bits. Denormals (exp=0) treated as ±0 (below quantisation resolution). |
 | `q8`  | 1 B/elem | Signed int8 `∈ [−128, 127]` cast to f32. L2 normalisation cancels the implicit ×128 scale. |
 | `q4`  | ½ B/elem | Two unsigned nibbles per byte. Even index → high nibble (`byte >> 4`); odd → low nibble (`byte & 0x0F`). Centred by `−8` → signed `∈ [−8, 7]`. L2 normalisation cancels the ×8 scale. |
-| `q2`  | ¼ B/elem | Input is already packed Q² symbols from a prior pass. The `n/4` bytes are copied directly to output; mean-pool and threshold steps are skipped. |
+| `q2`  | ¼ B/elem | Input is already packed Q² symbols from a prior pass. The `n/4` bytes are copied directly to output; normalisation, thresholding, and quantisation are bypassed and the kernel returns early. |
 
 ### Rebuilding the WASM kernel
 

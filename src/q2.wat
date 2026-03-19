@@ -5,20 +5,20 @@
   ;; Specification: DESIGN.md §1.5 – §2.2
   ;;
   ;; Memory layout (8 pages = 512 KB):
-  ;;   [0x00000, 0x10000)  page 0 — f32 mean-pool accumulator (≤ 16 384 dims)
+  ;;   [0x00000, 0x10000)  page 0 — f32 working buffer (≤ 16 384 dims)
   ;;   [0x10000, 0x20000)  page 1 — reserved / output workspace
   ;;   [0x20000, 0x40000)  pages 2-3 — reserved
   ;;   [0x40000, 0x80000)  pages 4-7 — host input area ($input_ptr must be ≥ 0x40000)
   ;;
   ;; Exports:
   ;;   mem              — shared linear memory (host writes input here, reads output)
-  ;;   q2_quantise(...) — mean-pool + L2-normalise + quaternary-quantise → packed Gray bytes
+  ;;   q2_quantise(...) — L2-normalise (last token position) + quaternary-quantise → packed Gray bytes
   ;;   q2_key(...)      — run-reduction → 64-bit MSB-aligned transition key
   ;; ─────────────────────────────────────────────────────────────────────────────
 
   (memory (export "mem") 8)
 
-  ;; Fixed base address for the mean-pool accumulator buffer (page 0).
+  ;; Fixed base address for the working buffer (page 0).
   (global $ACCUM_BASE i32 (i32.const 0x00000))
 
   ;; ─────────────────────────────────────────────────────────────────────────────
@@ -186,7 +186,8 @@
   ;;               For dtype ∈ {0,1,2,3} the element width is 4/2/1/½ bytes.
   ;;               For dtype = 4 the input is n/4 packed Gray-encoded bytes from a
   ;;               prior Q² pass (re-encoding pass; seq_len is ignored).
-  ;;   $seq_len    number of token positions (rows); ignored for dtype = 4.
+  ;;   $seq_len    number of token positions (rows); the last position (seq_len − 1)
+  ;;               is used; ignored for dtype = 4.
   ;;   $n          native embedding dimension (columns); must be a power of 2, ≤ 16384.
   ;;   $dtype      element dtype: 0=fp32, 1=fp16, 2=q8, 3=q4, 4=q2.
   ;;   $out_ptr    pointer to output buffer; caller must provide ≥ n/4 bytes.
@@ -194,8 +195,8 @@
   ;; Returns:
   ;;   i32  number of bytes written to $out_ptr (always n/4).
   ;;
-  ;; Algorithm (DESIGN.md §1.5, §1.7):
-  ;;   1. Mean-pool:    v[d] = (Σ_s  input[s, d]) / seq_len
+  ;; Algorithm (DESIGN.md §1.1, §1.5, §1.7):
+  ;;   1. Load:        v[d] = input[(seq_len − 1) × n + d]  (last token position)
   ;;   2. L2-normalise: v[d] /= ‖v‖₂
   ;;   3. Threshold:    τ* = Φ⁻¹(¾) / √n ≈ 0.6745 / √n  (equiprobable 4-cell split)
   ;;   4. Quantise:     sym ∈ {A=0, B=1, C=2, D=3} (see table below)
@@ -209,8 +210,9 @@
   ;;   D  strong positive  3  10₂   v > τ*
   ;;
   ;; Special case — dtype = 4 (q2 input, already packed Gray-encoded bytes):
-  ;;   The n/4 input bytes are copied directly to $out_ptr; mean-pooling, L2
-  ;;   normalisation, and threshold steps are skipped.
+  ;;   The n/4 input bytes are copied directly from $input_ptr to $out_ptr, and
+  ;;   the function returns without performing load/L2-normalise/threshold/
+  ;;   quantise/Gray-encode/pack steps.
   ;; ─────────────────────────────────────────────────────────────────────────────
   (func (export "q2_quantise")
     (param $input_ptr i32)
@@ -222,7 +224,6 @@
 
     (local $n_bytes   i32)
     (local $d         i32)
-    (local $s         i32)
     (local $offset    i32)
     (local $acc_ptr   i32)
     (local $v         f32)
@@ -233,7 +234,6 @@
     (local $g         i32)
     (local $byte_idx  i32)
     (local $bit_shift i32)
-    (local $seq_len_f f32)
 
     (local.set $n_bytes (i32.shr_u (local.get $n) (i32.const 2)))
 
@@ -256,65 +256,37 @@
       )
     )
 
-    ;; ── Step 1: Zero the accumulator buffer ─────────────────────────────────
-    (local.set $d (i32.const 0))
-    (block $zero_done
-      (loop $zero_loop
-        (br_if $zero_done (i32.ge_u (local.get $d) (local.get $n)))
-        (f32.store
-          (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2)))
-          (f32.const 0.0))
-        (local.set $d (i32.add (local.get $d) (i32.const 1)))
-        (br $zero_loop)
+    ;; If there are no tokens, nothing to quantise; avoid underflow in
+    ;; (seq_len - 1) and return 0 bytes written.
+    (if (i32.eqz (local.get $seq_len))
+      (then
+        (return (i32.const 0))
       )
     )
 
-    ;; ── Step 2: Accumulate over sequence positions ───────────────────────────
-    (local.set $s (i32.const 0))
-    (block $seq_done
-      (loop $seq_loop
-        (br_if $seq_done (i32.ge_u (local.get $s) (local.get $seq_len)))
-        (local.set $d (i32.const 0))
-        (block $dim_acc_done
-          (loop $dim_acc_loop
-            (br_if $dim_acc_done (i32.ge_u (local.get $d) (local.get $n)))
-            ;; flat tensor index: s × n + d
-            (local.set $offset
-              (i32.add (i32.mul (local.get $s) (local.get $n)) (local.get $d)))
-            (local.set $acc_ptr
-              (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2))))
-            (f32.store (local.get $acc_ptr)
-              (f32.add
-                (f32.load (local.get $acc_ptr))
-                (call $read_f32
-                  (local.get $input_ptr)
-                  (local.get $offset)
-                  (local.get $dtype))))
-            (local.set $d (i32.add (local.get $d) (i32.const 1)))
-            (br $dim_acc_loop)
-          )
-        )
-        (local.set $s (i32.add (local.get $s) (i32.const 1)))
-        (br $seq_loop)
-      )
-    )
-
-    ;; ── Step 3: Divide by seq_len (mean-pool) ────────────────────────────────
-    (local.set $seq_len_f (f32.convert_i32_u (local.get $seq_len)))
+    ;; ── Step 1: Load last token position into working buffer ────────────────
+    ;; element index of last token, dimension d: (seq_len − 1) × n + d
     (local.set $d (i32.const 0))
-    (block $mean_done
-      (loop $mean_loop
-        (br_if $mean_done (i32.ge_u (local.get $d) (local.get $n)))
+    (block $load_done
+      (loop $load_loop
+        (br_if $load_done (i32.ge_u (local.get $d) (local.get $n)))
+        (local.set $offset
+          (i32.add
+            (i32.mul (i32.sub (local.get $seq_len) (i32.const 1)) (local.get $n))
+            (local.get $d)))
         (local.set $acc_ptr
           (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2))))
         (f32.store (local.get $acc_ptr)
-          (f32.div (f32.load (local.get $acc_ptr)) (local.get $seq_len_f)))
+          (call $read_f32
+            (local.get $input_ptr)
+            (local.get $offset)
+            (local.get $dtype)))
         (local.set $d (i32.add (local.get $d) (i32.const 1)))
-        (br $mean_loop)
+        (br $load_loop)
       )
     )
 
-    ;; ── Step 4: Compute squared L2 norm ─────────────────────────────────────
+    ;; ── Step 2: Compute squared L2 norm ─────────────────────────────────────
     (local.set $norm_sq (f32.const 0.0))
     (local.set $d (i32.const 0))
     (block $normsq_done
@@ -330,7 +302,7 @@
       )
     )
 
-    ;; ── Step 5: L2-normalise (skip if ‖v‖ ≈ 0) ──────────────────────────────
+    ;; ── Step 3: L2-normalise (skip if ‖v‖ ≈ 0) ──────────────────────────────
     (if (f32.gt (local.get $norm_sq) (f32.const 1e-16))
       (then
         ;; norm_inv = 1 / sqrt(norm_sq)
@@ -351,7 +323,7 @@
       )
     )
 
-    ;; ── Step 6: Compute threshold τ* = 0.6745 / √n ──────────────────────────
+    ;; ── Step 4: Compute threshold τ* = 0.6745 / √n ──────────────────────────
     ;; Φ⁻¹(3/4) ≈ 0.6745; equiprobable 4-cell split for N(0, 1/n) activations.
     ;; (DESIGN.md §1.5)
     (local.set $tau
@@ -359,7 +331,7 @@
         (f32.const 0.6745)
         (f32.sqrt (f32.convert_i32_u (local.get $n)))))
 
-    ;; ── Step 7: Zero output bytes ────────────────────────────────────────────
+    ;; ── Step 5: Zero output bytes ────────────────────────────────────────────
     (local.set $d (i32.const 0))
     (block $outzero_done
       (loop $outzero_loop
@@ -370,7 +342,7 @@
       )
     )
 
-    ;; ── Step 8: Quantise → Gray-encode → pack ────────────────────────────────
+    ;; ── Step 6: Quantise → Gray-encode → pack ────────────────────────────────
     (local.set $d (i32.const 0))
     (block $quant_done
       (loop $quant_loop

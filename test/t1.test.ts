@@ -24,7 +24,7 @@ import {
   runReduce,
   unpackSymbols,
 } from '../src/q2stats.ts';
-import { q2EncodeDirect, meanPoolAndNormalise } from '../src/q2.ts';
+import { q2EncodeDirect, l2Normalise } from '../src/q2.ts';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,7 +75,7 @@ function encodeSeq(seed: number, n = 128): number[] {
     const u2 = rng();
     vec[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   }
-  const normed = meanPoolAndNormalise(vec, 1, n);
+  const normed = l2Normalise(vec, n);
   const { packed } = q2EncodeDirect(normed, n);
   return runReduce(unpackSymbols(packed, n));
 }
