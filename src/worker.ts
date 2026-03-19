@@ -144,7 +144,9 @@ function isIOS(): boolean {
  * On iOS, WebNN is absent and WebGPU hangs without throwing, so we skip
  * both and start directly from WebGL.
  */
-const DEVICE_PRIORITY: readonly string[] = isIOS()
+type BackendName = 'webnn' | 'webgpu' | 'webgl' | 'wasm';
+
+const DEVICE_PRIORITY: readonly BackendName[] = isIOS()
   ? ['webgl', 'wasm']
   : ['webnn', 'webgpu', 'webgl', 'wasm'];
 
