@@ -4,7 +4,9 @@
  * Runs any Hugging Face ONNX text-generation model inside a dedicated Web
  * Worker so that heavy computation never blocks the UI thread.
  *
- * Device fallback order: WebNN → WebGPU → WebGL → WASM
+ * Device fallback order (default): WebNN → WebGPU → WebGL → WASM
+ * On iOS / iPadOS, where WebNN is unavailable and WebGPU currently hangs,
+ * the worker skips those backends and falls back to: WebGL → WASM.
  *
  * Architecture notes (LFM2.5-1.2B, when that model is selected):
  *   ┌─────────────────────────────────────────────────────────┐
