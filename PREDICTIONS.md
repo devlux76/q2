@@ -22,6 +22,7 @@ Section references of the form §T-x refer to [TESTING.md](TESTING.md).
 - [P11 — Biomechanical grounding of complement suppression](#p11--biomechanical-grounding-of-complement-suppression)
 - [P12 — Regime diagnostic: semantic distance vs. conceptual distance](#p12--regime-diagnostic-semantic-distance-vs-conceptual-distance)
 - [P13 — The regime dial and the sɪ test](#p13--the-regime-dial-and-the-s-test)
+- [P14 — Phylomemetic fingerprinting](#p14--phylomemetic-fingerprinting)
 - [Summary table](#summary-table)
 
 ---
@@ -702,6 +703,125 @@ primary-source poetry corpus.
 
 ---
 
+## P14 — Phylomemetic fingerprinting
+
+Dawkins (1976) introduced the *meme* as a unit of cultural transmission, analogous to
+the gene: a discrete, heritable, selectable idea. *Phylomemetics* extends quantitative
+phylogenetic methods to meme lineages — asking not only *what* an author wrote, but
+*which prior authors' distributions does it descend from*. The Q² transition sequence
+provides a natural feature space for this analysis: stylometric patterns are captured
+in the bigram, triplet, and hairpin statistics already defined for P2–P8, and the
+Bayesian attribution model requires only that each author's feature distribution be
+sufficiently stable across documents.
+
+### P14a — Author fingerprint stability
+
+**Prediction.** The stylometric feature distribution of a single author (function-word
+frequencies, complement-bigram rate, triplet entropy, $\rho_{\text{hp}}$) is stable
+across topic changes within that author's corpus. Formally: the within-author variance
+across documents on different topics is significantly lower than the between-author
+variance on the same topic.
+
+**Corpus.** Project Gutenberg public-domain texts (pre-1927), providing ample
+multi-topic corpora per major author. The pre-1927 boundary is a *feature*, not a
+limitation: Gutenberg supplies the origin layer of English conceptual vocabulary.
+Words and constructions coined before 1927 propagated forward through every subsequent
+generation of writers and into AI training corpora, making their stylometric signal
+*more* likely to be detectable at the terminal node (AI output) than the signal of
+post-war authors present only in the non-public-domain strata.
+
+**Bayesian attribution.** Model each author as a Dirichlet-Multinomial over triplet
+frequencies and a Beta-Binomial over complement-bigram rate. Given a new document, the
+posterior $P(\text{author} \mid \text{document})$ is updated incrementally per sample.
+The prediction is that the posterior concentrates on the correct author after $N \ll 50$
+documents. The exact threshold $N^*$ (defined as the minimum $N$ at which top-1
+accuracy exceeds 90% on held-out documents) is an empirically measurable quantity.
+
+**Falsification condition.** Within-author variance across topics is statistically
+indistinguishable from between-author variance at the same topic, across at least five
+authors with corpora of $\geq 10$ documents each.
+
+### P14b — RLHF variance compression
+
+**Prediction.** AI model outputs (attributed to a specific model) have lower
+stylometric entropy than human-author outputs. RLHF optimises for a reward signal that
+is approximately shared across the human rater population; repeated optimisation against
+a shared reward compresses the variance of the output distribution. This is measurable
+as:
+
+$$H_{\text{AI}} < H_{\text{human}}$$
+
+where $H$ is the entropy of the triplet frequency distribution pooled across documents
+from the same source (author or model). The compression should be stronger for
+heavily RLHF-tuned models than for base or instruction-only models.
+
+**Falsification condition.** AI model triplet entropy is statistically
+indistinguishable from the median human-author triplet entropy across at least three
+model/author pairs.
+
+### P14c — Cross-lineage influence detection
+
+**Prediction.** For specific human authors whose stylometric signal is strong and
+distinctive, their Q² feature distribution is detectable in AI model outputs at a rate
+disproportionate to their share of the training corpus. The influence coefficient
+$\alpha_i$ for author $i$ is estimated by fitting:
+
+$$\hat{f}_{\text{AI}} = \sum_i \alpha_i \cdot f_i + \epsilon$$
+
+where $f_i$ is the triplet frequency vector of author $i$ and $\hat{f}_{\text{AI}}$ is
+the observed AI triplet frequency vector. Authors with $\alpha_i$ significantly greater
+than their estimated corpus share fraction have disproportionate stylometric influence.
+
+**Expected non-null cases.** Authors whose stylometric signal is both strong and
+subject-matter-adjacent to AI training tasks are the most likely to show detectable
+influence:
+
+- **Carroll (1865, 1871):** Recursive logical structure, novel word formation,
+  categorical boundary violation. Stylistically distinctive and subject-matter-adjacent
+  to AI reasoning tasks.
+- **Shelley, M. (1818):** Distinctive first-person introspective register combined with
+  third-person scientific framing. Conceptually adjacent to questions of machine
+  consciousness.
+- **Lovelace (1843, in Menabrea translation notes):** Precise procedural exposition
+  combined with speculative extension. Directly adjacent to AI capability discourse.
+- **Doyle (1887–1927):** Highly distinctive deductive-reasoning exposition style.
+  Widely imitated; a strong prior signal.
+
+The Carroll case is the sharpest test: his stylometric distribution is unusual enough
+that contamination from later authors who imitated him is itself a form of Carroll
+influence. Detecting Carroll's signal in AI reasoning outputs, controlling for
+intervening imitation, constitutes detection of second-order memetic transmission.
+
+**Falsification condition.** No author's $\alpha_i$ is significantly greater than their
+estimated corpus-share fraction, across at least four candidate authors and two AI
+models. Equivalently: AI stylometric output is a flat mixture of the training corpus
+with no author-specific amplification.
+
+### P14d — Temporal propagation ordering
+
+**Prediction.** The estimated influence coefficients $\alpha_i$ respect temporal
+ordering: an author at date $t$ cannot have a coefficient driven by authors at date
+$t' > t$. This is a consistency check rather than a novel prediction, but it
+distinguishes genuine influence detection from spurious correlation. If the recovered
+$\alpha_i$ for Carroll is driven primarily by Carroll-contemporary bigram patterns
+rather than by later Carroll-imitation patterns, the temporal ordering constraint is
+satisfied.
+
+The Gutenberg corpus allows this check because publication dates are known. The
+influence of pre-1850 authors should be recoverable from the stylometric signal
+*independently* of how often their names or works are cited in the AI training corpus,
+because the feature vector $f_i$ is computed from surface style, not from content.
+
+**Falsification condition.** Recovered influence coefficients for well-dated authors
+do not respect the temporal ordering constraint at a statistically significant level —
+i.e., authors are assigned disproportionate influence from periods after their death.
+
+---
+
+Test protocol: §T5 (Gutenberg + AI corpus, new phase).
+
+---
+
 ## Summary table
 
 | ID | Prediction | From | Tested in | Effort |
@@ -719,6 +839,10 @@ primary-source poetry corpus.
 | P11 | Complement suppression is universal, stronger in spoken corpora, and ordered by phonotactic strictness | Auditory-vocal co-evolution | §T-3, multilingual | Medium |
 | P12 | Cross-linguistic conceptual near-neighbors achieve lower Lee distance than cosine similarity predicts; suppression rates converge across languages for matched-content pairs | Semantic vs. conceptual regime | §T-3, §T-4, multilingual | High |
 | P13 | Regime score *R* is positive for cross-lingual matched-content pairs, near-zero for same-genre same-topic pairs, and negative for antonym pairs; sɪ calibration is right-skewed | Semantic/conceptual dial | §T-3, §T-4, multilingual | High |
+| P14a | Within-author stylometric variance < between-author variance; Bayesian posterior concentrates on correct author at $N^* \ll 50$ | Phylomemetics (Dawkins 1976) | §T-5 | Medium |
+| P14b | AI model stylometric entropy < median human-author entropy; compression scales with RLHF intensity | RLHF variance compression | §T-5 | Low |
+| P14c | Specific Gutenberg authors (Carroll, Shelley, Lovelace, Doyle) have influence coefficients $\alpha_i$ disproportionate to corpus share in AI output | Cross-lineage influence detection | §T-5 | High |
+| P14d | Recovered influence coefficients respect temporal ordering of authors by publication date | Memetic causality constraint | §T-5 | Medium |
 
 P3 requires only a frequency count on quantizer output and can be run immediately once
 the quantizer from [PR #9](https://github.com/devlux76/q2/pull/9) is merged. P2 and

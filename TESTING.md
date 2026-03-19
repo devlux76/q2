@@ -57,6 +57,7 @@ flowchart TD
     T2 -->|"P2, P3, P8, P10"| T3
     T3 -->|"P2, P3, P5, P7"| T4
     T4 -->|"P14a–d"| T5
+    T3 -->|"stylometric baselines\nP8 null distributions"| T5
 
     style T0 fill:#ddf,stroke:#99c
     style T1 fill:#ffd,stroke:#cc9
@@ -551,6 +552,45 @@ conversational speech, etc.), contrasted against C1 and C3 written text.
 
 ---
 
+### C8 — Gutenberg authors + AI attributed datasets (~150 MB)
+
+**Source (human):** Project Gutenberg public-domain texts via `gutenberg` Python
+package or `pgcorpus` on Hugging Face. Select 10–15 authors with $\geq 20$ documents
+each, spanning at least three topic domains per author. Restrict to pre-1927
+publications (copyright-safe; and the origin-layer rationale described in §T5).
+
+Target authors: Carroll, Shelley (M.), Doyle, Poe, Twain, Dickens, Hardy, Austen,
+Melville, Wilde. These provide a range of stylometric distinctiveness and
+subject-matter adjacency to AI training content.
+
+**Source (AI):** Model-attributed synthetic text from existing open datasets:
+
+- `Hello-SimpleAI/HC3` — human/ChatGPT comparison corpus, model-attributed
+- `RAID` benchmark — outputs from GPT-4, Claude, Llama, Mistral, and others
+- `MAGE` (Machine-Generated text detection dataset) — multi-model attribution
+
+Select balanced samples per AI model (~5 MB each) to keep the AI subcorpus under
+50 MB total. Use instruction-following outputs for the P14c cross-lineage test, since
+those most directly reflect the model's generative style under RLHF.
+
+**Phases:** T5 (primary). Statistics from C8 human subcorpus also inform P11/P12 as
+a cross-temporal comparison against C6 (cross-lingual) and C7 (spoken).
+
+**Predictions exercised:** P14a, P14b, P14c, P14d.
+
+**How it proves/falsifies:**
+
+- **P14a:** Within-author variance vs. between-author variance ANOVA; Bayesian
+  attribution accuracy as a function of $N$.
+- **P14b:** Triplet entropy comparison between AI model subcorpora and Gutenberg author
+  subcorpora.
+- **P14c:** Mixture model fit; $\hat{\alpha}_i$ comparison to estimated corpus-share
+  priors for candidate authors.
+- **P14d:** Temporal ordering check using author death dates and imitator subcorpus
+  split.
+
+---
+
 ### Size budget summary
 
 | Segment   | Description                                  | Target size     |
@@ -563,7 +603,8 @@ conversational speech, etc.), contrasted against C1 and C3 written text.
 | C5        | Antonym documents corpus                     | ≤10 MB          |
 | C6        | Cross-lingual matched-content corpus         | ~75–100 MB      |
 | C7        | Spoken vs. written language corpus           | ~50 MB          |
-| **Total** |                                              | **~735–810 MB** |
+| C8        | Gutenberg authors + AI attributed datasets   | ~150 MB         |
+| **Total** |                                              | **~885–960 MB** |
 
 This leaves comfortable headroom for indices and probe corpora within the 1 GB budget.
 
@@ -607,11 +648,13 @@ the null at the 95% confidence level across at least two model/corpus combinatio
 | P8 (codon usage bias) | C0, C1, C2 | MiniLM, Nomic, EmbeddingGemma, UniXcoder |
 | P9 (Z₄ vs. Z₈) | C1 + C3 | Nomic or EmbeddingGemma with Q² vs. Z₈ variant |
 | P10 (key entropy / collisions) | C2 (code), C1/C3 (NL) | All models |
-| P11–P13 (regime, grounding, cross-lingual) | C1 vs. C7, C6 | Nomic, EmbeddingGemma, MiniLM, Qwen3.5 activations |
-
-| P14 (author fingerprint / RLHF compression) | C8 (Gutenberg + AI datasets) | Qwen3.5-0.8B-ONNX (T5) |
+| P11–P13 (regime, grounding, cross-lingual) | C1 vs. C7, C6 | Nomic, EmbeddingGemma, MiniLM, Qwen2 activations |
+| P14a (author fingerprint stability) | C8 human subcorpus | Nomic, EmbeddingGemma; no embedding required for raw text features |
+| P14b (RLHF entropy compression) | C8 AI + human subcorpora | Triplet entropy on raw text; embedding models for transition sequences |
+| P14c (cross-lineage influence) | C8 AI + human subcorpora | Raw text stylometric features; mixture model fit |
+| P14d (temporal ordering) | C8 human subcorpus (with author dates) | Same as P14c |
 
 A concrete model matrix with rows corresponding to
-`{MiniLM, Nomic, EmbeddingGemma, mxbai, UniXcoder, Qwen3.5, Qwen2.5-Coder}` and columns
+`{MiniLM, Nomic, EmbeddingGemma, mxbai, UniXcoder, Qwen2, Qwen2.5-Coder}` and columns
 corresponding to `{T1–T5, P2–P14}` clarifies exactly which model–phase combinations
 need to be run vs. which can be pruned for an MVP.
