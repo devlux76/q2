@@ -1315,8 +1315,19 @@ export function runBenchmarks(suiteFilter?: string): void {
       const biasedWeights = { Ti: 0.5, Tv1: 1.0, Tv2: 2.0 };
       const wTi = weightedLeeDistanceSeq(tiPair, [tiPair[1]!, tiPair[0]!], biasedWeights);
       const wTv1 = weightedLeeDistanceSeq(tv1Pair, [tv1Pair[1]!, tv1Pair[0]!], biasedWeights);
-      const pass = tiType === 'Ti' && tv1Type === 'Tv1' && tv2Type === 'Tv2' && wTi < wTv1;
-      results.push({ suite: 'T3', test: 'P4: biased weights Ti<Tv1<Tv2', status: pass ? 'pass' : 'fail', result: `Ti=${wTi}, Tv1=${wTv1}, types: Ti=${tiType}, Tv1=${tv1Type}, Tv2=${tv2Type}` });
+      const wTv2 = weightedLeeDistanceSeq(tv2Pair, [tv2Pair[1]!, tv2Pair[0]!], biasedWeights);
+      const pass =
+        tiType === 'Ti' &&
+        tv1Type === 'Tv1' &&
+        tv2Type === 'Tv2' &&
+        wTi < wTv1 &&
+        wTv1 < wTv2;
+      results.push({
+        suite: 'T3',
+        test: 'P4: biased weights Ti<Tv1<Tv2',
+        status: pass ? 'pass' : 'fail',
+        result: `Ti=${wTi}, Tv1=${wTv1}, Tv2=${wTv2}, types: Ti=${tiType}, Tv1=${tv1Type}, Tv2=${tv2Type}`,
+      });
     } catch (e) {
       results.push({ suite: 'T3', test: 'P4: biased weights Ti<Tv1<Tv2', status: 'fail', result: String(e) });
     }
