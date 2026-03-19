@@ -20,8 +20,27 @@ jobs:
             const pr = context.payload.pull_request;
             const text = `${pr.title}\n${pr.body ?? ''}`;
 
-            // Match any GitHub issue/PR reference: #123
-            const refs = [...text.matchAll(/#(\d+)/g)].map(m => parseInt(m[1], 10));
+            // Match GitHub issue/PR references:
+            //   - #123
+            //   - owner/repo#123 (only if owner/repo match this repo)
+            const refRegex = /(?:([\w.-]+)\/([\w.-]+))?#(\d+)/g;
+            const seenNumbers = new Set();
+            for (const match of text.matchAll(refRegex)) {
+              const owner = match[1];
+              const repo = match[2];
+              const number = parseInt(match[3], 10);
+              if (!Number.isFinite(number)) {
+                continue;
+              }
+              // If an explicit owner/repo is given, only accept it when it matches this repo
+              if (owner && repo) {
+                if (owner !== context.repo.owner || repo !== context.repo.repo) {
+                  continue;
+                }
+              }
+              seenNumbers.add(number);
+            }
+            const refs = Array.from(seenNumbers);
 
             if (refs.length === 0) {
               core.setFailed(
