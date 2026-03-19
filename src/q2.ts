@@ -278,10 +278,14 @@ export function q2KeyDirect(packed: Uint8Array, n: number): bigint {
 }
 
 /**
- * L2-normalise a Float32Array activation vector of shape [n].
+ * L2-normalise a Float32Array activation vector of logical shape [n].
  *
- * @param data - raw activation values at the selected token position, length n
- * @param n    - embedding dimension
+ * The first `n` elements of `data` are copied into a new Float32Array; if
+ * `data.length < n`, the remaining elements are treated as 0 and padded with
+ * zeros. Any elements beyond index `n - 1` in `data` are ignored.
+ *
+ * @param data - raw activation values at the selected token position
+ * @param n    - embedding dimension (length of the returned vector)
  * @returns    L2-normalised Float32Array of length n
  */
 export function l2Normalise(data: Float32Array, n: number): Float32Array {
