@@ -90,10 +90,10 @@ quadrantChart
     quadrant-2 Purine + Keto
     quadrant-3 Pyrimidine + Keto
     quadrant-4 Pyrimidine + Amino
-    G (φ=00, Z₄=0): [0.15, 0.75]
-    A (φ=01, Z₄=1): [0.85, 0.75]
-    T (φ=10, Z₄=3): [0.15, 0.25]
-    C (φ=11, Z₄=2): [0.85, 0.25]
+    G (phi=00, Z4=0): [0.15, 0.75]
+    A (phi=01, Z4=1): [0.85, 0.75]
+    T (phi=10, Z4=3): [0.15, 0.25]
+    C (phi=11, Z4=2): [0.85, 0.25]
 ```
 
 Watson–Crick pairs (G–C and A–T) are diagonally opposite: Lee distance 2. Adjacent pairs (G–A, C–T, G–T, A–C) differ in exactly one axis: Lee distance 1.
@@ -306,7 +306,7 @@ graph LR
         direction LR
         d0("A") --> d1("B") --> d2("C") --> d3("D")
     end
-    subgraph Antonym["Antonym — R̄ᵣₑᵥ = (θ(D), θ(C), θ(B), θ(A), …) = (B, A, D, C, …)"]
+    subgraph Antonym["Antonym — R̄ rev = (θ(D), θ(C), θ(B), θ(A), …) = (B, A, D, C, …)"]
         direction LR
         a0("B") --> a1("A") --> a2("D") --> a3("C")
     end
