@@ -913,6 +913,8 @@ interface BenchResult {
   result: string;
 }
 
+let isBenchmarkRunning = false;
+
 function renderBenchRow(r: BenchResult): void {
   const tr = document.createElement('tr');
   const statusClass =
@@ -930,14 +932,19 @@ function renderBenchRow(r: BenchResult): void {
 }
 
 export async function runBenchmarks(suiteFilter?: string): Promise<void> {
-  benchResultsBody.innerHTML = '';
-  benchStatusEl.textContent = 'Running benchmarks…';
+  if (isBenchmarkRunning) {
+    return;
+  }
+  isBenchmarkRunning = true;
+  try {
+    benchResultsBody.innerHTML = '';
+    benchStatusEl.textContent = 'Running benchmarks…';
 
-  const results: BenchResult[] = [];
+    const results: BenchResult[] = [];
 
-  // Import the q2 kernel functions for benchmarking
-  const { q2EncodeDirect, q2KeyDirect, l2Normalise } = await import('./q2.js');
-  const stats = await import('./q2stats.js');
+    // Import the q2 kernel functions for benchmarking
+    const { q2EncodeDirect, q2KeyDirect, l2Normalise } = await import('./q2.js');
+    const stats = await import('./q2stats.js');
 
   // ── T0: Algebraic invariants ──────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't0') {
@@ -1034,6 +1041,9 @@ export async function runBenchmarks(suiteFilter?: string): Promise<void> {
   const passCount = results.filter(r => r.status === 'pass').length;
   const total = results.length;
   benchStatusEl.textContent = `Completed: ${passCount}/${total} passed`;
+  } finally {
+    isBenchmarkRunning = false;
+  }
 }
 
 // ─── Event listeners ───────────────────────────────────────────────────────────
