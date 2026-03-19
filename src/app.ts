@@ -1022,13 +1022,22 @@ export function runBenchmarks(suiteFilter?: string): void {
     }
 
     // Null distribution: uniform symbol frequency
+    // Vectors are drawn from N(0,1)^n before L2 normalization because τ* = Φ⁻¹(3/4)/√n
+    // is calibrated for Gaussian marginals (DESIGN.md §2.4). Using uniform[-1,1] input
+    // produces non-Gaussian marginals after normalization, breaking equiprobability.
     try {
       const trials = 500;
       const n = 128;
       const freq = [0, 0, 0, 0];
       for (let t = 0; t < trials; t++) {
         const vec = new Float32Array(n);
-        for (let i = 0; i < n; i++) vec[i] = Math.random() * 2 - 1;
+        // Box-Muller: pairs of uniform samples → standard normal pairs
+        for (let i = 0; i < n; i += 2) {
+          const u1 = Math.random(), u2 = Math.random();
+          const r = Math.sqrt(-2 * Math.log(u1));
+          vec[i] = r * Math.cos(2 * Math.PI * u2);
+          if (i + 1 < n) vec[i + 1] = r * Math.sin(2 * Math.PI * u2);
+        }
         const normed = l2Normalise(vec, n);
         const { packed } = q2EncodeDirect(normed, n);
         for (let j = 0; j < packed.length; j++) {
