@@ -1,0 +1,96 @@
+name: Require Issue Reference
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: read
+  issues: read
+
+jobs:
+  check-issue-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR references an open issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const text = pr.body ?? '';
+
+            // Match GitHub issue/PR references:
+            //   - #123
+            //   - owner/repo#123 (only if owner/repo match this repo)
+            const refRegex = /(?:([\w.-]+)\/([\w.-]+))?#(\d+)/g;
+            const seenNumbers = new Set();
+            for (const match of text.matchAll(refRegex)) {
+              const owner = match[1];
+              const repo = match[2];
+              const number = parseInt(match[3], 10);
+              if (!Number.isFinite(number)) {
+                continue;
+              }
+              // If an explicit owner/repo is given, only accept it when it matches this repo
+              if (owner && repo) {
+                if (owner !== context.repo.owner || repo !== context.repo.repo) {
+                  continue;
+                }
+              }
+              seenNumbers.add(number);
+            }
+            const refs = Array.from(seenNumbers);
+
+            if (refs.length === 0) {
+              core.setFailed(
+                'This PR does not reference any issue. ' +
+                'Please create an issue first, then add a reference such as ' +
+                '"Closes #<number>" or "References #<number>" to the PR description.'
+              );
+              return;
+            }
+
+            // Verify at least one referenced number is an *open* issue (not a PR)
+            let foundOpenIssue = false;
+            const errors = [];
+
+            for (const issueNumber of refs) {
+              try {
+                const { data } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                });
+
+                // github.rest.issues.get also returns PRs; skip those
+                if (data.pull_request) {
+                  errors.push(`#${issueNumber} is a pull request, not an issue.`);
+                  continue;
+                }
+
+                if (data.state === 'open') {
+                  foundOpenIssue = true;
+                  console.log(`✅ Found open issue: #${issueNumber} — ${data.title}`);
+                  break;
+                } else {
+                  errors.push(`#${issueNumber} exists but is already closed.`);
+                }
+              } catch (err) {
+                if (err.status === 404) {
+                  errors.push(`#${issueNumber} does not exist.`);
+                } else {
+                  throw err;
+                }
+              }
+            }
+
+            if (!foundOpenIssue) {
+              const detail = errors.length ? `\n\nDetails:\n${errors.map(e => `  • ${e}`).join('\n')}` : '';
+              core.setFailed(
+                'This PR must reference at least one **open** issue. ' +
+                'Please create or reopen an issue and add a reference such as ' +
+                '"Closes #<number>" or "References #<number>" to the PR description.' +
+                detail
+              );
+            }
