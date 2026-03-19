@@ -16,6 +16,7 @@
     "embed-wat": "bun ./scripts/embed-wat.mjs",
     "generate-screenshots": "bun ./scripts/generate-screenshots.mjs",
     "build": "bun run check && bun build --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
+    "postbuild": "mkdir -p gh-pages && rm -rf gh-pages/* && cp -r dist/* gh-pages/",
     "predev": "bun run check",
     "dev": "bun build --watch --outdir dist --target browser --sourcemap=linked src/app.ts src/worker.ts",
     "typecheck": "bun x tsc --noEmit",
@@ -23,7 +24,7 @@
     "test": "vitest run --coverage",
     "test:browser": "vitest run --browser",
     "coverage": "vitest run --coverage",
-    "deploy": "bun run build && cp index.html style.css dist/"
+    "deploy": "bun run build"
   },
   "lint-staged": {
     "*.{js,ts}": [

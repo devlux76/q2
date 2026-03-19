@@ -182,6 +182,8 @@ This project is a static browser app (HTML + JS bundle). To host it on GitHub Pa
 bun run build
 ```
 
+> ✅ The build also copies the final site output into `gh-pages/`, so you can publish that folder directly if your Pages site is configured to use the `gh-pages` directory instead of the `gh-pages` branch.
+
 2. **Copy the static entrypoints into `dist/`** so `index.html` can reference `dist/app.js` correctly:
 
 ```bash
