@@ -60,7 +60,7 @@ The ONNX dtype setting controls model weight precision; the ONNX runtime (transf
 | `fp16` | 2 B/elem | Sign preserved; 5-bit exponent rebiased +112 (15→127); 10-bit mantissa shifted left 13 to fill 23 bits. Denormals (exp=0) treated as ±0 (below quantisation resolution). |
 | `q8`  | 1 B/elem | Signed int8 `∈ [−128, 127]` cast to f32. L2 normalisation cancels the implicit ×128 scale. |
 | `q4`  | ½ B/elem | Two unsigned nibbles per byte. Even index → high nibble (`byte >> 4`); odd → low nibble (`byte & 0x0F`). Centred by `−8` → signed `∈ [−8, 7]`. L2 normalisation cancels the ×8 scale. |
-| `q2`  | ¼ B/elem | Input is already packed Q² symbols from a prior pass. The `n/4` bytes are copied directly to output; the threshold step is skipped. |
+| `q2`  | ¼ B/elem | Input is already packed Q² symbols from a prior pass. The `n/4` bytes are copied directly to output; normalisation, thresholding, and quantisation are bypassed and the kernel returns early. |
 
 ### Rebuilding the WASM kernel
 
