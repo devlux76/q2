@@ -52,11 +52,12 @@
  * unit-norm vector ready for thresholding.
  *
  * **q2 (dtype = 4)**
- * The input buffer is already the output of a prior q2_quantise call:
- * n/4 bytes, each holding four 2-bit Gray-encoded Z₄ symbols (MSB-first).
- * The kernel bypasses L2 normalisation and thresholding and copies the n/4
- * bytes directly to the output — a zero-cost re-encoding pass useful when
- * chaining multiple quantisation stages.
+ * The input buffer must already contain n/4 bytes of packed q2 data from a
+ * prior quantisation step: each byte holds four 2-bit Gray-encoded Z₄
+ * symbols (MSB-first).
+ * For this dtype the kernel performs a pure byte-for-byte pass-through:
+ * it copies the n/4 input bytes directly to the output and returns without
+ * running any preprocessing, L2 normalisation, thresholding, or re-encoding.
  */
 export type Q2Dtype = 0 | 1 | 2 | 3 | 4;
 
