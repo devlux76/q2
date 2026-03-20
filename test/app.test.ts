@@ -472,7 +472,7 @@ describe('app.ts helpers and DOM integration', () => {
     // default chat model at startup.  Calling startWithModel() a second time
     // (with a different model) must keep the overlay visible and post a new
     // load message for the requested model.
-    app.startWithModel('onnx-community/Qwen2.5-0.5B-Instruct');
+    app.startWithModel('onnx-community/Qwen3.5-0.8B-Instruct');
 
     expect(loadOverlay.classList.contains('hidden')).toBe(false);
     expect(app.worker).not.toBeNull();
