@@ -650,7 +650,9 @@ function postToWorker(msg: WorkerInMsg): void {
 // ─── Worker message handler ────────────────────────────────────────────────────
 
 export function handleWorkerMessage(msg: WorkerOutMsg): void {
-  appLog('info', 'handleWorkerMessage received', msg);
+  // Log only a compact summary at debug level to avoid spamming logs and
+  // serialising large payloads (e.g. embeddings) on every worker message.
+  appLog('debug', 'handleWorkerMessage received', { type: msg.type });
   switch (msg.type) {
     case 'status':
       onStatus(msg.status, msg.detail);
