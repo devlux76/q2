@@ -630,7 +630,20 @@ export function initWorker(modelId: string): void {
 }
 
 function postToWorker(msg: WorkerInMsg): void {
-  appLog('info', 'Posting message to worker', msg);
+  // Redact sensitive fields (e.g. apiToken) before logging.
+  let logPayload: unknown;
+  if (msg.type === 'load') {
+    logPayload = {
+      type: msg.type,
+      modelId: (msg as any).modelId,
+      dtype: (msg as any).dtype,
+      hasApiToken: !!(msg as any).apiToken,
+    };
+  } else {
+    // For non-load messages, log only the type to avoid accidentally leaking data.
+    logPayload = { type: msg.type };
+  }
+  appLog('info', 'Posting message to worker', logPayload);
   worker?.postMessage(msg);
 }
 
