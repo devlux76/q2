@@ -23,6 +23,9 @@ Section references of the form §T-x refer to [TESTING.md](TESTING.md).
 - [P12 — Regime diagnostic: semantic distance vs. conceptual distance](#p12--regime-diagnostic-semantic-distance-vs-conceptual-distance)
 - [P13 — The regime dial and the sɪ test](#p13--the-regime-dial-and-the-s-test)
 - [P14 — Phylomemetic fingerprinting](#p14--phylomemetic-fingerprinting)
+- [P15 — Admissible sequence count and trie sparsity](#p15--admissible-sequence-count-and-trie-sparsity)
+- [P16 — Geode progressive quantization](#p16--geode-progressive-quantization)
+- [P17 — Mixed-precision adaptive quantization](#p17--mixed-precision-adaptive-quantization)
 - [Summary table](#summary-table)
 
 ---
@@ -484,14 +487,14 @@ Specifically:
   or map bitwise differences through a per-symbol LUT/SIMD transform before summing.
 - The information gain per symbol from $\mathbb{Z}_4$ to $\mathbb{Z}_8$ is
   $\log_2 8 - \log_2 4 = 1$ bit, but the additional bit encodes intra-cell position
-  within the four magnitude classes, which §D-1.6 shows is not recoverable signal
+  within the four magnitude classes, which §D-1.5 shows is not recoverable signal
   for L1 retrieval.
 
 **Falsification condition.** If a $\mathbb{Z}_8$-encoded system with otherwise
 identical architecture achieves a statistically significant improvement in retrieval
 on a held-out benchmark, the $\mathbb{Z}_4$ optimality prediction is falsified. This
 would imply that the fifth-through-eighth quantization cells carry retrievable semantic
-signal, contradicting §D-1.6.
+signal, contradicting §D-1.5.
 
 Test protocol: §T-3 (embedding models).
 
@@ -822,6 +825,131 @@ Test protocol: §T5 (Gutenberg + AI corpus, new phase).
 
 ---
 
+## P15 — Admissible sequence count and trie sparsity
+
+The no-repeat constraint in the transition sequence (§D-3.1) eliminates the vast
+majority of possible 64-bit keys. The number of admissible transition sequences of
+length $k$ over a $q$-ary alphabet is:
+
+$$D(k) = q \cdot (q-1)^{k-1}$$
+
+For $q = 4$ and $k = 32$ (the Q² key capacity):
+
+$$D(32) = 4 \cdot 3^{31} \approx 2.47 \times 10^{15}$$
+
+This occupies $\approx 1.34 \times 10^{-4}$ of the $2^{64}$ address space — the
+no-repeat constraint concentrates valid keys into a sparse subset comprising less than
+0.014% of all possible 64-bit values.
+
+**Prediction.** The empirical key distribution of a real corpus occupies a strict
+subset of the admissible trie. Specifically:
+
+1. **Trie sparsity**: for any corpus of size $C \leq 10^{10}$, the fraction of the
+   admissible trie occupied is $C / D(32) \leq 4.05 \times 10^{-6}$ — the corpus is
+   sparse even within the already-sparse admissible set.
+2. **Non-uniform trie occupancy**: certain subtrees of the transition trie are
+   disproportionately occupied because the source distribution favours certain symbol
+   transitions over others (cf. complement-bigram suppression, P3). The occupied
+   subtree structure is a fingerprint of the source distribution.
+3. **Information efficiency**: a 32-symbol key carries $2 + 31 \times \log_2 3 \approx
+   51.1$ effective bits of information within its 64-bit container, giving an
+   efficiency of $\approx 79.9\%$. The remaining $\approx 12.9$ bits are "wasted" by
+   the no-repeat constraint — but this waste is the cost of the run-reduction that
+   makes the key a topological invariant (§D-3.1, Lemma 3.3).
+
+**Falsification condition.** Empirical key distributions do not respect the trie
+structure — i.e., keys appear that violate the no-repeat constraint, indicating a bug
+in the run-reduction step.
+
+Test protocol: §T-0 (unit tests), §T-1 (null baseline), §T-6 (general quantization).
+
+---
+
+## P16 — Geode progressive quantization
+
+The Geode factorization (§D-4.1):
+
+$$S - 1 = S_1 \cdot G$$
+
+predicts that the transition key has a natural multi-resolution structure: the first
+$j$ symbols form a coarse address, and the remaining symbols refine within that coarse
+cell. The Geode $G = 1/(1 - 3x)$ counts the refinement possibilities: $3^{k}$
+distinct continuations of length $k$ after the first symbol is fixed.
+
+**Prediction.** Multi-resolution retrieval using the transition key exhibits
+diminishing information gain per additional symbol:
+
+1. **Logarithmic decay of information per symbol**: the first symbol contributes
+   $\log_2 4 = 2$ bits; each subsequent symbol contributes $\log_2 3 \approx 1.585$
+   bits. The cumulative information at depth $j$ is:
+
+   $$I(j) = 2 + (j-1) \cdot \log_2 3 \approx 2 + 1.585(j-1) \text{ bits}$$
+
+2. **Retrieval recall is a step function of prefix depth**: window queries at
+   successively deeper prefix lengths $j$ should show diminishing returns in
+   precision improvement. The transition from "broad" to "narrow" retrieval occurs at
+   a characteristic depth $j^*$ that depends on corpus density, not on the key
+   structure itself.
+
+3. **The Geode coefficient predicts candidate-set size**: a window query at prefix
+   depth $j$ retrieves at most $3^{32-j}$ candidates from the admissible trie. In
+   practice the candidate set is smaller (most of the admissible trie is unoccupied),
+   but the Geode coefficient provides the tight upper bound.
+
+**Concrete test.** For a corpus of $C$ documents, measure retrieval precision and
+candidate-set size as a function of prefix depth $j \in \{4, 8, 12, 16, 20, 24, 28, 32\}$.
+The candidate-set size should decrease geometrically as $O(3^{-j})$ while precision
+increases monotonically. The crossover point where precision plateaus is $j^*$.
+
+**Falsification condition.** Information gain per symbol is non-monotonic or
+candidate-set sizes do not follow the predicted $3^{32-j}$ bound within the admissible
+trie.
+
+Test protocol: §T-3 (embedding models), §T-6 (general quantization).
+
+---
+
+## P17 — Mixed-precision adaptive quantization
+
+The hyper-Catalan framework (§D-4.3) predicts that the number of structurally
+distinct mixed-precision codebooks — allocating different bit-widths to different
+dimensions — is finite and computable. For a signal with $m_2$ binary-quantized
+dimensions, $m_3$ ternary-quantized dimensions, and $m_4$ quaternary-quantized
+dimensions, the count of distinct mixed-precision trees is:
+
+$$C_{(m_2, m_3, m_4)} = \frac{1}{N} \binom{N}{n_0,\ m_2,\ m_3,\ m_4}$$
+
+where $N = 1 + 2m_2 + 3m_3 + 4m_4$ is the total node count and $n_0 = 1 + m_2 + 2m_3 + 3m_4$ is the leaf count.
+
+**Prediction.** Adaptive bit allocation guided by per-dimension variance outperforms
+uniform quaternary quantization on retrieval benchmarks when the source distribution
+has heterogeneous variance across dimensions:
+
+1. **Variance-guided allocation**: dimensions with variance below a threshold $\sigma^*$
+   should be quantized at 1 bit (binary: sign only); dimensions above $\sigma^*$ should
+   retain 2-bit (quaternary) precision. The optimal $\sigma^*$ minimises a loss
+   function trading off code length against retrieval accuracy.
+
+2. **Compression improvement**: for a typical transformer embedding with heterogeneous
+   per-dimension variance, mixed-precision encoding achieves the same retrieval accuracy
+   as uniform quaternary at a 15–25% shorter code length, or higher accuracy at the
+   same code length.
+
+3. **Diminishing returns for ternary inclusion**: adding ternary ($\mathbb{Z}_3$) cells
+   for near-zero-variance dimensions offers $\leq 0.085$ bits per dimension improvement
+   over binary (since $\log_2 3 - 1 \approx 0.585$ bits, attenuated by the low variance
+   of those dimensions). The ternary option should be dominated by binary for dimensions
+   with variance below $\sigma^*/2$.
+
+**Falsification condition.** Variance-guided mixed-precision encoding does not improve
+over uniform quaternary encoding on any of the retrieval benchmarks, even for models
+with demonstrably heterogeneous per-dimension variance (as measured by the coefficient
+of variation across dimensions).
+
+Test protocol: §T-3 (embedding models), §T-6 (general quantization).
+
+---
+
 ## Summary table
 
 | ID | Prediction | From | Tested in | Effort |
@@ -843,9 +971,15 @@ Test protocol: §T5 (Gutenberg + AI corpus, new phase).
 | P14b | AI model stylometric entropy < median human-author entropy; compression scales with RLHF intensity | RLHF variance compression | §T-5 | Low |
 | P14c | Specific Gutenberg authors (Carroll, Shelley, Lovelace, Doyle) have influence coefficients $\alpha_i$ disproportionate to corpus share in AI output | Cross-lineage influence detection | §T-5 | High |
 | P14d | Recovered influence coefficients respect temporal ordering of authors by publication date | Memetic causality constraint | §T-5 | Medium |
+| P15 | Admissible trie has $\approx 2.47 \times 10^{15}$ nodes; real corpora occupy $< 10^{-5}$ of it; key efficiency $\approx 79.9\%$ | Transition trie counting (§D-3.6, §D-4.1) | §T-0, §T-1, §T-6 | Low |
+| P16 | Multi-resolution retrieval shows logarithmic information decay per symbol; candidate sets shrink as $O(3^{-j})$ per Geode coefficient | Geode factorization (§D-4.1) | §T-3, §T-6 | Medium |
+| P17 | Variance-guided mixed-precision (binary + quaternary) matches uniform quaternary retrieval at 15–25% shorter code | Hyper-Catalan mixed-arity counting (§D-4.3) | §T-3, §T-6 | Medium |
 
 P3 requires only a frequency count on quantizer output and can be run immediately once
 the quantizer from [PR #9](https://github.com/devlux76/q2/pull/9) is merged. P2 and
 P5 require a retrieval benchmark but no new infrastructure. P4, P6, and P9 require
 benchmark-calibrated metric variants. P7 requires a Nussinov dynamic programming
-implementation over transition sequences.
+implementation over transition sequences. P15 is verifiable from the existing unit test
+suite and null baselines. P16 and P17 require multi-resolution retrieval benchmarks
+and variance analysis, respectively, and are tested alongside the existing embedding
+benchmarks in §T-3 and the new general quantization phase §T-6.
