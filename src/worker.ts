@@ -4,9 +4,13 @@
  * Runs any Hugging Face ONNX text-generation model inside a dedicated Web
  * Worker so that heavy computation never blocks the UI thread.
  *
- * Device fallback order (default): WebNN → WebGPU → WebGL → WASM
+ * Device fallback order (default): WebNN → WebGPU → WASM
  * On iOS / iPadOS, where WebNN is unavailable and WebGPU currently hangs,
- * the worker skips those backends and falls back to: WebGL → WASM.
+ * the worker skips those backends and falls back directly to WASM.
+ *
+ * NOTE: WebGL is NOT a valid device in transformers.js@next (v4.x).
+ * Valid devices are: webnn, webgpu, wasm (and webnn sub-variants).
+ * Passing 'webgl' causes an immediate "Unsupported device" error.
  *
  * Architecture notes (LFM2.5-1.2B, when that model is selected):
  *   ┌─────────────────────────────────────────────────────────┐
@@ -135,7 +139,7 @@ const workerScope = self as unknown as DedicatedWorkerGlobalScope;
  * Chrome, Firefox, and every other iOS browser.  WebNN is not implemented on
  * iOS WebKit, and WebGPU (present in Safari 17+) hangs indefinitely when
  * loading ONNX models instead of throwing a catchable error.  Skipping both
- * lets the backend loop fall straight through to WebGL → WASM.
+ * lets the backend loop fall straight through to WASM.
  */
 function isIOS(): boolean {
   const ua = navigator.userAgent;
@@ -164,17 +168,21 @@ function workerLog(level: 'debug' | 'info' | 'warn' | 'error', message: string, 
  * The worker tries each one in turn and settles on the first that succeeds.
  *   webnn  – Web Neural Network API (hardware-accelerated where available)
  *   webgpu – GPU-accelerated via the WebGPU API
- *   webgl  – Fallback GPU path via WebGL
  *   wasm   – Pure WebAssembly (always available)
  *
+ * NOTE: 'webgl' was removed because it is not a valid device in
+ * transformers.js@next (v4.x).  Passing it throws:
+ *   "Unsupported device: 'webgl'. Should be one of: webnn-npu, webnn-gpu,
+ *    webnn-cpu, webnn, webgpu, wasm."
+ *
  * On iOS, WebNN is absent and WebGPU hangs without throwing, so we skip
- * both and start directly from WebGL.
+ * both and start directly from WASM.
  */
-type BackendName = 'webnn' | 'webgpu' | 'webgl' | 'wasm';
+type BackendName = 'webnn' | 'webgpu' | 'wasm';
 
 const DEVICE_PRIORITY: readonly BackendName[] = isIOS()
-  ? ['webgl', 'wasm']
-  : ['webnn', 'webgpu', 'webgl', 'wasm'];
+  ? ['wasm']
+  : ['webnn', 'webgpu', 'wasm'];
 
 /**
  * Milliseconds of silence (no progress callback) after which a backend is
@@ -189,6 +197,42 @@ const DEVICE_PRIORITY: readonly BackendName[] = isIOS()
  * so only a true post-download hang (no activity at all) will trigger it.
  */
 const BACKEND_HANG_TIMEOUT_MS = 30_000;
+
+/**
+ * Preflight check: filters `devices` to those whose underlying browser API
+ * is present in the current environment, WITHOUT downloading any model files.
+ *
+ * Running this before the download loop lets the worker skip backends that
+ * are guaranteed to fail at session-creation time — avoiding a multi-GB
+ * download that ends in an "Unsupported device" error in the user's browser.
+ *
+ * Checks performed:
+ *   webgpu – requires navigator.gpu (WebGPU API)
+ *   webnn  – requires navigator.ml  (Web Neural Network API)
+ *   wasm   – always available (WebAssembly is universally supported)
+ *
+ * If every device in the input list is filtered out, 'wasm' is returned as
+ * the guaranteed last-resort fallback.
+ */
+function probeAvailableDevices(devices: readonly BackendName[]): BackendName[] {
+  const available: BackendName[] = [];
+  for (const device of devices) {
+    if (device === 'webgpu' && !('gpu' in navigator)) {
+      workerLog('info', 'preflight: WebGPU API not present, skipping', { device });
+      continue;
+    }
+    if (device === 'webnn' && !('ml' in navigator)) {
+      workerLog('info', 'preflight: WebNN API not present, skipping', { device });
+      continue;
+    }
+    available.push(device);
+  }
+  if (available.length === 0) {
+    workerLog('warn', 'preflight: no backends passed capability check; forcing wasm fallback');
+    available.push('wasm');
+  }
+  return available;
+}
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -251,8 +295,15 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
   // the underlying JS implementation supports.
   const loadPipeline = pipeline as unknown as PipelineFactory;
 
+  // ── Preflight: filter to backends whose browser API is present ─────────────
+  // This runs synchronously before any network request so that an unsupported
+  // device (e.g. 'webgpu' on a browser without navigator.gpu) is skipped
+  // immediately rather than failing after a multi-GB download.
+  const devicesToTry = probeAvailableDevices(DEVICE_PRIORITY);
+  workerLog('info', 'preflight complete', { devicesToTry });
+
   let lastErr: unknown;
-  for (const device of DEVICE_PRIORITY) {
+  for (const device of devicesToTry) {
     try {
       workerLog('info', 'Attempting backend', { device });
       send({ type: 'status', status: 'loading', detail: `Trying ${device.toUpperCase()} backend…` });

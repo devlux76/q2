@@ -186,6 +186,40 @@ afterAll(() => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+/**
+ * Stubs navigator.gpu and navigator.ml for the duration of a test callback,
+ * restoring originals in a finally block.
+ *
+ * jsdom does not expose these browser APIs, so the worker's preflight check
+ * (probeAvailableDevices) would otherwise filter out webgpu and webnn, leaving
+ * only wasm.  Tests that need to exercise the full three-backend chain must
+ * call this helper to make the preflight check pass all three backends through.
+ */
+async function withAllNavigatorApiStubs(fn: () => Promise<void>): Promise<void> {
+  const origGpuDescriptor = Object.getOwnPropertyDescriptor(navigator, 'gpu');
+  const origMlDescriptor = Object.getOwnPropertyDescriptor(navigator, 'ml');
+
+  Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true, writable: true });
+  Object.defineProperty(navigator, 'ml', { value: {}, configurable: true, writable: true });
+  try {
+    await fn();
+  } finally {
+    if (origGpuDescriptor) {
+      Object.defineProperty(navigator, 'gpu', origGpuDescriptor);
+    } else {
+      // Property did not originally exist; remove the stub to avoid leaking it between tests.
+      delete (navigator as unknown as { gpu?: unknown }).gpu;
+    }
+
+    if (origMlDescriptor) {
+      Object.defineProperty(navigator, 'ml', origMlDescriptor);
+    } else {
+      // Property did not originally exist; remove the stub to avoid leaking it between tests.
+      delete (navigator as unknown as { ml?: unknown }).ml;
+    }
+  }
+}
+
 describe('Worker E2E: transformers.js happy-path integration', () => {
 
   // Shared fake pipeline callable — set during the load test and reused by
@@ -221,9 +255,9 @@ describe('Worker E2E: transformers.js happy-path integration', () => {
       expect.objectContaining({ dtype: 'q4' }),
     );
 
-    // The device property must be one of the four supported backends.
+    // The device property must be one of the three supported backends.
     const [, , opts] = mockPipelineFactory.mock.calls[0] as [string, string, { device: string }];
-    expect(['webnn', 'webgpu', 'webgl', 'wasm']).toContain(opts.device);
+    expect(['webnn', 'webgpu', 'wasm']).toContain(opts.device);
   });
 
   // ── Generate – happy path ───────────────────────────────────────────────────
@@ -464,50 +498,115 @@ describe('Worker E2E: transformers.js happy-path integration', () => {
     // Reset the pipeline mock so the next load uses a fresh sequence.
     mockPipelineFactory.mockReset();
 
-    // Simulate webnn and webgpu failing, wasm succeeding.
-    const fallbackPipe = vi.fn().mockImplementation(
-      async (
-        _messages: ChatMessage[],
-        opts: { streamer?: { callback_function: ((t: string) => void) | null } },
-      ) => {
-        opts.streamer?.callback_function?.('hi');
-        return [{ generated_text: [{ role: 'assistant', content: 'hi' }] }];
-      },
-    );
-    (fallbackPipe as unknown as { tokenizer: object }).tokenizer = {};
-
-    let callCount = 0;
-    mockPipelineFactory.mockImplementation(
-      async (_task: string, _model: string, opts: { device: string }) => {
-        callCount++;
-        if (opts.device === 'wasm') {
-          return fallbackPipe;
-        }
-        throw new Error(`${opts.device} backend not available`);
-      },
-    );
-
-    const msgs = await collectMessages(async () => {
-      sendToWorker({
-        type: 'load',
-        modelId: 'onnx-community/test-fallback',
-        dtype: 'q8',
-      });
-      await waitForMessage(
-        (m) => m.type === 'status' && (m as { type: string; status: string }).status === 'ready',
+    // jsdom does not expose navigator.gpu or navigator.ml — the preflight
+    // function in worker.ts correctly skips those backends.  withAllNavigatorApiStubs
+    // stubs them so all three valid backends (webnn, webgpu, wasm) pass the
+    // capability check, allowing us to exercise the full fallback chain.
+    await withAllNavigatorApiStubs(async () => {
+      // Simulate webnn and webgpu failing, wasm succeeding.
+      const fallbackPipe = vi.fn().mockImplementation(
+        async (
+          _messages: ChatMessage[],
+          opts: { streamer?: { callback_function: ((t: string) => void) | null } },
+        ) => {
+          opts.streamer?.callback_function?.('hi');
+          return [{ generated_text: [{ role: 'assistant', content: 'hi' }] }];
+        },
       );
+      (fallbackPipe as unknown as { tokenizer: object }).tokenizer = {};
+
+      let callCount = 0;
+      mockPipelineFactory.mockImplementation(
+        async (_task: string, _model: string, opts: { device: string }) => {
+          callCount++;
+          if (opts.device === 'wasm') {
+            return fallbackPipe;
+          }
+          throw new Error(`${opts.device} backend not available`);
+        },
+      );
+
+      const msgs = await collectMessages(async () => {
+        sendToWorker({
+          type: 'load',
+          modelId: 'onnx-community/test-fallback',
+          dtype: 'q8',
+        });
+        await waitForMessage(
+          (m) => m.type === 'status' && (m as { type: string; status: string }).status === 'ready',
+        );
+      });
+
+      // The worker must have tried multiple backends.
+      expect(callCount).toBeGreaterThan(1);
+
+      // The final status must be 'ready' (wasm succeeded).
+      const statuses = msgs.filter((m) => m.type === 'status').map((m) => (m as { type: string; status: string }).status);
+      expect(statuses).toContain('ready');
+      expect(statuses).not.toContain('error');
+
+      // Update fakePipe for subsequent generate tests.
+      fakePipe = fallbackPipe;
     });
+  });
 
-    // The worker must have tried multiple backends.
-    expect(callCount).toBeGreaterThan(1);
+  // ── Preflight / webgl regression ────────────────────────────────────────────
 
-    // The final status must be 'ready' (wasm succeeded).
-    const statuses = msgs.filter((m) => m.type === 'status').map((m) => (m as { type: string; status: string }).status);
-    expect(statuses).toContain('ready');
-    expect(statuses).not.toContain('error');
+  it('load: pipeline is never called with device=webgl (unsupported in transformers.js@next)', async () => {
+    // Regression test: webgl was removed from DEVICE_PRIORITY because
+    // transformers.js@next (v4.x) rejects it with:
+    //   "Unsupported device: 'webgl'. Should be one of: webnn-npu, webnn-gpu,
+    //    webnn-cpu, webnn, webgpu, wasm."
+    // withAllNavigatorApiStubs ensures all valid backends pass the preflight
+    // check; then verify webgl never appears in any pipeline() call.
+    mockPipelineFactory.mockReset();
 
-    // Update fakePipe for subsequent generate tests.
-    fakePipe = fallbackPipe;
+    await withAllNavigatorApiStubs(async () => {
+      const testPipe = vi.fn().mockImplementation(
+        async (
+          _messages: ChatMessage[],
+          opts: { streamer?: { callback_function: ((t: string) => void) | null } },
+        ) => {
+          opts.streamer?.callback_function?.('ok');
+          return [{ generated_text: [{ role: 'assistant', content: 'ok' }] }];
+        },
+      );
+      (testPipe as unknown as { tokenizer: object }).tokenizer = {};
+
+      const devicesAttempted: string[] = [];
+      mockPipelineFactory.mockImplementation(
+        async (_task: string, _model: string, opts: { device: string }) => {
+          devicesAttempted.push(opts.device);
+          // Force traversal of the full backend fallback chain by simulating
+          // initialization failure on all devices except the final fallback.
+          if (opts.device !== 'wasm') {
+            throw new Error(`Simulated pipeline init failure for device=${opts.device}`);
+          }
+          return testPipe;
+        },
+      );
+
+      await collectMessages(async () => {
+        sendToWorker({
+          type: 'load',
+          modelId: 'onnx-community/test-no-webgl',
+          dtype: 'q4',
+        });
+        await waitForMessage(
+          (m) => m.type === 'status' && (m as { type: string; status: string }).status === 'ready',
+        );
+      });
+
+      // webgl must never appear in any pipeline() call.
+      expect(devicesAttempted).not.toContain('webgl');
+
+      // Every device attempted must be one of the valid v4.x devices.
+      for (const d of devicesAttempted) {
+        expect(['webnn', 'webgpu', 'wasm']).toContain(d);
+      }
+
+      fakePipe = testPipe;
+    });
   });
 
   // ── Progress callbacks ──────────────────────────────────────────────────────
