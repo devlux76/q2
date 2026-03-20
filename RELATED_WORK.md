@@ -226,7 +226,7 @@ k, distance preservation) rather than perplexity or task accuracy.
 
 ### 3.1 BitNet — 1.58-bit ternary architectures
 
-BitNet b1.58 (Ma et al. 2024, arxiv:2402.17764) trains transformer models from
+BitNet b1.58 (Ma et al. 2024, arxiv:2402.12263) trains transformer models from
 scratch with weights constrained to $\{-1, 0, +1\}$, achieving per-weight entropy
 of $\log_2 3 \approx 1.58$ bits. This is the ternary quantization regime discussed
 in §D-2.3.
@@ -539,11 +539,9 @@ finding that adapters are highly parameter-efficient at 2-bit precision.
   <https://arxiv.org/html/2503.19353v1>
 - QuES: Quantized Expert Scaling. arxiv:2602.03120.
   <https://arxiv.org/html/2602.03120v1>
-- BitNet b1.58: arxiv:2402.12263.
-  <https://arxiv.org/html/2402.12263v2>
 - OPMS-QQGE steganography survey: arxiv:2509.13514.
   <https://arxiv.org/html/2509.13514v1>
-- IEEE Sensors J. CNN accelerator for bearing fault diagnosis. Vol. 23, no. 13,
+- Sensors (MDPI). CNN accelerator for bearing fault diagnosis. Vol. 23, no. 13,
   2023. <https://www.mdpi.com/1424-8220/23/13/5897>
 - Frantar, E., Ashkboos, S., Hoefler, T., & Alistarh, D. (2022). GPTQ: Accurate
   Post-Training Quantization for Generative Pre-Trained Transformers. arxiv:2210.17323.
@@ -552,10 +550,32 @@ finding that adapters are highly parameter-efficient at 2-bit precision.
   arxiv:2306.00978.
 - Ma, S., Wang, H., Ma, L., Wang, L., Wang, W., Huang, S., Dong, L., Wang, R.,
   Wei, F., & Wei, F. (2024). The Era of 1-bit LLMs: All Large Language Models are
-  in 1.58 Bits. arxiv:2402.17764.
+  in 1.58 Bits. arxiv:2402.12263. <https://arxiv.org/html/2402.12263v2>
 - Hammons, A. R., Kumar, P. V., Calderbank, A. R., Sloane, N. J. A., & Solé, P.
   (1994). The $\mathbb{Z}_4$-linearity of Kerdock, Preparata, Goethals, and related
   codes. *IEEE Trans. Inform. Theory* 40:2, 301--319.
 - Wildberger, N. J. & Rubine, D. (2025). A Hyper-Catalan Series Solution to
   Polynomial Equations, and the Geode. *Amer. Math. Monthly* 132:5, 383--402.
   DOI: 10.1080/00029890.2025.2460966
+
+### Citations requiring independent verification
+
+The following references are drawn from the issue statement or from cited URLs
+that could not be independently confirmed at time of writing. The URLs are
+included for traceability; please verify pedigree before citing externally.
+
+- **BQQ (NeurIPS 2025, poster 119877):** URL provided in the issue
+  (<https://neurips.cc/virtual/2025/poster/119877>), but the full paper details
+  (authors, exact title) were not independently confirmed.
+- **QUAD (arxiv:2503.19353):** URL provided in the issue
+  (<https://arxiv.org/html/2503.19353v1>); paper existence consistent with a 2025
+  submission but authors/title not independently confirmed.
+- **QuES (arxiv:2602.03120):** URL provided in the issue
+  (<https://arxiv.org/html/2602.03120v1>); February 2026 submission, not
+  independently confirmed.
+- **OPMS-QQGE (arxiv:2509.13514):** URL provided in the issue
+  (<https://arxiv.org/html/2509.13514v1>); September 2025 submission, not
+  independently confirmed.
+- **Sensors (MDPI) bearing fault CNN (2023):** URL
+  <https://www.mdpi.com/1424-8220/23/13/5897> provided in the issue; specific
+  paper title and authors not confirmed beyond the URL.
