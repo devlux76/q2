@@ -197,12 +197,15 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
  * Load button is immediately enabled.
  */
 async function refreshModelList(query: string, autoSelectFirst = false): Promise<void> {
+  appLog('debug', 'refreshModelList called', { query, autoSelectFirst });
   modelListEl.innerHTML = '<li class="model-list-status">Searching models…</li>';
 
   try {
     const models = await fetchHFModels(query, currentSettings);
+    appLog('info', 'fetchHFModels returned', { query, count: models.length });
 
     if (models.length === 0) {
+      appLog('debug', 'No models found for query', { query });
       modelListEl.innerHTML =
         '<li class="model-list-status">No models found. Try a different search.</li>';
       return;
@@ -216,9 +219,11 @@ async function refreshModelList(query: string, autoSelectFirst = false): Promise
     // Auto-select the top result on the initial load so the Load button
     // is immediately usable without requiring an explicit click.
     if (autoSelectFirst && !selectedModelId && models[0]) {
+      appLog('debug', 'Auto-selecting first model', { modelId: models[0].id });
       selectModel(models[0].id);
     }
   } catch (err) {
+    appLog('error', 'fetchHFModels failed', { query, error: err });
     const li = document.createElement('li');
     li.className = 'model-list-status model-list-error';
     li.textContent = String(err);
@@ -279,6 +284,7 @@ function renderModelItem(model: HFModel): void {
 }
 
 export function selectModel(modelId: string): void {
+  appLog('info', 'selectModel called', { modelId });
   selectedModelId = modelId;
   modelCustomIdEl.value = '';
   document.querySelectorAll<HTMLLIElement>('.model-item').forEach((item) => {
@@ -290,12 +296,14 @@ export function selectModel(modelId: string): void {
 }
 
 export function initModelPicker(): void {
+  appLog('debug', 'initModelPicker called');
   // Kick off the initial model list fetch from HF Hub.
   void refreshModelList('', true);
 
   // Debounced live search as the user types.
   modelSearchEl.addEventListener('input', () => {
     const q = modelSearchEl.value;
+    appLog('debug', 'Model search input changed', { query: q });
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
       void refreshModelList(q);
@@ -331,6 +339,12 @@ export function initModelPicker(): void {
 
 /** Wire up settings controls and persist changes to localStorage. */
 function initSettingsPanel(): void {
+  appLog('debug', 'initSettingsPanel called', {
+    dtype: currentSettings.dtype,
+    filterLibrary: currentSettings.filterLibrary,
+    q2KeyDisplayMode: currentSettings.q2KeyDisplayMode,
+    hasApiToken: Boolean(currentSettings.apiToken),
+  });
   const tokenEl = $<HTMLInputElement>('#hf-token');
   const dtypeEl = $<HTMLSelectElement>('#model-dtype');
   const libraryEl = $<HTMLSelectElement>('#filter-library');
@@ -351,6 +365,7 @@ function initSettingsPanel(): void {
   benchModelT4El.value = currentSettings.benchModelT4;
 
   tokenEl.addEventListener('change', () => {
+    appLog('debug', 'Setting changed: apiToken', { hasToken: Boolean(tokenEl.value.trim()) });
     currentSettings.apiToken = tokenEl.value.trim();
     saveSettings(currentSettings);
   });
@@ -358,12 +373,14 @@ function initSettingsPanel(): void {
   dtypeEl.addEventListener('change', () => {
     // The select element only contains valid Dtype values per the HTML; cast is safe.
     currentSettings.dtype = dtypeEl.value as AppSettings['dtype'];
+    appLog('info', 'Setting changed: dtype', { dtype: currentSettings.dtype });
     saveSettings(currentSettings);
   });
 
   libraryEl.addEventListener('change', () => {
     // The select element only contains valid FilterLibrary values per the HTML; cast is safe.
     currentSettings.filterLibrary = libraryEl.value as AppSettings['filterLibrary'];
+    appLog('info', 'Setting changed: filterLibrary', { filterLibrary: currentSettings.filterLibrary });
     saveSettings(currentSettings);
     // Re-fetch the model list with the updated library filter.
     void refreshModelList(modelSearchEl.value);
@@ -371,28 +388,33 @@ function initSettingsPanel(): void {
 
   keyDisplayEl.addEventListener('change', () => {
     currentSettings.q2KeyDisplayMode = keyDisplayEl.value as AppSettings['q2KeyDisplayMode'];
+    appLog('debug', 'Setting changed: q2KeyDisplayMode', { mode: currentSettings.q2KeyDisplayMode });
     saveSettings(currentSettings);
   });
 
   defaultChatModelEl.addEventListener('change', () => {
     // Fall back to DEFAULT_SETTINGS if the user clears the field.
     currentSettings.defaultChatModel = defaultChatModelEl.value.trim() || DEFAULT_SETTINGS.defaultChatModel;
+    appLog('info', 'Setting changed: defaultChatModel', { model: currentSettings.defaultChatModel });
     saveSettings(currentSettings);
   });
 
   benchModelT2El.addEventListener('change', () => {
     // Fall back to DEFAULT_SETTINGS if the user clears the field.
     currentSettings.benchModelT2 = benchModelT2El.value.trim() || DEFAULT_SETTINGS.benchModelT2;
+    appLog('info', 'Setting changed: benchModelT2', { model: currentSettings.benchModelT2 });
     saveSettings(currentSettings);
   });
 
   benchModelT3El.addEventListener('change', () => {
     currentSettings.benchModelT3 = benchModelT3El.value.trim() || DEFAULT_SETTINGS.benchModelT3;
+    appLog('info', 'Setting changed: benchModelT3', { model: currentSettings.benchModelT3 });
     saveSettings(currentSettings);
   });
 
   benchModelT4El.addEventListener('change', () => {
     currentSettings.benchModelT4 = benchModelT4El.value.trim() || DEFAULT_SETTINGS.benchModelT4;
+    appLog('info', 'Setting changed: benchModelT4', { model: currentSettings.benchModelT4 });
     saveSettings(currentSettings);
   });
 }
@@ -464,29 +486,48 @@ function renderLocalFileList(): void {
 }
 
 async function handleLocalFile(file: File): Promise<void> {
+  appLog('info', 'handleLocalFile called', { name: file.name, size: file.size, type: file.type });
   try {
     const meta = await storeFile(file, file.name);
+    appLog('info', 'handleLocalFile stored successfully', { name: meta.name, hash: meta.hash });
     renderLocalFileList();
     setLocalFileStatus(`Saved ${meta.name}`);
   } catch (err) {
+    appLog('error', 'handleLocalFile failed to store file', { name: file.name, error: err });
     setLocalFileStatus(`Error saving file: ${String(err)}`);
   }
 }
 
 export async function handleLocalUrl(rawUrl: string): Promise<void> {
   const url = rawUrl.trim();
-  if (!url) return;
+  // Log only origin+pathname to avoid leaking credentials from query params or signed-URL tokens.
+  let safeUrl = url;
+  try {
+    const parsed = new URL(url);
+    safeUrl = parsed.origin + parsed.pathname;
+  } catch {
+    // Not a valid URL yet; log the raw value (empty string or partial input)
+  }
+  appLog('info', 'handleLocalUrl called', { url: safeUrl });
+  if (!url) {
+    appLog('debug', 'handleLocalUrl: empty URL, skipping');
+    return;
+  }
   try {
     const meta = await storeFromUrl(url);
+    appLog('info', 'handleLocalUrl stored successfully', { name: meta.name, hash: meta.hash });
     renderLocalFileList();
     setLocalFileStatus(`Fetched and saved ${meta.name}`);
   } catch (err) {
+    appLog('error', 'handleLocalUrl failed', { url: safeUrl, error: err });
     setLocalFileStatus(`Error fetching URL: ${String(err)}`);
   }
 }
 
 export function initLocalFileStore(): void {
-  if (!isOpfsAvailable()) {
+  const opfsAvailable = isOpfsAvailable();
+  appLog('info', 'initLocalFileStore called', { opfsAvailable });
+  if (!opfsAvailable) {
     // Not supported in this environment; show a hint.
     setLocalFileStatus('OPFS not supported in this browser.');
   }
@@ -534,7 +575,11 @@ export function initLocalFileStore(): void {
 function triggerLoad(): void {
   const customId = modelCustomIdEl.value.trim();
   const modelId = customId || selectedModelId;
-  if (!modelId) return;
+  appLog('info', 'triggerLoad called', { customId: customId || null, selectedModelId, resolvedModelId: modelId || null });
+  if (!modelId) {
+    appLog('warn', 'triggerLoad: no model ID available, load skipped');
+    return;
+  }
   startWithModel(modelId);
 }
 
@@ -546,6 +591,7 @@ function triggerLoad(): void {
  * navigating tabs while the model downloads in the background.
  */
 export function startWithModel(modelId: string): void {
+  appLog('info', 'startWithModel called', { modelId, dtype: currentSettings.dtype });
   selectedModelId = modelId;
 
   // Show loading overlay.
@@ -573,6 +619,7 @@ export function initWorker(modelId: string): void {
   });
 
   worker.addEventListener('error', (e) => {
+    appLog('error', 'Worker emitted uncaught error event', { message: e.message, filename: e.filename, lineno: e.lineno });
     showError(`Worker error: ${e.message}`);
   });
 
@@ -706,6 +753,7 @@ export function onToken(token: string): void {
 }
 
 export function onEmbedding(msg: EmbeddingMsg): void {
+  appLog('info', 'onEmbedding received', { seqLen: msg.seqLen, hiddenDim: msg.hiddenDim, dtype: msg.dtype, bytes: msg.data.byteLength });
   embeddingPanel.classList.remove('hidden');
 
   const { seqLen, hiddenDim, dtype } = msg;
@@ -718,14 +766,16 @@ export function onEmbedding(msg: EmbeddingMsg): void {
 
   if (dtype === 'fp32') {
     if (msg.data.byteLength % 4 !== 0) {
-      console.warn(
-        `Embedding fp32 data has byteLength=${msg.data.byteLength}, which is not a multiple of 4; skipping Float32 view.`,
+      appLog('warn',
+        'Embedding fp32 data byteLength not a multiple of 4; skipping Float32 view',
+        { byteLength: msg.data.byteLength },
       );
     } else {
       const view = new Float32Array(msg.data);
       if (view.length !== expectedElements) {
-        console.warn(
-          `Embedding fp32 data has length=${view.length}, expected=${expectedElements} (seqLen=${seqLen}, hiddenDim=${hiddenDim}); skipping Float32 view.`,
+        appLog('warn',
+          'Embedding fp32 data length mismatch; skipping Float32 view',
+          { length: view.length, expected: expectedElements, seqLen, hiddenDim },
         );
       } else {
         floats = view;
@@ -734,12 +784,16 @@ export function onEmbedding(msg: EmbeddingMsg): void {
   }
 
   if (floats) {
+    const minVal = min(floats);
+    const maxVal = max(floats);
+    appLog('debug', 'onEmbedding: rendering fp32 heatmap', { seqLen, hiddenDim, minVal, maxVal });
     renderEmbeddingHeatmap(floats, seqLen, hiddenDim);
     embeddingStats.textContent =
       `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  ` +
-      `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+      `min=${minVal.toFixed(3)}  max=${maxVal.toFixed(3)}`;
   } else {
     // Non-fp32 or invalid buffer; render basic shape/dtype info only.
+    appLog('debug', 'onEmbedding: non-fp32 or invalid buffer; stats unavailable', { dtype });
     embeddingStats.textContent =
       `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  stats=unavailable`;
   }
@@ -752,10 +806,11 @@ export function onEmbedding(msg: EmbeddingMsg): void {
   const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
 
   if (seqLen < 1) {
-    console.warn(`Q² embedding: seqLen=${seqLen} < 1; skipping quantisation.`);
+    appLog('warn', 'Q² embedding: seqLen < 1; skipping quantisation', { seqLen });
     return;
   }
 
+  appLog('debug', 'onEmbedding: starting Q² kernel', { hiddenDim: n, dtypeId, seqLen });
   void (async () => {
     try {
       const kernel = await getKernel();
@@ -772,6 +827,7 @@ export function onEmbedding(msg: EmbeddingMsg): void {
       const rawKey = kernel.key(Q2_OUTPUT_OFFSET, n);
       const key = BigInt.asUintN(64, rawKey);
 
+      appLog('debug', 'Q² WASM kernel produced key', { key: `0x${key.toString(16).padStart(16, '0')}`, hiddenDim: n });
       // Read back packed bytes.
       const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2);
       renderQ2Result(packed, key, n, currentSettings.q2KeyDisplayMode);
@@ -780,18 +836,21 @@ export function onEmbedding(msg: EmbeddingMsg): void {
       // This path is taken in test environments and SSR contexts.
       // For sub-fp32 dtypes the WASM kernel is required; log a warning and skip.
       if (dtype !== 'fp32') {
-        console.warn(`Q² TS fallback: dtype=${dtype} requires WASM kernel; skipping.`);
+        appLog('warn', 'Q² TS fallback: non-fp32 dtype requires WASM kernel; skipping', { dtype });
         return;
       }
+      appLog('debug', 'Q² falling back to TS implementation', { seqLen, hiddenDim: n });
       const all = new Float32Array(msg.data);
       const vec = l2Normalise(all.subarray((seqLen - 1) * n, seqLen * n), n);
       const { packed, key } = q2EncodeDirect(vec, n);
+      appLog('debug', 'Q² TS fallback produced key', { key: `0x${BigInt.asUintN(64, key).toString(16).padStart(16, '0')}`, hiddenDim: n });
       renderQ2Result(packed, BigInt.asUintN(64, key), n, currentSettings.q2KeyDisplayMode);
     }
   })();
 }
 
 export function onDone(): void {
+  appLog('info', 'onDone called', { rawTextLength: activeRawText.length, historyLength: history.length });
   isGenerating = false;
   sendBtn.disabled = false;
   sendBtn.classList.remove('hidden');
@@ -801,6 +860,7 @@ export function onDone(): void {
     // Strip <think>…</think> blocks before adding to history so that reasoning
     // traces don't consume context on subsequent turns.
     history.push({ role: 'assistant', content: stripThinkTags(activeRawText) });
+    appLog('debug', 'onDone: assistant response added to history', { historyLength: history.length });
     // Ensure the final render is canonical.
     renderBubble(activeBubble, activeRawText);
     activeBubble = null;
@@ -815,15 +875,21 @@ export function onDone(): void {
 
 export function sendMessage(): void {
   const text = inputEl.value.trim();
-  if (!text || isGenerating) return;
+  appLog('info', 'sendMessage called', { textLength: text.length, isGenerating, modelReady });
+  if (!text || isGenerating) {
+    appLog('debug', 'sendMessage: skipped', { reason: !text ? 'empty input' : 'already generating' });
+    return;
+  }
 
   if (!modelReady) {
+    appLog('warn', 'sendMessage: no model loaded');
     showError('No model loaded. Go to Settings → Model to load one first.');
     return;
   }
 
   // Append user message to history and render it.
   history.push({ role: 'user', content: text });
+  appLog('debug', 'sendMessage: user message added to history', { historyLength: history.length });
   appendUserBubble(text);
   inputEl.value = '';
   autoResizeTextarea();
@@ -838,14 +904,17 @@ export function sendMessage(): void {
   stopBtn.classList.remove('hidden');
   inputEl.disabled = true;
 
+  const config = readConfig();
+  appLog('debug', 'sendMessage: posting generate message to worker', { config, historyLength: history.length });
   postToWorker({
     type: 'generate',
     messages: history.slice(), // send a snapshot
-    config: readConfig(),
+    config,
   });
 }
 
 export function stopGeneration(): void {
+  appLog('info', 'stopGeneration called');
   postToWorker({ type: 'abort' });
 }
 
@@ -972,6 +1041,7 @@ export function renderQ2Result(
 // ─── Tab navigation ────────────────────────────────────────────────────────────
 
 export function switchTab(tabName: string): void {
+  appLog('info', 'switchTab called', { tabName });
   navTabs.forEach((tab) => {
     const isActive = tab.dataset['tab'] === tabName;
     tab.classList.toggle('active', isActive);
@@ -1173,10 +1243,13 @@ function renderBenchRow(r: BenchResult): void {
 }
 
 export function runBenchmarks(suiteFilter?: string): void {
+  appLog('info', 'runBenchmarks called', { suiteFilter: suiteFilter ?? 'all', isBenchmarkRunning });
   if (isBenchmarkRunning) {
+    appLog('warn', 'runBenchmarks: already running, skipping');
     return;
   }
   isBenchmarkRunning = true;
+  const benchStartTimeMs = Date.now();
   try {
     benchResultsBody.innerHTML = '';
     benchStatusEl.textContent = 'Running benchmarks…';
@@ -1200,6 +1273,7 @@ export function runBenchmarks(suiteFilter?: string): void {
 
   // ── T0: Algebraic invariants ──────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't0') {
+    appLog('debug', 'runBenchmarks: starting T0 algebraic invariants suite');
     // P1: Complement involution
     try {
       const p1Pass = [0, 1, 2, 3].every(sym => complement(complement(sym)) === sym);
@@ -1238,6 +1312,7 @@ export function runBenchmarks(suiteFilter?: string): void {
 
   // ── T1: Null baselines ────────────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't1') {
+    appLog('debug', 'runBenchmarks: starting T1 null baselines suite');
     // Run null-distribution collision rate test
     try {
       const trials = 1000;
@@ -1297,6 +1372,7 @@ export function runBenchmarks(suiteFilter?: string): void {
 
   // ── T2: Structured code corpus ────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't2') {
+    appLog('debug', 'runBenchmarks: starting T2 structured code corpus suite');
     const T2_SAMPLES = 50;
     const T2_LEN = 500;
 
@@ -1351,6 +1427,7 @@ export function runBenchmarks(suiteFilter?: string): void {
 
   // ── T3: Matryoshka / dedicated embedding models ───────────────────────
   if (!suiteFilter || suiteFilter === 't3') {
+    appLog('debug', 'runBenchmarks: starting T3 Matryoshka/embedding models suite');
     const T3_SAMPLES = 50;
     const T3_LEN = 600;
     const NULL_RHO = 1 / 9;
@@ -1486,6 +1563,7 @@ export function runBenchmarks(suiteFilter?: string): void {
 
   // ── T4: Standard local LLMs ───────────────────────────────────────────
   if (!suiteFilter || suiteFilter === 't4') {
+    appLog('debug', 'runBenchmarks: starting T4 standard local LLMs suite');
     const T4_SAMPLES = 60;
     const T4_LEN = 600;
     const NULL_RHO = 1 / 9;
@@ -1552,6 +1630,7 @@ export function runBenchmarks(suiteFilter?: string): void {
 
   // ── T5: Phylomemetic fingerprinting (P14) ─────────────────────────────
   if (!suiteFilter || suiteFilter === 't5') {
+    appLog('debug', 'runBenchmarks: starting T5 phylomemetic fingerprinting suite');
     const T5_SAMPLES = 40;
     const T5_LEN = 400;
 
@@ -1664,7 +1743,10 @@ export function runBenchmarks(suiteFilter?: string): void {
   }
 
   const passCount = results.filter(r => r.status === 'pass').length;
+  const failCount = results.filter(r => r.status === 'fail').length;
   const total = results.length;
+  const elapsedMs = Date.now() - benchStartTimeMs;
+  appLog('info', 'runBenchmarks completed', { suiteFilter: suiteFilter ?? 'all', total, passCount, failCount, elapsedMs });
   benchStatusEl.textContent = `Completed: ${passCount}/${total} passed`;
   } finally {
     isBenchmarkRunning = false;

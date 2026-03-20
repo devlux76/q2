@@ -317,7 +317,8 @@ async function loadModel(modelId: string, dtype: Dtype, apiToken?: string): Prom
       // Fall through to the next device in the priority list.
     }
   }
-  workerLog('error', 'All backends failed, sending error message to main thread', { lastErr });  send({ type: 'error', message: String(lastErr) });
+  workerLog('error', 'All backends failed, sending error message to main thread', { lastErr });
+  send({ type: 'error', message: String(lastErr) });
 }
 
 // ─── Inference ────────────────────────────────────────────────────────────────
@@ -344,10 +345,19 @@ async function generateResponse(
   stoppingCriteria = new InterruptableStoppingCriteria();
 
   // TextStreamer pushes decoded token text fragments to the main thread.
+  // Per-token logging is disabled by default: the callback runs on every
+  // streamed chunk and console I/O in a Worker can measurably hurt throughput.
+  // Flip to true locally when debugging token-level output.
+  const DEBUG_TOKEN_LOGGING = false;
+  let tokenCount = 0;
   const streamer = new TextStreamer(pipe.tokenizer, {
     skip_prompt: true,
     skip_special_tokens: true,
     callback_function: (text: string) => {
+      tokenCount++;
+      if (DEBUG_TOKEN_LOGGING) {
+        workerLog('debug', 'token streamed', { tokenIndex: tokenCount, tokenLength: text.length });
+      }
       send({ type: 'token', token: text });
     },
   });
@@ -380,6 +390,7 @@ async function generateResponse(
 
     workerLog('info', 'Pipeline generation finished', {
       wantEmbeddings,
+      tokenCount,
       hiddenStatesLength: Array.isArray(output.hidden_states) ? output.hidden_states.length : 'unknown',
       outputKeys: Object.keys(output),
     });
@@ -447,14 +458,18 @@ workerScope.addEventListener(
   'message',
   (e: MessageEvent<WorkerInMsg>) => {
     const msg = e.data;
+    workerLog('debug', 'Worker received message', { type: msg.type });
     switch (msg.type) {
       case 'load':
+        workerLog('info', 'Worker message router: dispatching load', { modelId: msg.modelId, dtype: msg.dtype });
         void loadModel(msg.modelId, msg.dtype, msg.apiToken);
         break;
       case 'generate':
+        workerLog('info', 'Worker message router: dispatching generate', { messagesCount: msg.messages.length });
         void generateResponse(msg.messages, msg.config);
         break;
       case 'abort':
+        workerLog('info', 'Worker message router: dispatching abort');
         stoppingCriteria?.interrupt();
         break;
     }
