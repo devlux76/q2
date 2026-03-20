@@ -22,17 +22,45 @@ jobs:
       - run: bun run test
 
   e2e:
-    # GPU runners accelerate WebGPU/WebNN inference in transformers.js.
-    # WASM-only runners (ubuntu-latest) time out on models >200 MB.
-    # Use a GPU-enabled runner when available; fall back to ubuntu-latest.
-    runs-on: ubuntu-latest
+    # ── Runner configuration ───────────────────────────────────────────────
+    #
+    # This job supports three runner tiers.  Set the repository variable
+    # E2E_RUNNER (Settings → Secrets and variables → Actions → Variables) to
+    # switch tiers without touching the workflow file:
+    #
+    #   Tier 1 — CPU / WASM (default, free, no variable needed)
+    #     E2E_RUNNER:        (unset — falls back to ubuntu-latest)
+    #     E2E_MODEL:         onnx-community/SmolLM2-135M-Instruct  (135 M params)
+    #     E2E_DTYPE:         q4
+    #     Notes: SwiftShader software-GL, WASM inference.  Fast enough for the
+    #            small CI model; no GPU hardware required.
+    #
+    #   Tier 2 — GitHub-hosted GPU (Teams / Enterprise plan)
+    #     E2E_RUNNER:        ubuntu-latest-gpu   (NVIDIA T4, provisioned via
+    #                        GitHub org Settings → Actions → Runners)
+    #     E2E_MODEL:         onnx-community/Qwen3.5-0.8B-ONNX
+    #     E2E_DTYPE:         q4
+    #     E2E_GPU_AVAILABLE: 1   (disables SwiftShader; Chrome uses real GPU)
+    #
+    #   Tier 3 — Self-hosted GPU runner
+    #     E2E_RUNNER:        self-hosted-gpu   (or any label you assigned when
+    #                        registering the runner; e.g. [self-hosted,linux,gpu])
+    #     E2E_MODEL:         onnx-community/Qwen3.5-0.8B-ONNX
+    #     E2E_DTYPE:         q4
+    #     E2E_GPU_AVAILABLE: 1
+    #
+    # ── Default (Tier 1) ──────────────────────────────────────────────────
+    runs-on: ${{ vars.E2E_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
-      # Use a small 135 M-parameter ONNX instruct model so the download +
-      # WASM inference completes well within the CI timeout.  On a real GPU
-      # runner you can override this with a larger model.
-      E2E_MODEL: onnx-community/SmolLM2-135M-Instruct
-      E2E_DTYPE: q4
+      # Small 135 M-parameter instruct model for WASM/CPU Tier-1 runs.
+      # On a GPU runner (Tier 2/3) set E2E_MODEL to a larger model via the
+      # E2E_MODEL repository variable or override here.
+      E2E_MODEL: ${{ vars.E2E_MODEL || 'onnx-community/SmolLM2-135M-Instruct' }}
+      E2E_DTYPE: ${{ vars.E2E_DTYPE || 'q4' }}
+      # Set to '1' on GPU runners so playwright.config.ts drops --use-gl=swiftshader
+      # and lets Chromium use the actual hardware GPU for WebGPU inference.
+      E2E_GPU_AVAILABLE: ${{ vars.E2E_GPU_AVAILABLE || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
