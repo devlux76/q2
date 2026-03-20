@@ -1,6 +1,6 @@
 # Quaternary Quantization: Design
 
-> **Related documents:** [PREDICTIONS.md](PREDICTIONS.md) · [TESTING.md](TESTING.md)
+> **Related documents:** [PREDICTIONS.md](PREDICTIONS.md) · [TESTING.md](TESTING.md) · [RELATED_WORK.md](RELATED_WORK.md)
 
 ---
 
@@ -277,6 +277,8 @@ $$\min_{\hat{W}} \| W - \hat{W} \|_F^2$$
 subject to $\hat{W}$ having 4-bit entries ($2^4 = 16$ levels per dimension).
 
 This is **reconstruction quantization**: the objective is to minimize $\|W - \hat{W}\|_F^2$, approximating the original signal as closely as possible. **Structural quantization** (the subject of this document) has a different objective: preserve relational and topological structure — distances, trajectories, and complement relationships — rather than pointwise values. The two objectives share the quaternary alphabet but differ in metric, distribution, and purpose.
+
+A survey of overlapping work — including BQQ (NeurIPS 2025), QUAD, QuES, BitNet, and domain-specific applications — is in [RELATED_WORK.md](RELATED_WORK.md).
 
 ---
 
@@ -952,6 +954,8 @@ right angle, the incommensurability dissolves. 🤓
 
 - Hammons, A. R., Kumar, P. V., Calderbank, A. R., Sloane, N. J. A., & Solé, P. (1994). The $\mathbb{Z}_4$-linearity of Kerdock, Preparata, Goethals, and related codes. *IEEE Trans. Inform. Theory* 40:2, 301–319.
 - Wildberger, N. J. & Rubine, D. (2025). A Hyper-Catalan Series Solution to Polynomial Equations, and the Geode. *Amer. Math. Monthly* 132:5, 383–402. DOI: 10.1080/00029890.2025.2460966
+
+For references to overlapping work in the ML literature (BQQ, QUAD, QuES, BitNet, and related methods), see [RELATED_WORK.md](RELATED_WORK.md).
 
 ---
 
