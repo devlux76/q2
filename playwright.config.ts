@@ -27,6 +27,19 @@ export default defineConfig({
     screenshot: 'on',
     trace: 'retain-on-failure',
     headless: true,
+    /* Enable WebGPU and hardware-acceleration hints.
+     * On runners with a real GPU these flags allow WebGPU inference.
+     * On CPU-only runners they engage SwiftShader software-GL so the
+     * WebGPU preflight succeeds and WASM is used as final fallback. */
+    launchOptions: {
+      args: [
+        '--enable-gpu',
+        '--ignore-gpu-blocklist',
+        '--enable-unsafe-webgpu',
+        '--disable-gpu-sandbox',
+        '--use-gl=swiftshader',
+      ],
+    },
   },
 
   projects: [

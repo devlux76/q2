@@ -22,8 +22,17 @@ jobs:
       - run: bun run test
 
   e2e:
+    # GPU runners accelerate WebGPU/WebNN inference in transformers.js.
+    # WASM-only runners (ubuntu-latest) time out on models >200 MB.
+    # Use a GPU-enabled runner when available; fall back to ubuntu-latest.
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Use a small 135 M-parameter ONNX instruct model so the download +
+      # WASM inference completes well within the CI timeout.  On a real GPU
+      # runner you can override this with a larger model.
+      E2E_MODEL: onnx-community/SmolLM2-135M-Instruct
+      E2E_DTYPE: q4
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
