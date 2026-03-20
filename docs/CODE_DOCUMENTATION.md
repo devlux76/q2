@@ -277,7 +277,7 @@ Main frontend glue: UI, model picker, worker orchestration, Q² and benchmarks.
 2. In Settings, select a model and click Load.
 3. Send a prompt in Chat.
 4. Embedding panel shows hidden–state heatmap and Q² key.
-5. Benchmark tab runs P0..P5 predictions checks.
+5. Benchmark tab runs T0–T5 benchmark suites, including P1–P14 prediction checks.
 
 ---
 
