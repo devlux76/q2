@@ -340,7 +340,10 @@ async function generateResponse(
     return;
   }
 
-  workerLog('info', 'Starting generation', { messages, config });
+  workerLog('info', 'Starting generation', {
+    messagesCount: messages.length,
+    hasConfig: Boolean(config),
+  });
   send({ type: 'status', status: 'generating' });
   stoppingCriteria = new InterruptableStoppingCriteria();
 
