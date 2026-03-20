@@ -16,7 +16,7 @@ Core workflow:
 1. load model in worker
 2. generate text + hidden states from layer 9
 3. run Q² quantisation (WASM kernel or TS fallback)
-4. publish embedding heatmap + q2 key + pano
+4. publish embedding heatmap + q2 key + panel
 
 ---
 
