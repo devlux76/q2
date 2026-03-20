@@ -577,6 +577,11 @@ describe('Worker E2E: transformers.js happy-path integration', () => {
       mockPipelineFactory.mockImplementation(
         async (_task: string, _model: string, opts: { device: string }) => {
           devicesAttempted.push(opts.device);
+          // Force traversal of the full backend fallback chain by simulating
+          // initialization failure on all devices except the final fallback.
+          if (opts.device !== 'wasm') {
+            throw new Error(`Simulated pipeline init failure for device=${opts.device}`);
+          }
           return testPipe;
         },
       );
