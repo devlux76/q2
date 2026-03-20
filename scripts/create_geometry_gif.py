@@ -91,6 +91,7 @@ def draw_word_points(pts, words, colors, alpha=1.0, s=45):
 PHASES = [
     ('text_intro',     60),
     ('sphere_project', 80),
+    ('pi4_impossible', 70),
     ('hypersphere',    80),
     ('wave',           70),
     ('p4_hypercube',   80),
@@ -318,6 +319,16 @@ def update(f: int):
     # ---------- phase 1: project into sphere
     elif phase_name == 'sphere_project':
         draw_cube_edges(alpha=0.25)
+        # draw unit sphere wireframe
+        _u = np.linspace(0, 2*np.pi, 32)
+        _v = np.linspace(0, np.pi, 16)
+        _U, _V = np.meshgrid(_u, _v)
+        _SX = np.cos(_U) * np.sin(_V)
+        _SY = np.sin(_U) * np.sin(_V)
+        _SZ = np.cos(_V)
+        ax.plot_wireframe(_SX, _SY, _SZ, color=CYAN, alpha=0.10 + 0.12*sp,
+                          linewidth=0.5, rstride=2, cstride=2)
+
         for i, p in enumerate(inner_points):
             target = sphere_points[i]
             cur = p + (target - p) * sp
@@ -328,9 +339,45 @@ def update(f: int):
         draw_text_center('Project words into unit sphere S^{n-1}', size=16, alpha=0.9)
         add_overlay('② Embedding Sphere',
                     r'$S^{n-1} = \{ x \in \mathbb{R}^n : \|x\|_2 = 1 \}$',
-                    'L2 normalization pushes points to unit surface', progress=overall)
+                    'Words land inside this cube — the sphere shows where they project to.\n'
+                    'Problem: different models rotate the sphere freely → incommensurability',
+                    progress=overall)
 
-    # ---------- phase 2: hypersphere evolution
+    # ---------- phase 2: pi=4 — the only impossible thing we need
+    elif phase_name == 'pi4_impossible':
+        draw_cube_edges(alpha=0.25 + 0.15*sp)
+        # sphere wireframe
+        _u = np.linspace(0, 2*np.pi, 32)
+        _v = np.linspace(0, np.pi, 16)
+        _U, _V = np.meshgrid(_u, _v)
+        _SX = np.cos(_U) * np.sin(_V)
+        _SY = np.sin(_U) * np.sin(_V)
+        _SZ = np.cos(_V)
+        ax.plot_wireframe(_SX, _SY, _SZ, color=MAGENTA, alpha=0.08 + 0.18*sp,
+                          linewidth=0.5, rstride=2, cstride=2)
+
+        # big pi=4 declaration, fades in
+        ax.text2D(0.5, 0.62, 'π = 4', transform=ax.transAxes,
+                  ha='center', va='center', color=LIME,
+                  fontsize=48, fontweight='bold', alpha=smooth(sp))
+        ax.text2D(0.5, 0.50, 'The only impossible thing we need here',
+                  transform=ax.transAxes, ha='center', va='center',
+                  color=ORANGE, fontsize=13, style='italic',
+                  alpha=smooth(max(0.0, sp - 0.2) / 0.8))
+        if sp > 0.55:
+            ax.text2D(0.5, 0.40,
+                      'Hypersphere incommensurability is believed unsolvable.\n'
+                      'Yet — we can believe impossible things.\n'
+                      'Set π = 4 and the problem becomes trivial.',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color=WHITE, fontsize=9.5,
+                      alpha=smooth((sp - 0.55) / 0.45))
+        add_overlay('③ The Impossible Made Trivial',
+                    r'Hypersphere rotational freedom $\Rightarrow$ incommensurability (believed unsolvable)',
+                    'π = 4: the one impossible belief that dissolves the problem entirely',
+                    progress=overall)
+
+    # ---------- phase 3: hypersphere evolution
     elif phase_name == 'hypersphere':
         # represent 4th dimension by color and size variation
         w = np.sin(np.linspace(0, np.pi, NWORDS) + overall * 2.0) * 0.5 + 0.5
@@ -338,7 +385,7 @@ def update(f: int):
         draw_word_points(x4, WORDS, [plt.cm.viridis(cc) for cc in w], alpha=1.0, s=45)
 
         draw_text_center('Evolve sphere → hypersphere via extra dimension', size=16, alpha=0.9)
-        add_overlay('③ Hypersphere',
+        add_overlay('④ Hypersphere',
                     r'$S^{n-1}$ has no preferred orientation; rotations $Q\in O(n)$ preserve semantics',
                     'Observe incommensurability: absolute axes vary across models', progress=overall)
 
@@ -359,7 +406,7 @@ def update(f: int):
         ax.plot_surface(X, Y, Z, rstride=8, cstride=8, color='#222277', alpha=0.14, linewidth=0)
 
         draw_text_center('Wave sample across embeddings (high frequency signal)', size=15, alpha=0.9)
-        add_overlay('④ Incommensurability',
+        add_overlay('⑤ Incommensurability',
                     r'$\text{sim}(u,v)=u\cdot v,\enspace u\in S^{n-1},\enspace v\in S^{n-1}$',
                     'Different frames: without alignment, dot products vary unpredictably', progress=overall)
 
@@ -380,7 +427,7 @@ def update(f: int):
         draw_cube_edges(alpha=0.2 + 0.5*sp, lw=1.3)
 
         draw_text_center(f'ℓₚ ball morph (p={p_t:.2f}) → hypercube style', size=15, alpha=0.9)
-        add_overlay('⑤ ℓₚ transition',
+        add_overlay('⑥ ℓₚ transition',
                     r'$\|x\|_p = (\sum_{i=1}^n |x_i|^p)^{1/p},\quad p\to 4$',
                     'p=4: boundary shape approaches hypercube facets', progress=overall)
 
@@ -389,7 +436,7 @@ def update(f: int):
         draw_cube_edges(alpha=0.5)
         draw_word_points(lp_unit_projection(sphere_points, p=4.0), WORDS, WORD_COLORS, alpha=1.0, s=35)
         draw_text_center('curiouser and curiouser', size=28, alpha=sp * 0.95)
-        add_overlay('⑥ Curiosity', 'The embedding journey becomes increasingly non-intuitive',
+        add_overlay('⑦ Curiosity', 'The embedding journey becomes increasingly non-intuitive',
                     'This is the step where geometry feels almost magical', progress=overall)
 
     # ---------- phase 6: begin ... end
@@ -398,7 +445,7 @@ def update(f: int):
         draw_text_center('...and go on till you come to the end', size=18, alpha=0.2 + 0.8*sp)
         if sp > 0.6:
             draw_text_center('𐄂  The end 𐄂', size=26, alpha=(sp-0.6)/0.4)
-        add_overlay('⑦ Narrative closure', 'Text closure from Lewis Carroll-inspired sequence',
+        add_overlay('⑧ Narrative closure', 'Text closure from Lewis Carroll-inspired sequence',
                     'Stop after reaching the conceptual end', progress=overall)
 
     # ---------- existing phases (grid/octahedron/...) for continuation
@@ -408,7 +455,7 @@ def update(f: int):
         if sp > 0.45:
             label_quadrants(alpha=smooth((sp-0.45)/0.55))
         add_overlay(
-            '⑧ Grid Formation — Embedding Space',
+            '⑨ Grid Formation — Embedding Space',
             'Four grid lines divide the unit cube into quaternary regions {A, B, C, D}',
             note_str='Each region captures one of the four Gray-coded coordinate states',
             progress=overall,
@@ -429,7 +476,7 @@ def update(f: int):
                       '← lower\n   pyramid', transform=ax.transAxes,
                       color=MAGENTA, fontsize=8, alpha=a)
         add_overlay(
-            '⑨ Unit Ball in ℓ¹ Space — Two Pyramids Base-to-Base',
+            '⑩ Unit Ball in ℓ¹ Space — Two Pyramids Base-to-Base',
             'The cross-polytope (octahedron) is the ℓ¹ unit ball:  ‖x‖₁ ≤ 1',
             note_str='Upper pyramid (apex up) + lower pyramid (apex down) share the equatorial square',
             progress=overall,
@@ -441,7 +488,7 @@ def update(f: int):
         label_quadrants(alpha=max(0.0, 1.0 - sp*1.5))
         draw_octahedron(face_alpha=0.25, edge_alpha=0.8, edge_lw=1.8)
         add_overlay(
-            '⑩ Rotating View — Top-Down → Side-On',
+            '⑪ Rotating View — Top-Down → Side-On',
             'Tilting the camera reveals the full 3-D geometry of the unit ball inside the cube',
             note_str='The equatorial square of the octahedron aligns with the grid cross-section',
             progress=overall,
@@ -453,7 +500,7 @@ def update(f: int):
         draw_octahedron(face_alpha=0.15, edge_alpha=0.5, edge_lw=1.4)
         draw_prisms(alpha=0.08 + 0.22*sp)
         add_overlay(
-            '⑪ Corner Prisms',
+            '⑫ Corner Prisms',
             'Each grid cell (octant) contains a pyramid-prism slice of the cross-polytope',
             note_str='Prism = space between the octahedron face and the cube corner',
             progress=overall,
@@ -474,7 +521,7 @@ def update(f: int):
             ax.text2D(0.5, 0.22, '↓ lower half-cube', transform=ax.transAxes,
                       ha='center', color=MAGENTA, fontsize=9, alpha=a)
         add_overlay(
-            '⑫ Stacking Pyramids Fills the Cube',
+            '⑬ Stacking Pyramids Fills the Cube',
             'Upper and lower pyramids separate along the equator — each half fills one cube layer',
             note_str='Stacking four pyramids base-to-base tiles the full unit cube',
             progress=overall,
@@ -490,7 +537,7 @@ def update(f: int):
                 ax.text2D(tx, ty, fn, transform=ax.transAxes,
                           ha='center', color=WHITE, fontsize=8, alpha=a*0.7)
         add_overlay(
-            '⑬ Rubik\'s Cube — Information on Surface Faces',
+            '⑭ Rubik\'s Cube — Information on Surface Faces',
             'All embedding information projected onto the 6 cube faces (9 cells each)',
             note_str='Colour = quaternary region {A, B, C, D} → 64-bit Lee-metric fingerprint',
             progress=overall,
