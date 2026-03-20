@@ -480,7 +480,7 @@ describe('app.ts helpers and DOM integration', () => {
     // The last message sent to the worker should include modelId and dtype.
     const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
     expect(workerRef.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen2.5-0.5B-Instruct', dtype: 'q4' }),
+      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen3.5-0.8B-Instruct', dtype: 'q4' }),
     );
   });
 
