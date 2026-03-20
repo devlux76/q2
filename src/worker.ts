@@ -345,13 +345,19 @@ async function generateResponse(
   stoppingCriteria = new InterruptableStoppingCriteria();
 
   // TextStreamer pushes decoded token text fragments to the main thread.
+  // Per-token logging is disabled by default: the callback runs on every
+  // streamed chunk and console I/O in a Worker can measurably hurt throughput.
+  // Flip to true locally when debugging token-level output.
+  const DEBUG_TOKEN_LOGGING = false;
   let tokenCount = 0;
   const streamer = new TextStreamer(pipe.tokenizer, {
     skip_prompt: true,
     skip_special_tokens: true,
     callback_function: (text: string) => {
       tokenCount++;
-      workerLog('debug', 'token streamed', { tokenIndex: tokenCount, tokenLength: text.length });
+      if (DEBUG_TOKEN_LOGGING) {
+        workerLog('debug', 'token streamed', { tokenIndex: tokenCount, tokenLength: text.length });
+      }
       send({ type: 'token', token: text });
     },
   });

@@ -500,7 +500,15 @@ async function handleLocalFile(file: File): Promise<void> {
 
 export async function handleLocalUrl(rawUrl: string): Promise<void> {
   const url = rawUrl.trim();
-  appLog('info', 'handleLocalUrl called', { url });
+  // Log only origin+pathname to avoid leaking credentials from query params or signed-URL tokens.
+  let safeUrl = url;
+  try {
+    const parsed = new URL(url);
+    safeUrl = parsed.origin + parsed.pathname;
+  } catch {
+    // Not a valid URL yet; log the raw value (empty string or partial input)
+  }
+  appLog('info', 'handleLocalUrl called', { url: safeUrl });
   if (!url) {
     appLog('debug', 'handleLocalUrl: empty URL, skipping');
     return;
@@ -511,7 +519,7 @@ export async function handleLocalUrl(rawUrl: string): Promise<void> {
     renderLocalFileList();
     setLocalFileStatus(`Fetched and saved ${meta.name}`);
   } catch (err) {
-    appLog('error', 'handleLocalUrl failed', { url, error: err });
+    appLog('error', 'handleLocalUrl failed', { url: safeUrl, error: err });
     setLocalFileStatus(`Error fetching URL: ${String(err)}`);
   }
 }
@@ -739,7 +747,6 @@ function scheduleBubbleRender(): void {
 }
 
 export function onToken(token: string): void {
-  appLog('debug', 'onToken received', { tokenLength: token.length });
   if (!activeBubble) return;
   activeRawText += token;
   scheduleBubbleRender();
@@ -777,11 +784,13 @@ export function onEmbedding(msg: EmbeddingMsg): void {
   }
 
   if (floats) {
-    appLog('debug', 'onEmbedding: rendering fp32 heatmap', { seqLen, hiddenDim, minVal: min(floats), maxVal: max(floats) });
+    const minVal = min(floats);
+    const maxVal = max(floats);
+    appLog('debug', 'onEmbedding: rendering fp32 heatmap', { seqLen, hiddenDim, minVal, maxVal });
     renderEmbeddingHeatmap(floats, seqLen, hiddenDim);
     embeddingStats.textContent =
       `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  ` +
-      `min=${min(floats).toFixed(3)}  max=${max(floats).toFixed(3)}`;
+      `min=${minVal.toFixed(3)}  max=${maxVal.toFixed(3)}`;
   } else {
     // Non-fp32 or invalid buffer; render basic shape/dtype info only.
     appLog('debug', 'onEmbedding: non-fp32 or invalid buffer; stats unavailable', { dtype });
