@@ -5,7 +5,7 @@ import ymlPlugin from 'eslint-plugin-yml';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'gh-pages/**'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'gh-pages/**', 'e2e-results/**', 'test-results/**', 'playwright-report/**'],
   },
   {
     files: ['**/*.{js,ts}'],
