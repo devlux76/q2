@@ -146,8 +146,9 @@ Web Worker with model load + generation + embeddings.
 #### view environment / constants
 - `isIOS()`: iOS / iPadOS detection, WebNN/WebGPU skip
 - `workerLog(level,msg,args)` common logger
-- `DEVICE_PRIORITY`: `['webgl','wasm']` for iOS; else `['webnn','webgpu','webgl','wasm']`
+- `DEVICE_PRIORITY`: `['wasm']` for iOS; else `['webnn','webgpu','wasm']` (webgl removed — not valid in transformers.js@next v4.x)
 - `BACKEND_HANG_TIMEOUT_MS=30000`
+- `probeAvailableDevices(devices)`: preflight check — filters device list to those whose browser API is present (`navigator.gpu` for webgpu, `navigator.ml` for webnn) before any model download begins
 
 #### state
 - `pipe: TextGenerationPipeline | null`
@@ -162,7 +163,8 @@ Web Worker with model load + generation + embeddings.
 - `loadModel(modelId,dtype,apiToken)`
   - sets `env.accessToken` if provided
   - `send({status:'loading'})`
-  - try each backend in `DEVICE_PRIORITY` with progress callback
+  - runs `probeAvailableDevices()` preflight to filter unreachable backends before download
+  - try each surviving backend with progress callback
   - hang guard interval fallback after 30s idle
   - on success wraps pipeline, sets `activeDtype`, `send({status:'ready'})`
   - on failure after all backends: `send({type:'error'})`

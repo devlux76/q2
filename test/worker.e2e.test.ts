@@ -221,9 +221,9 @@ describe('Worker E2E: transformers.js happy-path integration', () => {
       expect.objectContaining({ dtype: 'q4' }),
     );
 
-    // The device property must be one of the four supported backends.
+    // The device property must be one of the three supported backends.
     const [, , opts] = mockPipelineFactory.mock.calls[0] as [string, string, { device: string }];
-    expect(['webnn', 'webgpu', 'webgl', 'wasm']).toContain(opts.device);
+    expect(['webnn', 'webgpu', 'wasm']).toContain(opts.device);
   });
 
   // ── Generate – happy path ───────────────────────────────────────────────────
@@ -508,6 +508,58 @@ describe('Worker E2E: transformers.js happy-path integration', () => {
 
     // Update fakePipe for subsequent generate tests.
     fakePipe = fallbackPipe;
+  });
+
+  // ── Preflight / webgl regression ────────────────────────────────────────────
+
+  it('load: pipeline is never called with device=webgl (unsupported in transformers.js@next)', async () => {
+    // Regression test: webgl was removed from DEVICE_PRIORITY because
+    // transformers.js@next (v4.x) rejects it with:
+    //   "Unsupported device: 'webgl'. Should be one of: webnn-npu, webnn-gpu,
+    //    webnn-cpu, webnn, webgpu, wasm."
+    // Verify it is never passed to the pipeline factory regardless of which
+    // backend ultimately succeeds.
+    mockPipelineFactory.mockReset();
+
+    const testPipe = vi.fn().mockImplementation(
+      async (
+        _messages: ChatMessage[],
+        opts: { streamer?: { callback_function: ((t: string) => void) | null } },
+      ) => {
+        opts.streamer?.callback_function?.('ok');
+        return [{ generated_text: [{ role: 'assistant', content: 'ok' }] }];
+      },
+    );
+    (testPipe as unknown as { tokenizer: object }).tokenizer = {};
+
+    const devicesAttempted: string[] = [];
+    mockPipelineFactory.mockImplementation(
+      async (_task: string, _model: string, opts: { device: string }) => {
+        devicesAttempted.push(opts.device);
+        return testPipe;
+      },
+    );
+
+    await collectMessages(async () => {
+      sendToWorker({
+        type: 'load',
+        modelId: 'onnx-community/test-no-webgl',
+        dtype: 'q4',
+      });
+      await waitForMessage(
+        (m) => m.type === 'status' && (m as { type: string; status: string }).status === 'ready',
+      );
+    });
+
+    // webgl must never appear in any pipeline() call.
+    expect(devicesAttempted).not.toContain('webgl');
+
+    // Every device attempted must be one of the valid v4.x devices.
+    for (const d of devicesAttempted) {
+      expect(['webnn', 'webgpu', 'wasm']).toContain(d);
+    }
+
+    fakePipe = testPipe;
   });
 
   // ── Progress callbacks ──────────────────────────────────────────────────────
