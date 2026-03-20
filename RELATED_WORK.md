@@ -226,7 +226,7 @@ k, distance preservation) rather than perplexity or task accuracy.
 
 ### 3.1 BitNet — 1.58-bit ternary architectures
 
-BitNet b1.58 (Ma et al. 2024, arxiv:2402.12263) trains transformer models from
+BitNet b1.58 (Ma et al. 2024, arxiv:2402.17764) trains transformer models from
 scratch with weights constrained to $\{-1, 0, +1\}$, achieving per-weight entropy
 of $\log_2 3 \approx 1.58$ bits. This is the ternary quantization regime discussed
 in §D-2.3.
