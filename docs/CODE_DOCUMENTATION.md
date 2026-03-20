@@ -283,11 +283,11 @@ Main frontend glue: UI, model picker, worker orchestration, Q² and benchmarks.
 
 ## 6. Practical API surface for embedding research
 
-From `src/app.ts` plus exports, the reusable API is:
-- `loadSettings`, `saveSettings`
-- `fetchHFModels`, `formatCount`
-- text render helpers: `splitThinkBlocks`, `stripThinkTags`, `escapeAndFormatText`
-- `q2` core: `getKernel`, `l2Normalise`, `q2EncodeDirect`, `q2KeyDirect`
-- `q2stats`: all above statistical functions
+The main reusable APIs are exposed from the following modules:
+- `src/app.ts`: `loadSettings`, `saveSettings`
+- `src/app.ts`: `fetchHFModels`, `formatCount`
+- `src/app.ts`: text render helpers `splitThinkBlocks`, `stripThinkTags`, `escapeAndFormatText`
+- `src/q2.ts`: core quantisation helpers `getKernel`, `l2Normalise`, `q2EncodeDirect`, `q2KeyDirect`
+- `src/q2stats.ts`: statistical helpers (all functions documented in §3.4)
 
 This document is intended for developers wishing to inspect behavior and extend algebraic analyses with minimal context switching.
