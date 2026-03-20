@@ -503,7 +503,7 @@ concrete mechanism borrowed from QuES's methodology.
 
 AWQ's activation-aware scale factor protects high-activation channels from
 quantization error by rescaling before quantization and inverse-rescaling after.
-Q2's L2 normalisation step (§D-README) achieves a similar effect at the vector
+Q2's L2 normalisation step (§D-5.1) achieves a similar effect at the vector
 level: by normalising to unit length before thresholding, Q2 removes the global
 scale, ensuring that the threshold $\tau^*$ is applied to a distribution with unit
 variance rather than an uncalibrated raw activation. Per-channel scale factors
