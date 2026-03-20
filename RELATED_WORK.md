@@ -366,7 +366,7 @@ different algebraic structures. BP4 requires GF(4) for its syndrome arithmetic;
 Q2 requires $\mathbb{Z}_4$ for the Lee metric and complement involution. These
 are not interchangeable: the Hamming, Lee, and GF(4) metrics have different distance
 geometries, and the error-correction properties of Kerdock and Preparata codes
-(§D-P9) do not apply to GF(4)-based QLDPC codes.
+(§P-9) do not apply to GF(4)-based QLDPC codes.
 
 The BP4 work is included here for completeness and to confirm that the quaternary
 alphabet finds natural expression in multiple algebraic settings, each tailored to
