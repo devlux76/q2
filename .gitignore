@@ -5,3 +5,6 @@ coverage/
 *.js.map
 package-lock.json
 bun.lock
+e2e-results/
+test-results/
+playwright-report/
