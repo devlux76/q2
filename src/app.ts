@@ -335,6 +335,11 @@ export function initModelPicker(): void {
   loadBtnEl.addEventListener('click', triggerLoad);
   initSettingsPanel();
   initLocalFileStore();
+
+  // Automatically begin loading the default chat model so the app is usable
+  // immediately without requiring the user to navigate to Settings and click Load.
+  appLog('info', 'Auto-loading default chat model', { modelId: currentSettings.defaultChatModel });
+  startWithModel(currentSettings.defaultChatModel);
 }
 
 /** Wire up settings controls and persist changes to localStorage. */

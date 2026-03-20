@@ -468,14 +468,16 @@ describe('app.ts helpers and DOM integration', () => {
   it('startWithModel shows load overlay and creates worker', () => {
     const loadOverlay = document.querySelector('#load-overlay') as HTMLElement;
 
-    expect(loadOverlay.classList.contains('hidden')).toBe(true);
-
+    // The overlay is already visible because initModelPicker() auto-loads the
+    // default chat model at startup.  Calling startWithModel() a second time
+    // (with a different model) must keep the overlay visible and post a new
+    // load message for the requested model.
     app.startWithModel('onnx-community/Qwen2.5-0.5B-Instruct');
 
     expect(loadOverlay.classList.contains('hidden')).toBe(false);
     expect(app.worker).not.toBeNull();
 
-    // The first message sent to the worker should include modelId and dtype.
+    // The last message sent to the worker should include modelId and dtype.
     const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
     expect(workerRef.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen2.5-0.5B-Instruct', dtype: 'q4' }),
