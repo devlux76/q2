@@ -146,7 +146,7 @@ combines quaternary (2-bit) weight quantization with parameter-efficient fine-tu
 - **Joint optimisation.** QUAD trains the adapter weights while keeping the
   quantised weights frozen, using the straight-through estimator (STE) for
   gradients through the quantization step.
-- **Hardware-aware packing.** Symbols are packed two per byte (4-bit nibble per
+- **Hardware-aware packing.** Symbols are packed four per byte (2 bits per
   weight) for efficient memory layout.
 
 **Relevance to Q2.** QUAD's symmetric 4-level codebook
