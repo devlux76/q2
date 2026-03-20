@@ -128,6 +128,137 @@ inner_points = inner_dirs * inner_radii[:, None]
 
 sphere_points = spherical_projection(inner_points)
 
+# ───────────────────── grid / octahedron / prisms / rubiks helpers ─────────
+
+def draw_grid_lines(size=1.0, color='#4466ff', alpha=0.6, lw=1.2):
+    """4 internal grid lines that create the A/B/C/D quadrants."""
+    s = size
+    kw = dict(color=color, alpha=alpha, linewidth=lw, linestyle='--')
+    ax.plot([ 0, 0], [-s, s], [s, s], **kw)
+    ax.plot([-s, s], [ 0, 0], [s, s], **kw)
+    ax.plot([ 0, 0], [-s, s], [-s,-s], **kw)
+    ax.plot([-s, s], [ 0, 0], [-s,-s], **kw)
+    kw2 = dict(color=color, alpha=min(1.0, alpha*1.4), linewidth=lw*1.1)
+    ax.plot([ 0, 0], [ 0, 0], [-s, s], **kw2)
+    ax.plot([ 0, 0], [-s, s], [ 0, 0], **kw2)
+    ax.plot([-s, s], [ 0, 0], [ 0, 0], **kw2)
+
+
+def label_quadrants(alpha=1.0):
+    """ABCD labels on the top face."""
+    kw = dict(fontsize=15, fontweight='bold', ha='center', va='center', alpha=alpha)
+    ax.text( 0.5, 0.5, 1.08, 'A', color=CYAN,    **kw)
+    ax.text(-0.5, 0.5, 1.08, 'B', color=MAGENTA, **kw)
+    ax.text(-0.5,-0.5, 1.08, 'C', color=LIME,    **kw)
+    ax.text( 0.5,-0.5, 1.08, 'D', color=ORANGE,  **kw)
+
+
+def _octa_verts_faces(size=1.0, z_offset=0.0):
+    s = size
+    top  = np.array([0, 0,  s + z_offset])
+    bot  = np.array([0, 0, -s + z_offset])
+    equator = np.array([[s,0,z_offset],[-s,0,z_offset],
+                        [0,s,z_offset],[0,-s,z_offset]])
+    faces = []
+    colors = []
+    for k in range(4):
+        a = equator[k]; b = equator[(k+1) % 4]
+        faces.append([top.tolist(), a.tolist(), b.tolist()])
+        colors.append(QUAT[k])
+    for k in range(4):
+        a = equator[k]; b = equator[(k+1) % 4]
+        faces.append([bot.tolist(), a.tolist(), b.tolist()])
+        colors.append(QUAT[(3-k) % 4])
+    return faces, colors
+
+
+def draw_octahedron(size=1.0, face_alpha=0.18, edge_alpha=0.75,
+                    edge_lw=1.8, z_offset=0.0):
+    faces, colors = _octa_verts_faces(size, z_offset)
+    poly = Poly3DCollection(faces, alpha=face_alpha, zsort='average')
+    poly.set_facecolors(colors)
+    poly.set_edgecolor('white')
+    poly.set_linewidth(edge_lw * 0.5)
+    ax.add_collection3d(poly)
+    s = size
+    verts = [[s,0,z_offset],[-s,0,z_offset],
+             [0,s,z_offset],[0,-s,z_offset],
+             [0,0,s+z_offset],[0,0,-s+z_offset]]
+    edges = [(0,2),(0,3),(1,2),(1,3),(2,4),(3,4),(2,5),(3,5),
+             (0,4),(1,4),(0,5),(1,5)]
+    for i,j in edges:
+        ax.plot([verts[i][0],verts[j][0]],
+                [verts[i][1],verts[j][1]],
+                [verts[i][2],verts[j][2]],
+                color=CYAN, alpha=edge_alpha, linewidth=edge_lw)
+
+
+def draw_prisms(alpha=0.22):
+    """8 corner prisms – complement of octahedron inside the cube."""
+    s = 1.0
+    octants = [(1,1,1),(-1,1,1),(-1,-1,1),(1,-1,1),
+               (1,1,-1),(-1,1,-1),(-1,-1,-1),(1,-1,-1)]
+    clrs = [CYAN, MAGENTA, LIME, ORANGE, ORANGE, LIME, MAGENTA, CYAN]
+    for (sx,sy,sz), clr in zip(octants, clrs):
+        apex   = [0, 0, sz * s]
+        e1     = [sx*s, 0,  0]
+        e2     = [0,  sy*s, 0]
+        corner = [sx*s, sy*s, sz*s]
+        prism_faces = [
+            [apex, e1, corner],
+            [apex, e2, corner],
+            [apex, e1, e2],
+            [e1,   corner, e2],
+        ]
+        poly = Poly3DCollection(prism_faces, alpha=alpha, zsort='average')
+        poly.set_facecolor(clr)
+        poly.set_edgecolor('white')
+        poly.set_linewidth(0.4)
+        ax.add_collection3d(poly)
+
+
+def draw_rubiks_face(face='top', size=1.0, colors=None, alpha=0.85):
+    """3×3 coloured patches on one face of the cube."""
+    s = size
+    if colors is None:
+        colors = [CYAN]*9
+    d = 2*s / 3
+    idx = 0
+    for i in range(3):
+        for j in range(3):
+            u0 = -s + i*d; u1 = u0 + d
+            v0 = -s + j*d; v1 = v0 + d
+            if face == 'top':
+                verts = [[u0,v0,s],[u1,v0,s],[u1,v1,s],[u0,v1,s]]
+            elif face == 'bottom':
+                verts = [[u0,v0,-s],[u1,v0,-s],[u1,v1,-s],[u0,v1,-s]]
+            elif face == 'front':
+                verts = [[u0,s,v0],[u1,s,v0],[u1,s,v1],[u0,s,v1]]
+            elif face == 'back':
+                verts = [[u0,-s,v0],[u1,-s,v0],[u1,-s,v1],[u0,-s,v1]]
+            elif face == 'right':
+                verts = [[s,u0,v0],[s,u1,v0],[s,u1,v1],[s,u0,v1]]
+            else:
+                verts = [[-s,u0,v0],[-s,u1,v0],[-s,u1,v1],[-s,u0,v1]]
+            poly = Poly3DCollection([verts], alpha=alpha)
+            poly.set_facecolor(colors[idx])
+            poly.set_edgecolor('#000000')
+            poly.set_linewidth(1.2)
+            ax.add_collection3d(poly)
+            idx += 1
+
+
+# ─────────────────────── rubiks colours ─────────────────────
+_rng2 = np.random.Generator(np.random.PCG64(42))
+FACE_NAMES = ['top','bottom','front','back','right','left']
+RUBIKS_COLORS = {}
+for _fn in FACE_NAMES:
+    _base = _rng2.choice(QUAT)
+    _cells = [_base]*5
+    _cells += [_rng2.choice(QUAT) for _ in range(4)]
+    _rng2.shuffle(_cells)
+    RUBIKS_COLORS[_fn] = _cells
+
 # ───────────────────── overlay helper ──────────────────────
 
 def add_overlay(title_str, subtitle_str, note_str='', progress=0.0):
