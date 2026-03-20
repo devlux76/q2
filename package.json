@@ -23,6 +23,8 @@
     "typecheck": "bun x tsc --noEmit",
     "pretest": "bun run check",
     "test": "vitest run --coverage",
+    "pretest:e2e": "bun run build",
+    "test:e2e": "playwright test",
     "test:browser": "vitest run --browser",
     "coverage": "vitest run --coverage",
     "deploy": "bun run build"
@@ -57,6 +59,7 @@
     "@eslint/eslintrc": "^3.3.5",
     "@html-eslint/eslint-plugin": "latest",
     "@html-eslint/parser": "latest",
+    "@playwright/test": "^1.58.2",
     "@types/node": "latest",
     "@typescript-eslint/eslint-plugin": "latest",
     "@typescript-eslint/parser": "latest",

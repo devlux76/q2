@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    exclude: ['node_modules', 'dist', 'e2e'],
     browser: {
       // Disabled by default; enable using `--browser`.
       enabled: false,

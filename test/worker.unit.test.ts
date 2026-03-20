@@ -1,6 +1,6 @@
 /**
- * worker.e2e.test.ts — End-to-end tests for the Web Worker's
- * transformers.js integration.
+ * worker.unit.test.ts — Unit tests for the Web Worker's transformers.js
+ * integration using mocked pipelines.
  *
  * These tests mock @huggingface/transformers to verify, without downloading
  * any real models:
