@@ -329,7 +329,7 @@ an activation-quantization angle.
 
 ### 4.3 CNN accelerators for industrial monitoring
 
-A hardware accelerator study (IEEE Sensors J. 2023) implemented quaternary-weight
+A hardware accelerator study (Sensors (MDPI), 2023) implemented quaternary-weight
 CNNs for real-time bearing fault diagnosis, reporting:
 
 - **89% reduction in memory demand** relative to full-precision baseline.
