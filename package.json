@@ -45,7 +45,13 @@
     "type": "git",
     "url": "git+https://github.com/devlux76/q2.git"
   },
-  "keywords": ["llm", "onnx", "transformers", "wasm", "quaternary-quantization"],
+  "keywords": [
+    "llm",
+    "onnx",
+    "transformers",
+    "wasm",
+    "quaternary-quantization"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
@@ -69,6 +75,6 @@
     "vitest": "latest"
   },
   "dependencies": {
-    "@huggingface/transformers": "latest"
+    "@huggingface/transformers": "^4.0.0-next.8"
   }
 }
