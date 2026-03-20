@@ -207,7 +207,7 @@ them.
 
 The question is not: how many bits per dimension approximate angular distance on $S^{n-1}$? The question is: what is the natural discrete coordinate system of the L1 unit ball? The answer — four cells per dimension — is derived in §2.5.
 
-This question applies to any domain where continuous signals must be discretized under resource constraints: semantic embeddings, model weight compression, signal quantization, and sensor encoding all face the same geometric problem. The answer — four cells per dimension — is derived in §2.
+This question applies to any domain where continuous signals must be discretized under resource constraints: semantic embeddings, model weight compression, signal quantization, and sensor encoding all face the same geometric problem.
 
 ---
 ## 2 Quantization
@@ -325,7 +325,7 @@ of 1 024 document activations per compaction cycle, using the empirical 25th and
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
 assuming a specific activation shape.
 
-**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^*$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the series $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
+**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^*$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the threshold solution $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
 
 Under the equiprobable target, each dimension carries:
 
@@ -700,7 +700,7 @@ conclusion is correct regardless.
 
 $$D(k) = q \cdot (q-1)^{k-1} = 4 \cdot 3^{k-1}$$
 
-For $k = 32$ (the key capacity), $D(32) = 4 \cdot 3^{31} \approx 2.47 \times 10^{15}$, occupying $\approx 1.34 \times 10^{-4}$ of the $2^{64}$ address space. The no-repeat constraint eliminates $\approx 99.987\%$ of possible 64-bit keys, concentrating all valid transition sequences into a sparse subset.
+For $k = 32$ (the key capacity), $D(32) = 4 \cdot 3^{31} \approx 2.47 \times 10^{15}$, occupying $\approx 1.34 \times 10^{-4}$ of the $2^{64}$ address space. The no-repeat constraint eliminates $\approx 99.99\%$ of possible 64-bit keys, concentrating all valid transition sequences into a sparse subset.
 
 The generating function for all transition sequences is $S(x) = (1 + x)/(1 - 3x)$, with the Geode factorization $S - 1 = S_1 \cdot G$ where $S_1 = 4x$ and $G = 1/(1 - 3x)$ (§4.1). This decomposition makes the information gain per additional symbol explicit: the first symbol contributes $\log_2 4 = 2$ bits; each subsequent symbol contributes $\log_2 3 \approx 1.585$ bits. A 32-symbol key carries $2 + 31 \times \log_2 3 \approx 51.1$ effective bits of information within its 64-bit container.
 
