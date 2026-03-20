@@ -103,6 +103,7 @@ function setupDom() {
   class FakeWorker {
     listeners = new Map<string, EventListenerOrEventListenerObject>();
     postMessage = vi.fn();
+    terminate = vi.fn();
 
     addEventListener(type: string, handler: EventListenerOrEventListenerObject) {
       this.listeners.set(type, handler);
@@ -472,15 +473,15 @@ describe('app.ts helpers and DOM integration', () => {
     // default chat model at startup.  Calling startWithModel() a second time
     // (with a different model) must keep the overlay visible and post a new
     // load message for the requested model.
-    app.startWithModel('onnx-community/Qwen3.5-0.8B-Instruct');
+    app.startWithModel('onnx-community/Qwen3.5-0.8B-ONNX');
 
     expect(loadOverlay.classList.contains('hidden')).toBe(false);
     expect(app.worker).not.toBeNull();
 
     // The last message sent to the worker should include modelId and dtype.
     const workerRef = app.worker as Worker & { postMessage: ReturnType<typeof vi.fn> };
-    expect(workerRef.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen3.5-0.8B-Instruct', dtype: 'q4' }),
+    expect(workerRef.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'load', modelId: 'onnx-community/Qwen3.5-0.8B-ONNX', dtype: 'q4' }),
     );
   });
 
