@@ -71,11 +71,31 @@ type PipelineFactory = (
 /**
  * Call signature we use when invoking the loaded TextGenerationPipeline.
  *
- * The runtime supports additional undocumented options (hidden_states, streamer,
- * stopping_criteria) that aren't in the public TypeScript overloads.
+ * The runtime supports additional options (streamer, stopping_criteria)
+ * that are not reflected in the published TypeScript type signatures but are
+ * supported at runtime by the underlying JS implementation.
+ *
+ * Return type: the text-generation pipeline always returns decoded text as
+ * TextGenerationSingle[] = [{ generated_text: string | ChatMessage[] }].
+ * It does NOT return a model-output object — hidden_states are NOT available
+ * via this interface.  See NOTE below for the correct embedding approach.
  */
 interface PipelineCallable {
-  (messages: ChatMessage[], options: GenerationCallOptions): Promise<GenerationOutput>;
+  (messages: ChatMessage[], options: GenerationCallOptions): Promise<TextGenerationSingle[]>;
+}
+
+/**
+ * Actual output shape of the transformers.js text-generation pipeline.
+ *
+ * When the input is a Chat (array of messages), `generated_text` is the full
+ * conversation including the new assistant turn.  The pipeline decodes token
+ * IDs to text before returning — raw model outputs (logits, hidden states) are
+ * NOT exposed through this interface.
+ *
+ * Reference: TextGenerationSingle typedef in @huggingface/transformers/types/pipelines.d.ts
+ */
+interface TextGenerationSingle {
+  generated_text: string | ChatMessage[];
 }
 
 /** Options passed to the pipeline at inference time. */
@@ -86,24 +106,14 @@ interface GenerationCallOptions {
   repetition_penalty: number;
   streamer: TextStreamer;
   stopping_criteria: InterruptableStoppingCriteria | null;
-  output_hidden_states: boolean;
 }
 
-/**
- * Concrete shape of a single layer's output tensor from transformers.js.
- *
- * `data` — the flattened tensor values as a Float32Array
- * `dims`  — tensor shape, typically [batch, seqLen, hiddenDim]
- */
-interface TensorLike {
-  data?: Float32Array;
-  dims?: number[];
-}
-
-/** Subset of the generation output shape we inspect for embedding extraction. */
-interface GenerationOutput {
-  hidden_states?: TensorLike[][];
-}
+// NOTE: Embedding extraction via the text-generation pipeline is NOT supported.
+// The text-generation pipeline returns decoded text (TextGenerationSingle[]), not
+// raw model outputs.  Hidden states require a separate feature-extraction pipeline
+// or a direct call to pipe.model.forward() with a model that exports per-layer
+// hidden states in its ONNX graph (non-standard; standard onnx-community models
+// export {logits, past_key_values} only).
 
 // ─── In a Web Worker, `self` is DedicatedWorkerGlobalScope. ─────────────────
 // TypeScript's DOM lib types the global `self` as Window & typeof globalThis,
@@ -367,14 +377,10 @@ async function generateResponse(
 
   try {
     // ── Text generation ──────────────────────────────────────────────────────
-    // Only request hidden states (expensive) when embeddings are explicitly
-    // requested by the caller via config.return_embeddings.
-    const extConfig = config as GenerationConfig & { return_embeddings?: boolean };
-    const wantEmbeddings = extConfig.return_embeddings === true;
-
     // Cast the loaded pipeline to our typed callable interface.
-    // The underlying JS pipeline supports these runtime options; they are not
-    // reflected in the published TypeScript overloads.
+    // The underlying JS pipeline supports these runtime options (streamer,
+    // stopping_criteria) even though they are not in the published TypeScript
+    // overloads.
     const callPipeline = pipe as unknown as PipelineCallable;
     const output = await callPipeline(messages, {
       max_new_tokens: config.max_new_tokens,
@@ -383,58 +389,36 @@ async function generateResponse(
       repetition_penalty: config.repetition_penalty,
       streamer,
       stopping_criteria: stoppingCriteria,
-      // ── Embedding hook ───────────────────────────────────────────────────
-      // output_hidden_states enables per-step hidden-state capture.
-      // The hidden state at index 9 (0-based) is the output of the last LIV
-      // convolution block (layer 9 of 10), just before the first GQA block —
-      // the correct extraction point for the Q² kernel (DESIGN.md §1.5).
-      output_hidden_states: wantEmbeddings,
     });
 
+    // output is TextGenerationSingle[] = [{ generated_text: string | ChatMessage[] }]
+    // The pipeline decodes token IDs to text and returns the full conversation.
+    // Raw model outputs (logits, hidden states) are NOT available here.
     workerLog('info', 'Pipeline generation finished', {
-      wantEmbeddings,
       tokenCount,
-      hiddenStatesLength: Array.isArray(output.hidden_states) ? output.hidden_states.length : 'unknown',
-      outputKeys: Object.keys(output),
+      outputLength: output.length,
     });
 
+    // ── Embedding extraction ─────────────────────────────────────────────────
+    // NOTE: Accessing per-layer hidden states during generation is NOT
+    // supported by the transformers.js text-generation pipeline.  The
+    // model.generate() loop in transformers.js v3 does not collect hidden
+    // states — output_hidden_states in GenerationConfig has no effect.
+    //
+    // The correct approach to obtain hidden states is:
+    //   1. Use a feature-extraction pipeline with a dedicated embedding model.
+    //   2. Or call pipe.model.forward() on the generated token sequence with
+    //      a model that exports intermediate hidden states in its ONNX graph.
+    //
+    // Standard onnx-community text-generation models export only
+    // {logits, past_key_values}.  To use Q² fingerprinting, configure a
+    // dedicated embedding model via the benchModelT3 setting.
+    const extConfig = config as GenerationConfig & { return_embeddings?: boolean };
+    const wantEmbeddings = extConfig.return_embeddings === true;
     if (wantEmbeddings) {
-      // Extract the last-step hidden state from the completed generation.
-      // hidden_states is TensorLike[][] — [generation_step][layer_index].
-      const hiddenStates = output.hidden_states;
-      workerLog('debug', 'Embedding extraction start', { hiddenStates });
-      if (!Array.isArray(hiddenStates) || hiddenStates.length === 0) {
-        workerLog('warn', 'No hidden states found in pipeline output', { hiddenStates });
-      } else {
-        // Take the last generation step; layer 9 = last LIV block output.
-        const lastStep = hiddenStates[hiddenStates.length - 1];
-        workerLog('debug', 'Last generation step hidden state', { lastStepIndex: hiddenStates.length - 1, lastStep });
-        const lastConvOut: TensorLike | undefined = lastStep?.[9];
-        if (!lastConvOut) {
-          workerLog('warn', 'Expected layer 9 hidden state missing', { lastStep });
-        } else if (!lastConvOut.data || !lastConvOut.dims) {
-          workerLog('warn', 'Layer 9 hidden state incomplete', { lastConvOut });
-        } else {
-          const [, seqLen, hiddenDim] = lastConvOut.dims;
-          workerLog('info', 'Extracted conv output dims', { seqLen, hiddenDim, dtype: activeDtype });
-          if (seqLen === undefined || hiddenDim === undefined) {
-            workerLog('error', 'Invalid hidden state dimensions', { dims: lastConvOut.dims });
-          } else {
-            // Transfer the buffer to avoid structured-clone copying.
-            // The activation tensor buffer is always a regular ArrayBuffer
-            // (transformers.js uses Float32Array, not SharedArrayBuffer).
-            const data = lastConvOut.data.buffer.slice(
-              lastConvOut.data.byteOffset,
-              lastConvOut.data.byteOffset + lastConvOut.data.byteLength,
-            ) as ArrayBuffer;
-            workerLog('info', 'Sending embedding msg', { seqLen, hiddenDim, activeDtype, bytes: data.byteLength });
-            send(
-              { type: 'embedding', data, seqLen, hiddenDim, dtype: activeDtype },
-              [data],
-            );
-          }
-        }
-      }
+      workerLog('warn',
+        'Embedding extraction via text-generation pipeline is not supported. ' +
+        'Use a feature-extraction pipeline with a dedicated embedding model instead.');
     }
 
     send({ type: 'done' });
