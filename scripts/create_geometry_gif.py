@@ -216,12 +216,19 @@ def add_overlay(title_str, subtitle_str, note_str='', progress=0.0):
 # ───────────────────── phase schedule ──────────────────────
 # (name, n_frames)
 PHASES = [
-    ('grid',       65),   # top-down, draw 3D cube + 4 grid lines + ABCD labels
-    ('unit_ball',  65),   # add octahedron (two pyramids base-to-base)
-    ('rotate',     75),   # camera: top-down → side-on
-    ('prisms',     65),   # reveal prism decomposition
-    ('stack',      65),   # top pyramid lifts, bottom drops → cubes stack
-    ('rubiks',     65),   # Rubik's cube projection finale
+    ('text_intro',     70),   # intro phrase
+    ('sphere_project', 80),   # project words from interior to sphere surface
+    ('hypersphere',    80),   # evolve into a hyper-sphere concept
+    ('wave',           70),   # wave sampling + incommensurability math
+    ('p4_hypercube',   80),   # p=4 boundary hypercube
+    ('curiouser',      50),   # curiouser and curiouser
+    ('begin_end',      60),   # begin at the beginning ... end
+    ('grid',           65),   # top-down, draw 3D cube + 4 grid lines + ABCD labels
+    ('unit_ball',      65),   # add octahedron (two pyramids base-to-base)
+    ('rotate',         75),   # camera: top-down → side-on
+    ('prisms',         65),   # reveal prism decomposition
+    ('stack',          65),   # top pyramid lifts, bottom drops → cubes stack
+    ('rubiks',         65),   # Rubik's cube projection finale
 ]
 _starts = np.cumsum([0] + [d for _, d in PHASES])
 TOTAL   = int(_starts[-1])
