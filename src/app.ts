@@ -635,9 +635,9 @@ function postToWorker(msg: WorkerInMsg): void {
   if (msg.type === 'load') {
     logPayload = {
       type: msg.type,
-      modelId: (msg as any).modelId,
-      dtype: (msg as any).dtype,
-      hasApiToken: !!(msg as any).apiToken,
+      modelId: msg.modelId,
+      dtype: msg.dtype,
+      hasApiToken: !!msg.apiToken,
     };
   } else {
     // For non-load messages, log only the type to avoid accidentally leaking data.
