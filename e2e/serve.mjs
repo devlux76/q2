@@ -6,10 +6,10 @@
  */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { join, extname } from 'node:path';
+import { resolve, extname, sep } from 'node:path';
 
 const PORT = 4173;
-const ROOT = process.cwd();
+const ROOT = resolve(process.cwd());
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -26,11 +26,17 @@ const MIME = {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
-    let pathname = url.pathname;
+    let pathname = decodeURIComponent(url.pathname);
     if (pathname === '/') pathname = '/index.html';
-    if (pathname.includes('..')) { res.statusCode = 400; res.end('Bad request'); return; }
 
-    const filePath = join(ROOT, pathname);
+    // Resolve against ROOT and ensure the result stays inside the project.
+    const filePath = resolve(ROOT, '.' + pathname);
+    if (!filePath.startsWith(ROOT + sep) && filePath !== ROOT) {
+      res.statusCode = 400;
+      res.end('Bad request');
+      return;
+    }
+
     const data = await readFile(filePath);
     const ext = extname(filePath).toLowerCase();
     res.setHeader('Content-Type', MIME[ext] ?? 'application/octet-stream');

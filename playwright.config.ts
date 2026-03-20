@@ -36,7 +36,7 @@ export default defineConfig({
     },
   ],
 
-  /* Build the app and start a static file server before running tests. */
+  /* Start a static file server before running tests. */
   webServer: {
     command: 'node e2e/serve.mjs',
     port: 4173,

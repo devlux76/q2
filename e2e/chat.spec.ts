@@ -15,7 +15,7 @@ test.setTimeout(480_000);
 const MODEL_ID = process.env.E2E_MODEL ?? 'onnx-community/Qwen3.5-0.8B-ONNX';
 
 test.describe('Real chat interaction', () => {
-  test('sends a message and receives a streamed response', async ({ page }) => {
+  test('sends a message and receives a streamed response', async ({ page }, testInfo) => {
     const logs: string[] = [];
     page.on('console', (msg) => logs.push(`[${msg.type()}] ${msg.text()}`));
 
@@ -31,7 +31,7 @@ test.describe('Real chat interaction', () => {
     await expect(page.locator('#load-overlay')).toBeHidden({ timeout: 300_000 });
     await expect(page.locator('#model-status')).not.toContainText('No model', { timeout: 5_000 });
 
-    await page.screenshot({ path: 'e2e-results/chat-model-ready.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('chat-model-ready.png'), fullPage: true });
 
     // ── Step 2: Switch to Chat and send a message ──────────────────────────
     await page.click('#tab-chat');
@@ -39,7 +39,7 @@ test.describe('Real chat interaction', () => {
 
     const inputEl = page.locator('#user-input');
     await inputEl.fill('Hello! What is 2+2?');
-    await page.screenshot({ path: 'e2e-results/chat-message-typed.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('chat-message-typed.png'), fullPage: true });
 
     await page.click('#send-btn');
 
@@ -47,7 +47,7 @@ test.describe('Real chat interaction', () => {
     // The stop button appears while generating; send button is hidden.
     await expect(page.locator('#stop-btn')).toBeVisible({ timeout: 30_000 });
 
-    await page.screenshot({ path: 'e2e-results/chat-generating.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('chat-generating.png'), fullPage: true });
 
     // ── Step 4: Wait for the response to complete ──────────────────────────
     // The send button reappears when generation is done.
@@ -61,7 +61,7 @@ test.describe('Real chat interaction', () => {
     const text = await messages.textContent();
     expect((text ?? '').length).toBeGreaterThan(5);
 
-    await page.screenshot({ path: 'e2e-results/chat-response.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('chat-response.png'), fullPage: true });
 
     // Dump logs if there were errors.
     if (logs.some((l) => l.includes('[error]'))) {

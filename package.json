@@ -23,6 +23,7 @@
     "typecheck": "bun x tsc --noEmit",
     "pretest": "bun run check",
     "test": "vitest run --coverage",
+    "pretest:e2e": "bun run build",
     "test:e2e": "playwright test",
     "test:browser": "vitest run --browser",
     "coverage": "vitest run --coverage",

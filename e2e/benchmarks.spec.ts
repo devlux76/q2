@@ -15,7 +15,7 @@ test.describe('Q² Benchmarks (T0 & T1)', () => {
     });
   });
 
-  test('T0 algebraic invariants pass in the browser', async ({ page }) => {
+  test('T0 algebraic invariants pass in the browser', async ({ page }, testInfo) => {
     await page.goto('/');
     await page.click('#tab-benchmarks');
     await expect(page.locator('#panel-benchmarks')).toBeVisible();
@@ -40,10 +40,10 @@ test.describe('Q² Benchmarks (T0 & T1)', () => {
     const passCount = await page.locator('#bench-results-body .bench-pass').count();
     expect(passCount).toBeGreaterThan(0);
 
-    await page.screenshot({ path: 'e2e-results/benchmark-t0.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('benchmark-t0.png'), fullPage: true });
   });
 
-  test('T1 null baselines pass in the browser', async ({ page }) => {
+  test('T1 null baselines pass in the browser', async ({ page }, testInfo) => {
     await page.goto('/');
     await page.click('#tab-benchmarks');
 
@@ -65,10 +65,10 @@ test.describe('Q² Benchmarks (T0 & T1)', () => {
     const passCount = await page.locator('#bench-results-body .bench-pass').count();
     expect(passCount).toBeGreaterThan(0);
 
-    await page.screenshot({ path: 'e2e-results/benchmark-t1.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('benchmark-t1.png'), fullPage: true });
   });
 
-  test('Run All Benchmarks button triggers T0 and T1', async ({ page }) => {
+  test('Run All Benchmarks button triggers T0 and T1', async ({ page }, testInfo) => {
     await page.goto('/');
     await page.click('#tab-benchmarks');
 
@@ -99,6 +99,6 @@ test.describe('Q² Benchmarks (T0 & T1)', () => {
     const t1Count = await t1Rows.count();
     expect(t1Count).toBeGreaterThan(0);
 
-    await page.screenshot({ path: 'e2e-results/benchmark-all.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('benchmark-all.png'), fullPage: true });
   });
 });
