@@ -92,7 +92,7 @@ $$\mathbb{E}[u \cdot v] = 0 \qquad \mathrm{Var}(u \cdot v) = \frac{1}{n}$$
 
 The standard deviation of cosine similarity between two random unit vectors is $1/\sqrt{n}$.
 At $n = 256$ this is $\approx 0.063$: the full range $[-1, +1]$ is compressed into
-noise of order $\pm 0.06$. A trained model must push similar documents closer than
+noise of order $\pm 0.06$. A trained model must push similar items closer than
 this noise floor.
 
 Each coordinate of a random unit vector satisfies:
@@ -260,8 +260,8 @@ $$I(v_i;\ q_{\text{tern}}(v_i)) = \log_2 3 \approx 1.585 \text{ bits}$$
 **What remains lost.** The ternary alphabet $\{-, 0, +\}$ has group structure
 $\mathbb{Z}_3$, which admits no fixed-point-free involution — there is no map
 $\theta: \mathbb{Z}_3 \to \mathbb{Z}_3$ satisfying $\theta^2 = \text{id}$ and
-$\theta(x) \neq x$ for all $x$. The complement relationship between a concept and its
-semantic opposite — present in the activation space as the relationship between
+$\theta(x) \neq x$ for all $x$. The complement relationship between a value and its
+structural opposite — present in the signal space as the relationship between
 strong-positive and strong-negative directions — is not representable.
 
 ---
@@ -284,7 +284,7 @@ This is **reconstruction quantization**: the objective is to minimize $\|W - \ha
 
 The preceding analysis identifies what a correct scheme requires:
 
-1. **Sign** — which side of the semantic hyperplane.
+1. **Sign** — which side of the decision hyperplane.
 2. **Magnitude class** — near the boundary or strongly committed.
 3. **Complement structure** — a fixed-point-free involution $\theta$ satisfying
    $\theta^2 = \text{id}$ and $\theta(x) \neq x$ for all $x$.
@@ -321,7 +321,7 @@ graph LR
 ```
 
 **Empirical calibration.** In practice $\tau^{*}$ is estimated from a reservoir sample
-of 1 024 document activations per compaction cycle, using the empirical 25th and 75th
+of 1 024 sample activations per compaction cycle, using the empirical 25th and 75th
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
 assuming a specific activation shape.
 
@@ -351,7 +351,7 @@ $$d_L(u, v) = \min(|u - v|,\ 4 - |u - v|)$$
 
 **Why this metric matches structural distance.** A weak-negative and a weak-positive
 activation ($B$–$C$) are adjacent states: the coordinate was weakly committed in both cases, with opposite sign. Lee distance 1 reflects this. The complement pairs
-$A$–$C$ and $B$–$D$ represent structural opposition: one document activates a dimension
+$A$–$C$ and $B$–$D$ represent structural opposition: one signal activates a dimension
 strongly in one direction, the other in the complementary direction. Lee distance 2
 reflects this. Strong-negative and strong-positive ($A$–$D$) share strong commitment
 to their respective directions; the cyclic metric assigns them distance 1, not 2.
@@ -678,8 +678,8 @@ transitions (Corollary 3.7):
 ### 3.6 Bucket density
 
 Documents with identical transition sequences share the same key and occupy the same
-bucket. This is the intended behaviour: co-located documents traversed the same
-semantic path.
+bucket. This is the intended behaviour: co-located signals traversed the same
+quantization path.
 
 Let $D$ be the number of distinct transition sequences in a corpus of $C$ documents.
 Mean bucket size is $C/D$.
@@ -703,6 +703,8 @@ $$D(k) = q \cdot (q-1)^{k-1} = 4 \cdot 3^{k-1}$$
 For $k = 32$ (the key capacity), $D(32) = 4 \cdot 3^{31} \approx 2.47 \times 10^{15}$, occupying $\approx 1.34 \times 10^{-4}$ of the $2^{64}$ address space. The no-repeat constraint eliminates $\approx 99.99\%$ of possible 64-bit keys, concentrating all valid transition sequences into a sparse subset.
 
 The generating function for all transition sequences is $S(x) = (1 + x)/(1 - 3x)$, with the Geode factorization $S - 1 = S_1 \cdot G$ where $S_1 = 4x$ and $G = 1/(1 - 3x)$ (§4.1). This decomposition makes the information gain per additional symbol explicit: the first symbol contributes $\log_2 4 = 2$ bits; each subsequent symbol contributes $\log_2 3 \approx 1.585$ bits. A 32-symbol key carries $2 + 31 \times \log_2 3 \approx 51.1$ effective bits of information within its 64-bit container.
+
+**Hyper-Catalan bucket density.** The expected bucket density is not uniform across the trie. The hyper-Catalan framework (§4.3) counts the number of structurally distinct subtrees at each branching node; when the source distribution is non-uniform (as it is for any trained model), certain subtrees attract disproportionate occupancy. The ratio of observed to expected bucket density at each trie node is a diagnostic of the source distribution's departure from uniformity, connecting the combinatorial structure of §4 to the empirical bucket statistics.
 
 **Corollary 3.9** *(Non-trivial windows).* For any practical corpus, a window of
 half-width $\delta = 4^{32-j} - 1$ with $j \leq 28$ returns a non-empty result only when
