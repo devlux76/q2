@@ -400,6 +400,20 @@ describe('app.ts helpers and DOM integration', () => {
     expect((opts?.headers as Record<string, string>)?.['Authorization']).toBe('Bearer hf_test_token_123');
   });
 
+  it('fetchHFModels filters out models above 2B parameters', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        { id: 'Qwen/Qwen2.5-7B-Instruct', downloads: 22_000_000, likes: 1_100, tags: [] },
+        { id: 'test-org/model-alpha', downloads: 10_000, likes: 100, tags: [] },
+      ],
+    } as Partial<Response>);
+
+    const models = await app.fetchHFModels('', app.loadSettings());
+    expect(models.some((m) => m.id === 'Qwen/Qwen2.5-7B-Instruct')).toBe(false);
+    expect(models.some((m) => m.id === 'test-org/model-alpha')).toBe(true);
+  });
+
   it('fetchHFModels throws on non-OK response', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,

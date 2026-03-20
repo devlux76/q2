@@ -24,6 +24,45 @@ export function formatCount(n: number): string {
 }
 
 /**
+ * Estimate parameter count from a model ID string (e.g. "foo-1.5B" => 1.5e9).
+ * Returns null when parameter count cannot be determined.
+ */
+export function parseModelParameterCount(modelId: string): number | null {
+  const re = /([0-9]+(?:\.[0-9]+)?)([kKmMbB])/g;
+  let match: RegExpExecArray | null;
+  let maxCount: number | null = null;
+
+  while ((match = re.exec(modelId)) !== null) {
+    const value = Number(match[1]);
+    const unitRaw = match[2];
+    if (!unitRaw || !Number.isFinite(value)) continue;
+
+    const unit = unitRaw.toLowerCase();
+    let count: number;
+    if (unit === 'k') count = value * 1e3;
+    else if (unit === 'm') count = value * 1e6;
+    else if (unit === 'b') count = value * 1e9;
+    else continue;
+
+    if (maxCount === null || count > maxCount) {
+      maxCount = count;
+    }
+  }
+
+  return maxCount;
+}
+
+const MAX_HF_MODEL_PARAMS = 2e9;
+
+/**
+ * Keep models of known or inferred size <= 2 billion parameters.
+ */
+export function isModelWithinParameterLimit(model: HFModel): boolean {
+  const count = parseModelParameterCount(model.id);
+  return count === null || count <= MAX_HF_MODEL_PARAMS;
+}
+
+/**
  * Fetch text-generation models from the HuggingFace Hub API.
  */
 export async function fetchHFModels(query: string, settings: AppSettings): Promise<HFModel[]> {
@@ -41,5 +80,8 @@ export async function fetchHFModels(query: string, settings: AppSettings): Promi
 
   const res = await fetch(`https://huggingface.co/api/models?${params}`, { headers });
   if (!res.ok) throw new Error(`HF API ${res.status}: ${res.statusText}`);
-  return (await res.json()) as HFModel[];
+
+  const allModels = (await res.json()) as HFModel[];
+  const filtered = allModels.filter(isModelWithinParameterLimit);
+  return filtered;
 }
