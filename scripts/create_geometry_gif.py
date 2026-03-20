@@ -1,41 +1,47 @@
 """
-Q2 Embedding Geometry – Animated Visual Guide
-==============================================
-Extended to include:
-  • Phrase -> sphere projection
-  • Sphere -> hypersphere evolution and incommensurability math
-  • ℓ_p boundary transformation (p=2 → p=4) to hypercube style
-  • 'curiouser and curiouser', 'Begin at the beginning...'
-  • Existing quaternary cube/octagon section continues
+Q² Geometry Animation
+=====================
+9-phase narrative following ANIMATION_SCRIPT.md:
+
+  ① seed            – words scatter in the unit cube
+  ② l2_project      – project radially onto L2 sphere
+  ③ pi4_declare     – π = 4 declaration
+  ④ sphere_to_octa  – sphere mesh morphs to octahedron  ← KEY VISUAL
+  ⑤ z4_label        – ABCD Z4 labels and Lee-metric sequence
+  ⑥ grid_lines      – quadrant grid lines
+  ⑦ complement      – complement involution A↔C  B↔D
+  ⑧ gray_code       – Gray map φ: Z4 → {0,1}²
+  ⑨ fingerprint     – Rubik's cube Lee-metric fingerprint
 
 Run:  python scripts/create_geometry_gif.py
-Output: q2_geometry_evolution.gif
+Out:  q2_geometry_evolution.gif
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mc
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-# ───────────────────────── palette ─────────────────────────
+# ── palette ───────────────────────────────────────────────────────────────────
 BG      = '#0a0a1f'
 WHITE   = '#ffffff'
-CYAN    = '#00f0ff'
-MAGENTA = '#ff00aa'
-LIME    = '#aaff00'
-ORANGE  = '#ffaa00'
+CYAN    = '#00f0ff'   # A = 0
+MAGENTA = '#ff00aa'   # B = 1
+LIME    = '#aaff00'   # C = 2
+ORANGE  = '#ffaa00'   # D = 3
 BLUE    = '#3355ff'
 PURPLE  = '#9933ff'
 
-QUAT = [CYAN, MAGENTA, LIME, ORANGE]   # A B C D
+QUAT = [CYAN, MAGENTA, LIME, ORANGE]   # indexed by Z4 value
 
-# ───────────────────────── figure ──────────────────────────
-fig = plt.figure(figsize=(14, 9), facecolor=BG)
+# ── figure ────────────────────────────────────────────────────────────────────
+fig = plt.figure(figsize=(10, 8), facecolor=BG)
 ax  = fig.add_subplot(111, projection='3d')
 ax.set_facecolor(BG)
 fig.patch.set_facecolor(BG)
 
-# ───────────────────────── helpers ─────────────────────────
+# ── math helpers ──────────────────────────────────────────────────────────────
 
 def smooth(t: float) -> float:
     """Cubic ease-in-out."""
@@ -43,463 +49,429 @@ def smooth(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
-def draw_cube_edges(size=1.0, color=WHITE, alpha=0.35, lw=1.4):
-    s = size
-    corners = [(-s,-s,-s),(s,-s,-s),(s,s,-s),(-s,s,-s),
-               (-s,-s, s),(s,-s, s),(s,s, s),(-s,s, s)]
-    edges = [(0,1),(1,2),(2,3),(3,0),(4,5),(5,6),(6,7),(7,4),(0,4),(1,5),(2,6),(3,7)]
-    for i,j in edges:
-        ax.plot([corners[i][0],corners[j][0]],
-                [corners[i][1],corners[j][1]],
-                [corners[i][2],corners[j][2]],
-                color=color, alpha=alpha, linewidth=lw)
+def l2_norm_rows(pts: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(pts, axis=1, keepdims=True)
+    n[n == 0] = 1.0
+    return pts / n
 
 
-def spherical_projection(p):
-    # project points in ball to unit sphere by radial normalization
-    norm = np.linalg.norm(p, axis=1, keepdims=True)
-    norm[norm == 0] = 1.0
-    return p / norm
+def l1_norm_rows(pts: np.ndarray) -> np.ndarray:
+    n = np.sum(np.abs(pts), axis=1, keepdims=True)
+    n[n == 0] = 1.0
+    return pts / n
 
 
-def lp_norm(pts, p=2.0, axis=1, keepdims=True):
-    return np.sum(np.abs(pts)**p, axis=axis, keepdims=keepdims)**(1.0/p)
+def lerp_color(c1: str, c2: str, t: float) -> tuple:
+    r1, g1, b1 = mc.to_rgb(c1)
+    r2, g2, b2 = mc.to_rgb(c2)
+    return (r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t)
 
 
-def lp_unit_projection(pts, p=2.0):
-    norm_p = lp_norm(pts, p=p, axis=1, keepdims=True)
-    norm_p[norm_p == 0] = 1.0
-    return pts / norm_p
-
-
-def draw_text_center(message, size=24, alpha=1.0):
-    ax.text2D(0.5, 0.6, message, transform=ax.transAxes,
-              ha='center', va='center', color=WHITE,
-              fontsize=size, fontweight='bold', alpha=alpha)
-
-
-def draw_word_points(pts, words, colors, alpha=1.0, s=45):
-    for i, (p, w, c) in enumerate(zip(pts, words, colors)):
-        ax.scatter([p[0]], [p[1]], [p[2]], color=c, s=s, alpha=alpha)
-        if i % 2 == 0:
-            ax.text(p[0], p[1], p[2], w, color=WHITE, fontsize=8, alpha=alpha*0.95)
-        else:
-            ax.text(p[0], p[1], p[2], w, color=WHITE, fontsize=8, alpha=alpha*0.95)
-
-
-# ───────────────────── phase schedule ──────────────────────
+# ── phase schedule ────────────────────────────────────────────────────────────
 PHASES = [
-    ('text_intro',     60),
-    ('sphere_project', 80),
-    ('hypersphere',    80),
-    ('wave',           70),
-    ('p4_hypercube',   80),
-    ('curiouser',      50),
-    ('begin_end',      60),
-    ('grid',           65),
-    ('unit_ball',      65),
-    ('rotate',         75),
-    ('prisms',         65),
-    ('stack',          65),
-    ('rubiks',         65),
+    ('seed',           50),
+    ('l2_project',     75),
+    ('pi4_declare',    60),
+    ('sphere_to_octa', 80),
+    ('z4_label',       65),
+    ('grid_lines',     65),
+    ('complement',     55),
+    ('gray_code',      55),
+    ('fingerprint',    65),
 ]
 _starts = np.cumsum([0] + [d for _, d in PHASES])
-TOTAL   = int(_starts[-1])
+TOTAL   = int(_starts[-1])   # 570
 
 
 def get_phase(f: int):
     for k, (name, dur) in enumerate(PHASES):
-        if f < _starts[k+1]:
+        if f < _starts[k + 1]:
             return k, name, (f - _starts[k]) / dur
-    return len(PHASES)-1, PHASES[-1][0], 1.0
+    return len(PHASES) - 1, PHASES[-1][0], 1.0
 
 
-# ───────────────────── input phrase + points ─────────────────
-PHRASE = "I can believe 10 impossible things before breakfast"
-WORDS = PHRASE.split()
-NWORDS = len(WORDS)
-WORD_COLORS = [CYAN, MAGENTA, LIME, ORANGE, BLUE, PURPLE] * 5
+# ── word data ─────────────────────────────────────────────────────────────────
+PHRASE  = "I can believe 10 impossible things before breakfast"
+WORDS   = PHRASE.split()
+N       = len(WORDS)
+WCOLORS = ([CYAN, MAGENTA, LIME, ORANGE, BLUE, PURPLE] * 3)[:N]
 
 rng = np.random.default_rng(42)
-inner_radii = rng.random(NWORDS)**(1 / 3)
-inner_dirs = rng.normal(size=(NWORDS, 3))
-inner_dirs /= np.linalg.norm(inner_dirs, axis=1, keepdims=True)
-inner_points = inner_dirs * inner_radii[:, None]
+# scatter inside unit ball
+_dirs   = rng.normal(size=(N, 3))
+_dirs   = l2_norm_rows(_dirs)
+_radii  = rng.random(N) ** (1 / 3)
+scatter_pts = _dirs * _radii[:, None]
 
-sphere_points = spherical_projection(inner_points)
+sphere_pts  = l2_norm_rows(scatter_pts)   # on L2 unit sphere
+octa_pts    = l1_norm_rows(sphere_pts)    # on L1 unit sphere (octahedron)
 
-# ───────────────────── grid / octahedron / prisms / rubiks helpers ─────────
 
-def draw_grid_lines(size=1.0, color='#4466ff', alpha=0.6, lw=1.2):
-    """4 internal grid lines that create the A/B/C/D quadrants."""
+# ── draw primitives ───────────────────────────────────────────────────────────
+
+def _set_axes():
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_zlim(-1.5, 1.5)
+
+
+def draw_cube_edges(size=1.0, color=WHITE, alpha=0.3, lw=1.2):
     s = size
-    kw = dict(color=color, alpha=alpha, linewidth=lw, linestyle='--')
-    ax.plot([ 0, 0], [-s, s], [s, s], **kw)
-    ax.plot([-s, s], [ 0, 0], [s, s], **kw)
-    ax.plot([ 0, 0], [-s, s], [-s,-s], **kw)
-    ax.plot([-s, s], [ 0, 0], [-s,-s], **kw)
-    kw2 = dict(color=color, alpha=min(1.0, alpha*1.4), linewidth=lw*1.1)
-    ax.plot([ 0, 0], [ 0, 0], [-s, s], **kw2)
-    ax.plot([ 0, 0], [-s, s], [ 0, 0], **kw2)
-    ax.plot([-s, s], [ 0, 0], [ 0, 0], **kw2)
+    C = [(-s,-s,-s), (s,-s,-s), (s,s,-s), (-s,s,-s),
+         (-s,-s, s), (s,-s, s), (s,s, s), (-s,s, s)]
+    E = [(0,1),(1,2),(2,3),(3,0),(4,5),(5,6),(6,7),(7,4),(0,4),(1,5),(2,6),(3,7)]
+    for i, j in E:
+        ax.plot([C[i][0], C[j][0]], [C[i][1], C[j][1]], [C[i][2], C[j][2]],
+                color=color, alpha=alpha, linewidth=lw)
 
 
-def label_quadrants(alpha=1.0):
-    """ABCD labels on the top face."""
-    kw = dict(fontsize=15, fontweight='bold', ha='center', va='center', alpha=alpha)
-    ax.text( 0.5, 0.5, 1.08, 'A', color=CYAN,    **kw)
-    ax.text(-0.5, 0.5, 1.08, 'B', color=MAGENTA, **kw)
-    ax.text(-0.5,-0.5, 1.08, 'C', color=LIME,    **kw)
-    ax.text( 0.5,-0.5, 1.08, 'D', color=ORANGE,  **kw)
+def draw_sphere_wire(alpha=0.15):
+    u = np.linspace(0, 2 * np.pi, 20)
+    v = np.linspace(0, np.pi, 11)
+    U, V = np.meshgrid(u, v)
+    ax.plot_wireframe(np.cos(U) * np.sin(V),
+                      np.sin(U) * np.sin(V),
+                      np.cos(V),
+                      color=CYAN, alpha=alpha, linewidth=0.4, rstride=2, cstride=2)
 
 
-def _octa_verts_faces(size=1.0, z_offset=0.0):
-    s = size
-    top  = np.array([0, 0,  s + z_offset])
-    bot  = np.array([0, 0, -s + z_offset])
-    equator = np.array([[s,0,z_offset],[-s,0,z_offset],
-                        [0,s,z_offset],[0,-s,z_offset]])
-    faces = []
-    colors = []
-    for k in range(4):
-        a = equator[k]; b = equator[(k+1) % 4]
-        faces.append([top.tolist(), a.tolist(), b.tolist()])
-        colors.append(QUAT[k])
-    for k in range(4):
-        a = equator[k]; b = equator[(k+1) % 4]
-        faces.append([bot.tolist(), a.tolist(), b.tolist()])
-        colors.append(QUAT[(3-k) % 4])
-    return faces, colors
+def draw_words(pts: np.ndarray, alpha=1.0, s=40):
+    for i, (p, w) in enumerate(zip(pts, WORDS)):
+        ax.scatter([p[0]], [p[1]], [p[2]], color=WCOLORS[i], s=s, alpha=alpha, zorder=5)
+        ax.text(p[0], p[1], p[2], ' ' + w, color=WHITE, fontsize=7,
+                alpha=alpha * 0.9, zorder=5)
 
 
-def draw_octahedron(size=1.0, face_alpha=0.18, edge_alpha=0.75,
-                    edge_lw=1.8, z_offset=0.0):
-    faces, colors = _octa_verts_faces(size, z_offset)
-    poly = Poly3DCollection(faces, alpha=face_alpha, zsort='average')
-    poly.set_facecolors(colors)
-    poly.set_edgecolor('white')
-    poly.set_linewidth(edge_lw * 0.5)
-    ax.add_collection3d(poly)
-    s = size
-    verts = [[s,0,z_offset],[-s,0,z_offset],
-             [0,s,z_offset],[0,-s,z_offset],
-             [0,0,s+z_offset],[0,0,-s+z_offset]]
-    edges = [(0,2),(0,3),(1,2),(1,3),(2,4),(3,4),(2,5),(3,5),
-             (0,4),(1,4),(0,5),(1,5)]
-    for i,j in edges:
-        ax.plot([verts[i][0],verts[j][0]],
-                [verts[i][1],verts[j][1]],
-                [verts[i][2],verts[j][2]],
-                color=CYAN, alpha=edge_alpha, linewidth=edge_lw)
+def draw_octahedron(face_alpha=0.18, edge_alpha=0.75, lw=1.8,
+                    quat_override=None):
+    """
+    Octahedron with vertices at ±e_i.
 
+    Equatorial vertices go *around* the equator so adjacent faces share an edge:
+        eq = [(+1,0,0), (0,+1,0), (−1,0,0), (0,−1,0)]
 
-def draw_prisms(alpha=0.22):
-    """8 corner prisms – complement of octahedron inside the cube."""
+    Upper faces: [top, eq[k], eq[(k+1)%4]]  → QUAT[k]
+    Lower faces: [bot, eq[k], eq[(k+1)%4]]  → QUAT[(3−k)%4]
+    """
+    colors = list(quat_override) if quat_override is not None else QUAT
     s = 1.0
-    octants = [(1,1,1),(-1,1,1),(-1,-1,1),(1,-1,1),
-               (1,1,-1),(-1,1,-1),(-1,-1,-1),(1,-1,-1)]
-    clrs = [CYAN, MAGENTA, LIME, ORANGE, ORANGE, LIME, MAGENTA, CYAN]
-    for (sx,sy,sz), clr in zip(octants, clrs):
-        apex   = [0, 0, sz * s]
-        e1     = [sx*s, 0,  0]
-        e2     = [0,  sy*s, 0]
-        corner = [sx*s, sy*s, sz*s]
-        prism_faces = [
-            [apex, e1, corner],
-            [apex, e2, corner],
-            [apex, e1, e2],
-            [e1,   corner, e2],
-        ]
-        poly = Poly3DCollection(prism_faces, alpha=alpha, zsort='average')
-        poly.set_facecolor(clr)
-        poly.set_edgecolor('white')
-        poly.set_linewidth(0.4)
-        ax.add_collection3d(poly)
+    top = [0.0, 0.0,  s]
+    bot = [0.0, 0.0, -s]
+    # correct order: around the equator
+    eq  = [[s, 0, 0], [0, s, 0], [-s, 0, 0], [0, -s, 0]]
+
+    faces, face_colors = [], []
+    for k in range(4):
+        a, b = eq[k], eq[(k + 1) % 4]
+        faces.append([top, a, b])
+        face_colors.append(colors[k])
+    for k in range(4):
+        a, b = eq[k], eq[(k + 1) % 4]
+        faces.append([bot, a, b])
+        face_colors.append(colors[(3 - k) % 4])
+
+    poly = Poly3DCollection(faces, alpha=face_alpha, zsort='average')
+    poly.set_facecolors(face_colors)
+    poly.set_edgecolor('white')
+    poly.set_linewidth(lw * 0.5)
+    ax.add_collection3d(poly)
+
+    # edges
+    verts = [[s, 0, 0], [0, s, 0], [-s, 0, 0], [0, -s, 0], [0, 0, s], [0, 0, -s]]
+    edges = [(0,1),(1,2),(2,3),(3,0),
+             (0,4),(1,4),(2,4),(3,4),
+             (0,5),(1,5),(2,5),(3,5)]
+    for i, j in edges:
+        ax.plot([verts[i][0], verts[j][0]],
+                [verts[i][1], verts[j][1]],
+                [verts[i][2], verts[j][2]],
+                color=CYAN, alpha=edge_alpha, linewidth=lw)
 
 
-def draw_rubiks_face(face='top', size=1.0, colors=None, alpha=0.85):
-    """3×3 coloured patches on one face of the cube."""
-    s = size
-    if colors is None:
-        colors = [CYAN]*9
-    d = 2*s / 3
-    idx = 0
-    for i in range(3):
-        for j in range(3):
-            u0 = -s + i*d; u1 = u0 + d
-            v0 = -s + j*d; v1 = v0 + d
-            if face == 'top':
-                verts = [[u0,v0,s],[u1,v0,s],[u1,v1,s],[u0,v1,s]]
-            elif face == 'bottom':
-                verts = [[u0,v0,-s],[u1,v0,-s],[u1,v1,-s],[u0,v1,-s]]
-            elif face == 'front':
-                verts = [[u0,s,v0],[u1,s,v0],[u1,s,v1],[u0,s,v1]]
-            elif face == 'back':
-                verts = [[u0,-s,v0],[u1,-s,v0],[u1,-s,v1],[u0,-s,v1]]
-            elif face == 'right':
-                verts = [[s,u0,v0],[s,u1,v0],[s,u1,v1],[s,u0,v1]]
-            else:
-                verts = [[-s,u0,v0],[-s,u1,v0],[-s,u1,v1],[-s,u0,v1]]
-            poly = Poly3DCollection([verts], alpha=alpha)
-            poly.set_facecolor(colors[idx])
-            poly.set_edgecolor('#000000')
-            poly.set_linewidth(1.2)
-            ax.add_collection3d(poly)
-            idx += 1
+def draw_grid_lines(alpha=0.6, lw=1.2):
+    s = 1.0
+    kw  = dict(color='#4466ff', alpha=alpha, linewidth=lw, linestyle='--')
+    kw2 = dict(color='#4466ff', alpha=min(1.0, alpha * 1.4), linewidth=lw * 1.1)
+    ax.plot([ 0,  0], [-s,  s], [ s,  s], **kw)
+    ax.plot([-s,  s], [ 0,  0], [ s,  s], **kw)
+    ax.plot([ 0,  0], [-s,  s], [-s, -s], **kw)
+    ax.plot([-s,  s], [ 0,  0], [-s, -s], **kw)
+    ax.plot([ 0,  0], [ 0,  0], [-s,  s], **kw2)
+    ax.plot([ 0,  0], [-s,  s], [ 0,  0], **kw2)
+    ax.plot([-s,  s], [ 0,  0], [ 0,  0], **kw2)
 
 
-# ─────────────────────── rubiks colours ─────────────────────
-_rng2 = np.random.Generator(np.random.PCG64(42))
-FACE_NAMES = ['top','bottom','front','back','right','left']
-RUBIKS_COLORS = {}
-for _fn in FACE_NAMES:
-    _base = _rng2.choice(QUAT)
-    _cells = [_base]*5
-    _cells += [_rng2.choice(QUAT) for _ in range(4)]
-    _rng2.shuffle(_cells)
-    RUBIKS_COLORS[_fn] = _cells
+def label_abcd(alpha=1.0, size=13):
+    kw = dict(fontsize=size, fontweight='bold', ha='center', va='center', alpha=alpha)
+    ax.text( 0.65,  0.65, 1.15, 'A\n(0)', color=CYAN,    **kw)
+    ax.text(-0.65,  0.65, 1.15, 'B\n(1)', color=MAGENTA, **kw)
+    ax.text(-0.65, -0.65, 1.15, 'C\n(2)', color=LIME,    **kw)
+    ax.text( 0.65, -0.65, 1.15, 'D\n(3)', color=ORANGE,  **kw)
 
-# ───────────────────── overlay helper ──────────────────────
 
-def add_overlay(title_str, subtitle_str, note_str='', progress=0.0):
-    ax.text2D(0.5, 0.97, title_str,
+def overlay(title: str, subtitle: str, note: str = '', progress: float = 0.0):
+    ax.text2D(0.5, 0.97, title,
               transform=ax.transAxes, ha='center', va='top',
-              color=WHITE, fontsize=14, fontweight='bold',
+              color=WHITE, fontsize=13, fontweight='bold',
               bbox=dict(boxstyle='round,pad=0.3', facecolor='#1a1a3f',
                         alpha=0.75, edgecolor=CYAN))
-    ax.text2D(0.5, 0.89, subtitle_str,
+    ax.text2D(0.5, 0.89, subtitle,
               transform=ax.transAxes, ha='center', va='top',
-              color=CYAN, fontsize=9.5, style='italic')
-    if note_str:
-        ax.text2D(0.5, 0.04, note_str,
+              color=CYAN, fontsize=9, style='italic')
+    if note:
+        ax.text2D(0.5, 0.04, note,
                   transform=ax.transAxes, ha='center', va='bottom',
-                  color='#9999cc', fontsize=8.5)
+                  color='#9999cc', fontsize=8)
     filled = int(progress * 36)
-    bar = '█' * filled + '░' * (36 - filled)
+    bar    = '█' * filled + '░' * (36 - filled)
     ax.text2D(0.02, 0.01, bar,
               transform=ax.transAxes, ha='left', va='bottom',
               color=CYAN, fontsize=6.5, family='monospace')
-    ax.text2D(0.96, 0.01, f'{int(progress*100)}%',
+    ax.text2D(0.96, 0.01, f'{int(progress * 100)}%',
               transform=ax.transAxes, ha='right', va='bottom',
               color=CYAN, fontsize=8)
 
 
-# ────────────────────── update ────────────────────────────
+# ── Rubik's face colours ──────────────────────────────────────────────────────
+_rng2      = np.random.default_rng(99)
+FACE_NAMES = ['top', 'bottom', 'front', 'back', 'right', 'left']
+RUBIKS_COLORS = {}
+for _fn in FACE_NAMES:
+    _base  = _rng2.choice(QUAT)
+    _cells = [_base] * 5 + [_rng2.choice(QUAT) for _ in range(4)]
+    _rng2.shuffle(_cells)
+    RUBIKS_COLORS[_fn] = list(_cells)
+
+
+def draw_rubiks_face(face='top', size=1.0, colors=None, alpha=0.85):
+    s = size
+    if colors is None:
+        colors = [CYAN] * 9
+    d   = 2 * s / 3
+    idx = 0
+    for i in range(3):
+        for j in range(3):
+            u0, u1 = -s + i * d, -s + i * d + d
+            v0, v1 = -s + j * d, -s + j * d + d
+            if face == 'top':
+                verts = [[u0, v0, s], [u1, v0, s], [u1, v1, s], [u0, v1, s]]
+            elif face == 'bottom':
+                verts = [[u0, v0, -s], [u1, v0, -s], [u1, v1, -s], [u0, v1, -s]]
+            elif face == 'front':
+                verts = [[u0, s, v0], [u1, s, v0], [u1, s, v1], [u0, s, v1]]
+            elif face == 'back':
+                verts = [[u0, -s, v0], [u1, -s, v0], [u1, -s, v1], [u0, -s, v1]]
+            elif face == 'right':
+                verts = [[s, u0, v0], [s, u1, v0], [s, u1, v1], [s, u0, v1]]
+            else:  # left
+                verts = [[-s, u0, v0], [-s, u1, v0], [-s, u1, v1], [-s, u0, v1]]
+            poly = Poly3DCollection([verts], alpha=alpha)
+            poly.set_facecolor(colors[idx])
+            poly.set_edgecolor('#000000')
+            poly.set_linewidth(1.0)
+            ax.add_collection3d(poly)
+            idx += 1
+
+
+# ── main update ───────────────────────────────────────────────────────────────
 
 def update(f: int):
     ax.cla()
     ax.set_facecolor(BG)
     ax.set_axis_off()
-    ax.set_xlim(-1.45, 1.45)
-    ax.set_ylim(-1.45, 1.45)
-    ax.set_zlim(-1.45, 1.45)
+    _set_axes()
 
-    phase_idx, phase_name, prog = get_phase(f)
-    sp = smooth(prog)
+    phase_idx, phase, prog = get_phase(f)
+    sp      = smooth(prog)
     overall = f / TOTAL
 
-    AZIM_BASE = 40 + f * 0.3
-    if phase_idx <= 1:
-        elev = 85.0 - sp*30.0
-    elif phase_idx == 2:
-        elev = 55.0 - sp*20.0
+    # camera
+    azim = 35 + f * 0.28
+    if phase_idx == 0:
+        elev = 70 - sp * 40
+    elif phase_idx <= 3:
+        elev = 30 + sp * 4
     else:
-        elev = 20.0 + min(8.0, phase_idx) * 2.0
+        elev = 22 + min(phase_idx - 4, 4) * 2.5
+    ax.view_init(elev=float(elev), azim=float(azim))
 
-    ax.view_init(elev=elev, azim=AZIM_BASE)
+    # ── ① seed ────────────────────────────────────────────────────────────────
+    if phase == 'seed':
+        n_vis = max(1, int(sp * N * 1.4))
+        draw_words(scatter_pts[:n_vis], alpha=min(1.0, sp * 2.5))
+        draw_cube_edges(alpha=0.12 + 0.15 * sp)
+        overlay('① Text Seed',
+                f'"{PHRASE}"',
+                'Raw token positions in high-dimensional embedding space',
+                overall)
 
-    # ---------- phase 0: phrase intro
-    if phase_name == 'text_intro':
-        draw_text_center(f'"{PHRASE}"', size=28, alpha=1.0)
-        draw_text_center('Begin by reading the semantic seed phrase', size=14, alpha=0.85)
-        add_overlay('① Text Seed', 'Initial phrase: raw tokens in language space',
-                    'Embedding vectorization starts from token positions', progress=overall)
+    # ── ② l2_project ─────────────────────────────────────────────────────────
+    elif phase == 'l2_project':
+        draw_sphere_wire(alpha=0.08 + 0.18 * sp)
+        draw_cube_edges(alpha=0.20)
+        cur = scatter_pts + (sphere_pts - scatter_pts) * sp
+        draw_words(cur, alpha=0.95)
+        overlay('② L2 Normalise → Unit Sphere',
+                r'$\|x\|_2 = 1$  ·  Words project radially onto $S^{n-1}$',
+                'Problem: O(n) rotational freedom ⟹ inter-model incommensurability',
+                overall)
 
-    # ---------- phase 1: project into sphere
-    elif phase_name == 'sphere_project':
-        draw_cube_edges(alpha=0.25)
-        for i, p in enumerate(inner_points):
-            target = sphere_points[i]
-            cur = p + (target - p) * sp
-            ax.plot([p[0], cur[0], target[0]], [p[1], cur[1], target[1]], [p[2], cur[2], target[2]],
-                    color='#6666aa', alpha=0.45)
+    # ── ③ pi4_declare ────────────────────────────────────────────────────────
+    elif phase == 'pi4_declare':
+        draw_sphere_wire(alpha=0.15)
+        draw_cube_edges(alpha=0.22)
+        ax.text2D(0.5, 0.61, 'π = 4',
+                  transform=ax.transAxes, ha='center', va='center',
+                  color=LIME, fontsize=52, fontweight='bold', alpha=sp)
+        ax.text2D(0.5, 0.46,
+                  'Switch from L² to L¹ — the one impossible belief\nthat dissolves the problem',
+                  transform=ax.transAxes, ha='center', va='center',
+                  color=ORANGE, fontsize=10, style='italic',
+                  alpha=smooth(max(0.0, sp - 0.3) / 0.7))
+        overlay('③ The π = 4 Insight',
+                'Hypersphere incommensurability is unsolvable in L² — so leave L²',
+                'L¹ cross-polytope has rational geometry and exact π = 4',
+                overall)
 
-        draw_word_points(inner_points + (sphere_points - inner_points) * (sp * 1.1), WORDS, WORD_COLORS, alpha=0.95)
-        draw_text_center('Project words into unit sphere S^{n-1}', size=16, alpha=0.9)
-        add_overlay('② Embedding Sphere',
-                    r'$S^{n-1} = \{ x \in \mathbb{R}^n : \|x\|_2 = 1 \}$',
-                    'L2 normalization pushes points to unit surface', progress=overall)
-
-    # ---------- phase 2: hypersphere evolution
-    elif phase_name == 'hypersphere':
-        # represent 4th dimension by color and size variation
-        w = np.sin(np.linspace(0, np.pi, NWORDS) + overall * 2.0) * 0.5 + 0.5
-        x4 = sphere_points * (1.0 + w[:, None] * 0.04)
-        draw_word_points(x4, WORDS, [plt.cm.viridis(cc) for cc in w], alpha=1.0, s=45)
-
-        draw_text_center('Evolve sphere → hypersphere via extra dimension', size=16, alpha=0.9)
-        add_overlay('③ Hypersphere',
-                    r'$S^{n-1}$ has no preferred orientation; rotations $Q\in O(n)$ preserve semantics',
-                    'Observe incommensurability: absolute axes vary across models', progress=overall)
-
-    # ---------- phase 3: wave sampling + incommensurability
-    elif phase_name == 'wave':
-        tr = 1.0 + 0.12 * np.sin(overall * 4 * np.pi + np.arange(NWORDS) * 0.6)
-        wave_points = sphere_points * tr[:, None]
-        draw_word_points(wave_points, WORDS, WORD_COLORS, alpha=0.85, s=45)
-
-        # draw wave surface via color mapping
-        theta = np.linspace(0, 2*np.pi, 140)
-        phi = np.linspace(0, np.pi, 70)
-        TH, PH = np.meshgrid(theta, phi)
-        R = 1.0 + 0.08 * np.sin(8*TH + overall * 5.0)
-        X = R * np.sin(PH) * np.cos(TH)
-        Y = R * np.sin(PH) * np.sin(TH)
-        Z = R * np.cos(PH)
-        ax.plot_surface(X, Y, Z, rstride=8, cstride=8, color='#222277', alpha=0.14, linewidth=0)
-
-        draw_text_center('Wave sample across embeddings (high frequency signal)', size=15, alpha=0.9)
-        add_overlay('④ Incommensurability',
-                    r'$\text{sim}(u,v)=u\cdot v,\enspace u\in S^{n-1},\enspace v\in S^{n-1}$',
-                    'Different frames: without alignment, dot products vary unpredictably', progress=overall)
-
-    # ---------- phase 4: p=4 hypercube transform
-    elif phase_name == 'p4_hypercube':
-        p_t = 2.0 + 2.0 * sp
-        sphere_points_0 = sphere_points.copy()
-        # map to lp unit boundary and blend
-        lp_mapped = lp_unit_projection(sphere_points_0, p=p_t)
-        # store line points
-        for i in range(NWORDS):
-            ax.plot([sphere_points_0[i,0], lp_mapped[i,0]],
-                    [sphere_points_0[i,1], lp_mapped[i,1]],
-                    [sphere_points_0[i,2], lp_mapped[i,2]],
-                    color='#88ff88', alpha=0.35)
-
-        draw_word_points(lp_mapped, WORDS, WORD_COLORS, alpha=0.95, s=40)
-        draw_cube_edges(alpha=0.2 + 0.5*sp, lw=1.3)
-
-        draw_text_center(f'ℓₚ ball morph (p={p_t:.2f}) → hypercube style', size=15, alpha=0.9)
-        add_overlay('⑤ ℓₚ transition',
-                    r'$\|x\|_p = (\sum_{i=1}^n |x_i|^p)^{1/p},\quad p\to 4$',
-                    'p=4: boundary shape approaches hypercube facets', progress=overall)
-
-    # ---------- phase 5: curiouser and curiouser
-    elif phase_name == 'curiouser':
-        draw_cube_edges(alpha=0.5)
-        draw_word_points(lp_unit_projection(sphere_points, p=4.0), WORDS, WORD_COLORS, alpha=1.0, s=35)
-        draw_text_center('curiouser and curiouser', size=28, alpha=sp * 0.95)
-        add_overlay('⑥ Curiosity', 'The embedding journey becomes increasingly non-intuitive',
-                    'This is the step where geometry feels almost magical', progress=overall)
-
-    # ---------- phase 6: begin ... end
-    elif phase_name == 'begin_end':
-        draw_text_center('Begin at the beginning...', size=24, alpha=1.0 - 0.2*sp)
-        draw_text_center('...and go on till you come to the end', size=18, alpha=0.2 + 0.8*sp)
-        if sp > 0.6:
-            draw_text_center('𐄂  The end 𐄂', size=26, alpha=(sp-0.6)/0.4)
-        add_overlay('⑦ Narrative closure', 'Text closure from Lewis Carroll-inspired sequence',
-                    'Stop after reaching the conceptual end', progress=overall)
-
-    # ---------- existing phases (grid/octahedron/...) for continuation
-    elif phase_name == 'grid':
-        draw_cube_edges(alpha=0.15 + 0.35*sp, lw=1.4)
-        draw_grid_lines(alpha=0.2 + 0.6*sp, lw=1.2)
+    # ── ④ sphere_to_octa ─────────────────────────────────────────────────────
+    elif phase == 'sphere_to_octa':
+        # morph sphere wireframe to octahedron surface
+        u = np.linspace(0, 2 * np.pi, 18)
+        v = np.linspace(0, np.pi, 10)
+        U, V = np.meshgrid(u, v)
+        sx = np.cos(U) * np.sin(V)
+        sy = np.sin(U) * np.sin(V)
+        sz = np.cos(V)
+        l1n = np.abs(sx) + np.abs(sy) + np.abs(sz)
+        l1n[l1n == 0] = 1.0
+        # blend each mesh point toward its L1 projection
+        mx = (1.0 - sp) * sx + sp * (sx / l1n)
+        my = (1.0 - sp) * sy + sp * (sy / l1n)
+        mz = (1.0 - sp) * sz + sp * (sz / l1n)
+        ax.plot_wireframe(mx, my, mz,
+                          color=CYAN, alpha=0.22, linewidth=0.5,
+                          rstride=1, cstride=1)
+        # morph word points
+        cur = sphere_pts + (octa_pts - sphere_pts) * sp
+        draw_words(cur, alpha=0.90)
+        # octahedron faces solidify in the second half
         if sp > 0.45:
-            label_quadrants(alpha=smooth((sp-0.45)/0.55))
-        add_overlay(
-            '⑧ Grid Formation — Embedding Space',
-            'Four grid lines divide the unit cube into quaternary regions {A, B, C, D}',
-            note_str='Each region captures one of the four Gray-coded coordinate states',
-            progress=overall,
-        )
+            draw_octahedron(face_alpha=(sp - 0.45) * 0.38,
+                            edge_alpha=sp * 0.75,
+                            lw=1.6)
+        overlay('④ Sphere → Cross-Polytope (Octahedron)',
+                r'$\|x\|_2=1 \;\longrightarrow\; \|x\|_1=1$',
+                'L¹ unit ball = octahedron — 8 flat triangular faces, 6 axis vertices, ρ = 4',
+                overall)
 
-    elif phase_name == 'unit_ball':
-        draw_cube_edges(alpha=0.35, lw=1.4)
-        draw_grid_lines(alpha=0.65, lw=1.2)
-        label_quadrants()
-        draw_octahedron(face_alpha=0.08 + 0.20*sp, edge_alpha=0.3 + 0.6*sp,
-                        edge_lw=1.4 + 0.6*sp)
-        if sp > 0.5:
-            a = smooth((sp-0.5)/0.5)
-            ax.text2D(0.85, 0.72,
-                      '← upper\n   pyramid', transform=ax.transAxes,
-                      color=CYAN, fontsize=8, alpha=a)
-            ax.text2D(0.85, 0.30,
-                      '← lower\n   pyramid', transform=ax.transAxes,
-                      color=MAGENTA, fontsize=8, alpha=a)
-        add_overlay(
-            '⑨ Unit Ball in ℓ¹ Space — Two Pyramids Base-to-Base',
-            'The cross-polytope (octahedron) is the ℓ¹ unit ball:  ‖x‖₁ ≤ 1',
-            note_str='Upper pyramid (apex up) + lower pyramid (apex down) share the equatorial square',
-            progress=overall,
-        )
+    # ── ⑤ z4_label ───────────────────────────────────────────────────────────
+    elif phase == 'z4_label':
+        draw_octahedron(face_alpha=0.22, edge_alpha=0.85, lw=1.9)
+        draw_words(octa_pts, alpha=0.90)
+        if sp > 0.35:
+            label_abcd(alpha=smooth((sp - 0.35) / 0.65))
+        if sp > 0.60:
+            a = smooth((sp - 0.60) / 0.40)
+            ax.text2D(0.5, 0.44,
+                      'A(0) → B(1) → C(2) → D(3) → A(0)   [mod 4]',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color=LIME, fontsize=10, fontweight='bold', alpha=a)
+            ax.text2D(0.5, 0.37,
+                      'effective ρ = 4  ·  Lee metric distance',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color=ORANGE, fontsize=9, alpha=a)
+        overlay('⑤ Z₄ Quantisation on Octahedron',
+                r'$\mathbb{Z}/4\mathbb{Z}$ : four regions, Lee metric $d_L(a,b)=\min(|a-b|,\,4-|a-b|)$',
+                'Each face carries one quaternary symbol: A=0  B=1  C=2  D=3',
+                overall)
 
-    elif phase_name == 'rotate':
-        draw_cube_edges(alpha=0.35, lw=1.4)
-        draw_grid_lines(alpha=0.65, lw=1.2)
-        label_quadrants(alpha=max(0.0, 1.0 - sp*1.5))
-        draw_octahedron(face_alpha=0.25, edge_alpha=0.8, edge_lw=1.8)
-        add_overlay(
-            '⑩ Rotating View — Top-Down → Side-On',
-            'Tilting the camera reveals the full 3-D geometry of the unit ball inside the cube',
-            note_str='The equatorial square of the octahedron aligns with the grid cross-section',
-            progress=overall,
-        )
+    # ── ⑥ grid_lines ─────────────────────────────────────────────────────────
+    elif phase == 'grid_lines':
+        draw_cube_edges(alpha=0.25 + 0.15 * sp, lw=1.3)
+        draw_grid_lines(alpha=0.25 + 0.50 * sp)
+        draw_octahedron(face_alpha=0.14, edge_alpha=0.50, lw=1.3)
+        draw_words(octa_pts, alpha=0.85)
+        if sp > 0.45:
+            label_abcd(alpha=smooth((sp - 0.45) / 0.55), size=11)
+        overlay('⑥ Grid Quadrant Lines',
+                'Four dividers partition the cube into {A, B, C, D} quantisation regions',
+                'Each word point lands in exactly one quaternary region',
+                overall)
 
-    elif phase_name == 'prisms':
-        draw_cube_edges(alpha=0.30, lw=1.4)
-        draw_grid_lines(alpha=0.55, lw=1.1)
-        draw_octahedron(face_alpha=0.15, edge_alpha=0.5, edge_lw=1.4)
-        draw_prisms(alpha=0.08 + 0.22*sp)
-        add_overlay(
-            '⑪ Corner Prisms',
-            'Each grid cell (octant) contains a pyramid-prism slice of the cross-polytope',
-            note_str='Prism = space between the octahedron face and the cube corner',
-            progress=overall,
-        )
+    # ── ⑦ complement ─────────────────────────────────────────────────────────
+    elif phase == 'complement':
+        # sinusoidal pulse drives the colour swap
+        pulse = 0.5 + 0.5 * np.sin(prog * np.pi * 5)
+        comp = [
+            lerp_color(CYAN,    LIME,    pulse),   # A → C
+            lerp_color(MAGENTA, ORANGE,  pulse),   # B → D
+            lerp_color(LIME,    CYAN,    pulse),   # C → A
+            lerp_color(ORANGE,  MAGENTA, pulse),   # D → B
+        ]
+        draw_octahedron(face_alpha=0.28, edge_alpha=0.88, lw=2.0,
+                        quat_override=comp)
+        ax.text2D(0.5, 0.46, 'θ(x) = x + 2  (mod 4)',
+                  transform=ax.transAxes, ha='center', va='center',
+                  color=WHITE, fontsize=14, fontweight='bold', alpha=sp)
+        ax.text2D(0.5, 0.39, 'A ↔ C        B ↔ D',
+                  transform=ax.transAxes, ha='center', va='center',
+                  color=LIME, fontsize=12, alpha=smooth(max(0.0, sp - 0.2) / 0.8))
+        overlay('⑦ Complement Involution',
+                r'$\theta : x \mapsto x + 2 \;(\mathrm{mod}\; 4)$ — antipodal face swap',
+                'Self-inverse: θ(θ(x)) = x  ·  maps each symbol to its antipodal partner',
+                overall)
 
-    elif phase_name == 'stack':
-        offset = sp * 0.55
-        draw_cube_edges(alpha=0.30, lw=1.4)
-        draw_grid_lines(alpha=0.45, lw=1.0)
-        draw_octahedron(face_alpha=0.12, edge_alpha=0.45, edge_lw=1.4, z_offset=0.0)
-        theta_ = np.linspace(0, 2*np.pi, 64)
-        ax.plot(np.cos(theta_), np.sin(theta_), [0]*64,
-                color=WHITE, alpha=0.4, linewidth=1.0, linestyle=':')
-        if sp > 0.25:
-            a = smooth((sp-0.25)/0.75)
-            ax.text2D(0.5, 0.75, '↑ upper half-cube', transform=ax.transAxes,
-                      ha='center', color=CYAN, fontsize=9, alpha=a)
-            ax.text2D(0.5, 0.22, '↓ lower half-cube', transform=ax.transAxes,
-                      ha='center', color=MAGENTA, fontsize=9, alpha=a)
-        add_overlay(
-            '⑫ Stacking Pyramids Fills the Cube',
-            'Upper and lower pyramids separate along the equator — each half fills one cube layer',
-            note_str='Stacking four pyramids base-to-base tiles the full unit cube',
-            progress=overall,
-        )
+    # ── ⑧ gray_code ──────────────────────────────────────────────────────────
+    elif phase == 'gray_code':
+        draw_octahedron(face_alpha=0.16, edge_alpha=0.60, lw=1.5)
+        if sp > 0.20:
+            a = smooth((sp - 0.20) / 0.80)
+            kw = dict(transform=ax.transAxes, ha='center', va='center',
+                      fontsize=11, fontweight='bold', fontfamily='monospace')
+            ax.text2D(0.73, 0.77, 'A = 00', color=CYAN,    alpha=a, **kw)
+            ax.text2D(0.27, 0.77, 'B = 01', color=MAGENTA, alpha=a, **kw)
+            ax.text2D(0.27, 0.54, 'C = 11', color=LIME,    alpha=a, **kw)
+            ax.text2D(0.73, 0.54, 'D = 10', color=ORANGE,  alpha=a, **kw)
+        if sp > 0.50:
+            a2 = smooth((sp - 0.50) / 0.50)
+            ax.text2D(0.5, 0.43,
+                      '00 → 01 → 11 → 10 → 00',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color=WHITE, fontsize=12, fontfamily='monospace', alpha=a2)
+            ax.text2D(0.5, 0.36,
+                      'Adjacent codes differ by exactly 1 bit  (Gray property)',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color='#9999cc', fontsize=8.5, alpha=a2)
+        overlay('⑧ Gray Map  φ: Z₄ → {0,1}²',
+                'φ(0)=00  φ(1)=01  φ(2)=11  φ(3)=10',
+                'Hamming distance ≤ Lee distance — enables binary search over fingerprints',
+                overall)
 
-    elif phase_name == 'rubiks':
-        for fn in ['top','bottom','front','back','right','left']:
-            draw_rubiks_face(fn, size=1.0, colors=RUBIKS_COLORS[fn], alpha=0.12 + 0.78*sp)
-        draw_cube_edges(color='#000000', alpha=0.9, lw=2.2)
-        if sp > 0.6:
-            a = smooth((sp-0.6)/0.4)
-            for fn, (tx, ty) in [('top',(0.5,0.88)),('front',(0.76,0.58)),('right',(0.83,0.42))]:
-                ax.text2D(tx, ty, fn, transform=ax.transAxes,
-                          ha='center', color=WHITE, fontsize=8, alpha=a*0.7)
-        add_overlay(
-            '⑬ Rubik\'s Cube — Information on Surface Faces',
-            'All embedding information projected onto the 6 cube faces (9 cells each)',
-            note_str='Colour = quaternary region {A, B, C, D} → 64-bit Lee-metric fingerprint',
-            progress=overall,
-        )
+    # ── ⑨ fingerprint ────────────────────────────────────────────────────────
+    elif phase == 'fingerprint':
+        for fn in ['top', 'bottom', 'front', 'back', 'right', 'left']:
+            draw_rubiks_face(fn, size=1.0, colors=RUBIKS_COLORS[fn],
+                             alpha=0.15 + 0.80 * sp)
+        draw_cube_edges(color='#000000', alpha=0.90, lw=2.0)
+        if sp > 0.55:
+            a = smooth((sp - 0.55) / 0.45)
+            ax.text2D(0.5, 0.44,
+                      '6 faces × 9 cells × 2 bits = 108 bits',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color=WHITE, fontsize=11, fontweight='bold', alpha=a)
+            ax.text2D(0.5, 0.37,
+                      'Compact to 64-bit via Lee-distance projection',
+                      transform=ax.transAxes, ha='center', va='center',
+                      color=CYAN, fontsize=9, alpha=a)
+        overlay('⑨ Q² Fingerprint — Lee-Metric Surface Encoding',
+                'All embedding information projected onto 6 faces of the unit cube',
+                'Colour = quaternary region {A=0, B=1, C=2, D=3} → 64-bit fingerprint',
+                overall)
 
 
+# ── render ────────────────────────────────────────────────────────────────────
 ani = FuncAnimation(fig, update, frames=TOTAL, interval=50, blit=False)
-
-print(f"Rendering q2_geometry_evolution.gif  ({TOTAL} frames) …")
-ani.save('q2_geometry_evolution.gif', writer='pillow', fps=15, dpi=110)
-print("✅  GIF saved →  q2_geometry_evolution.gif")
+print(f"Rendering q2_geometry_evolution.gif  ({TOTAL} frames, 15 fps) …")
+ani.save('q2_geometry_evolution.gif', writer='pillow', fps=15, dpi=90)
+print("✅  Saved → q2_geometry_evolution.gif")
 plt.close()
