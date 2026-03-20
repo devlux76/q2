@@ -171,9 +171,9 @@ Web Worker with model load + generation + embeddings.
 - `generateResponse(messages, config)`
   - requires ready `pipe`
   - stream tokens via `TextStreamer(callback)` from pipeline
-  - optional embedding output when `config.return_embeddings===true`
-  - on done: extract hidden states layer 9, send `EmbeddingMsg` with packed `ArrayBuffer`
-  - always sends `DoneMsg`; on error sends `ErrorMsg` unless interrupted
+  - supports optional embedding output when the **internal** worker flag `config.return_embeddings === true` is set by the caller (e.g. tests/dev tools)
+  - when embeddings are requested: on done, extract hidden states from layer 9 and send an `EmbeddingMsg` with packed `ArrayBuffer`
+  - in the normal app flow (`GenerationConfig` used by `readConfig()/sendMessage()`), `return_embeddings` is never set, so only `DoneMsg` is sent; on error sends `ErrorMsg` unless interrupted
 
 #### router
 - handles `message` events:
