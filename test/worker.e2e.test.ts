@@ -196,16 +196,27 @@ afterAll(() => {
  * call this helper to make the preflight check pass all three backends through.
  */
 async function withAllNavigatorApiStubs(fn: () => Promise<void>): Promise<void> {
-  const navAny = navigator as Record<string, unknown>;
-  const origGpu = navAny.gpu;
-  const origMl = navAny.ml;
+  const origGpuDescriptor = Object.getOwnPropertyDescriptor(navigator, 'gpu');
+  const origMlDescriptor = Object.getOwnPropertyDescriptor(navigator, 'ml');
+
   Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true, writable: true });
   Object.defineProperty(navigator, 'ml', { value: {}, configurable: true, writable: true });
   try {
     await fn();
   } finally {
-    Object.defineProperty(navigator, 'gpu', { value: origGpu, configurable: true, writable: true });
-    Object.defineProperty(navigator, 'ml', { value: origMl, configurable: true, writable: true });
+    if (origGpuDescriptor) {
+      Object.defineProperty(navigator, 'gpu', origGpuDescriptor);
+    } else {
+      // Property did not originally exist; remove the stub to avoid leaking it between tests.
+      delete (navigator as unknown as { gpu?: unknown }).gpu;
+    }
+
+    if (origMlDescriptor) {
+      Object.defineProperty(navigator, 'ml', origMlDescriptor);
+    } else {
+      // Property did not originally exist; remove the stub to avoid leaking it between tests.
+      delete (navigator as unknown as { ml?: unknown }).ml;
+    }
   }
 }
 
