@@ -266,7 +266,7 @@ Main frontend glue: UI, model picker, worker orchestration, Q² and benchmarks.
 
 ## 4. Testing & Validation
 
-- `test/q2.test.ts`, `test/q2stats.test.ts`, etc., verify exact kernel behavior and statistics.
+- `test/q2.test.ts` and `test/t0.test.ts`–`test/t5.test.ts` verify exact kernel behavior and statistics.
 - For WASM-enabled environments, `q2.ts` uses `getKernel()` with WASM fallback to TS reference.
 
 ---
