@@ -16,6 +16,7 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 - [T3 — Matryoshka and dedicated embedding models](#t3--matryoshka-and-dedicated-embedding-models)
 - [T4 — Standard local LLMs](#t4--standard-local-llms)
 - [T5 — Phylomemetic fingerprinting](#t5--phylomemetic-fingerprinting)
+- [T6 — General quantization benchmarks](#t6--general-quantization-benchmarks)
 - [Corpus layout](#corpus-layout)
 - [Cross-phase prediction matrix](#cross-phase-prediction-matrix)
 - [Model and corpus matrix](#model-and-corpus-matrix)
@@ -24,11 +25,13 @@ Section references of the form §P-x refer to [PREDICTIONS.md](PREDICTIONS.md).
 
 ## Overview
 
-Testing is organized into an initial pre-phase **T0** and five main phases **T1–T5**.
+Testing is organized into an initial pre-phase **T0** and six main phases **T1–T6**.
 The phases progress from the least constrained (random text, no semantic
 structure) to the most constrained (code, where ground truth is machine-verifiable),
 then broaden to measure what the encoding adds over current best-practice embedding
-models, and finally test stylometric fingerprinting and RLHF entropy compression.
+models, test stylometric fingerprinting and RLHF entropy compression, and finally
+validate the general quantization framework predictions (P15–P17) that arise from the
+Wildberger-Rubine combinatorial theory.
 
 The expected performance ordering across phases is:
 
@@ -49,6 +52,7 @@ flowchart TD
     T3["T3 — Matryoshka &\ndedicated embedding models\n(BEIR benchmark)"]
     T4["T4 — Standard local LLMs\n(Qwen3.5-0.8B-ONNX)"]
     T5["T5 — Phylomemetic fingerprinting\n(P14a–d: author attribution\n& RLHF entropy compression)"]
+    T6["T6 — General quantization\nbenchmarks\n(P15–P17: trie sparsity,\nGeode progressive, mixed-precision)"]
 
     T0 -->|"null baselines\nestablished"| T1
     T1 -->|"validate against\nnull"| T2
@@ -58,6 +62,8 @@ flowchart TD
     T3 -->|"P2, P3, P5, P7"| T4
     T4 -->|"P14a–d"| T5
     T3 -->|"stylometric baselines\nP8 null distributions"| T5
+    T3 -->|"P15, P16, P17\ntrie & resolution\nbenchmarks"| T6
+    T0 -->|"P15 trie\ninvariants"| T6
 
     style T0 fill:#ddf,stroke:#99c
     style T1 fill:#ffd,stroke:#cc9
@@ -65,6 +71,7 @@ flowchart TD
     style T3 fill:#fdd,stroke:#c99
     style T4 fill:#eee,stroke:#999
     style T5 fill:#ede,stroke:#9a9
+    style T6 fill:#fed,stroke:#ca6
 ```
 
 ## T0 — Unit tests and invariants
@@ -379,6 +386,66 @@ signal is not present in Q² statistics.
 
 ---
 
+## T6 — General quantization benchmarks
+
+**Purpose.** Validate the predictions (P15–P17) that arise from the generalized
+quaternary quantization framework and the Wildberger-Rubine combinatorial theory
+(DESIGN.md §4). These tests are domain-agnostic: they measure properties of the
+quantization machinery itself, independent of whether the input is a semantic
+embedding, a model weight tensor, or a synthetic signal.
+
+**Models.** Any model producing hidden-state activations suitable for Q² encoding.
+The primary models from T3 and T4 are reused:
+
+- `nomic-ai/nomic-embed-text-v1.5` (embedding model, T3)
+- `onnx-community/Qwen3.5-0.8B-ONNX` (general LLM, T4)
+- Synthetic signals (Gaussian, mixture-of-Gaussians, uniform, heavy-tailed) for
+  distribution-independent validation.
+
+**Corpus.** Reuses C0 (synthetic), C1 (general NL), and C3 (BEIR) from earlier phases.
+Additionally generates synthetic continuous signals (corpus C9) for
+distribution-controlled experiments.
+
+### C9 — Synthetic continuous signals (~0 MB)
+
+Generated at test time from PRNG seeds; nothing stored on disk. Each sample is a
+vector in $\mathbb{R}^n$ drawn from a specified distribution:
+
+- **Gaussian**: $\mathcal{N}(0, I_n/n)$ — the standard calibration distribution.
+- **Mixture-of-Gaussians**: $\sum_k \pi_k \mathcal{N}(\mu_k, \sigma_k^2 I_n/n)$ — tests
+  analytical threshold computation (§D-4.4).
+- **Uniform**: $\text{Uniform}[-1/\sqrt{n}, 1/\sqrt{n}]^n$ — L2-normalised.
+- **Heavy-tailed**: Student-$t$ with $\nu \in \{3, 5, 10\}$ degrees of freedom —
+  tests robustness of the quantization framework to non-Gaussian tails.
+
+**Prediction sub-tests.**
+
+| Prediction | Measurement | Expected result |
+|:----------:|:------------|:----------------|
+| §P-15 (trie sparsity) | Count distinct transition sequences in a corpus of $C$ documents; verify all lie within the admissible trie of $D(32) \approx 2.47 \times 10^{15}$ nodes | 100% of keys are admissible; occupancy $\leq C / D(32)$ |
+| §P-15 (non-uniform occupancy) | Compute subtree occupancy by first symbol and first bigram; compare to uniform expectation | Subtree occupancy is non-uniform; mirrors complement-bigram suppression (P3) |
+| §P-15 (information efficiency) | Compute empirical entropy of the 64-bit key distribution and compare to the theoretical $\approx 51.1$ effective bits | Empirical entropy $\leq 51.1$ bits; gap measures source-distribution redundancy |
+| §P-16 (progressive retrieval) | Measure retrieval precision and candidate-set size as a function of prefix depth $j \in \{4, 8, 12, 16, 20, 24, 28, 32\}$ | Candidate sets shrink geometrically as $O(3^{-j})$; precision increases monotonically |
+| §P-16 (information per symbol) | Compute mutual information between prefix of length $j$ and full key, for $j = 1, \ldots, 32$ | First symbol contributes $\approx 2$ bits; each subsequent $\approx 1.585$ bits |
+| §P-17 (mixed-precision) | Implement variance-guided bit allocation; compare retrieval accuracy to uniform quaternary at matched code length | Mixed-precision matches or exceeds uniform at 15–25% shorter code |
+| §P-17 (threshold validation) | For mixture-of-Gaussian signals, compare empirical thresholds to hyper-Catalan series truncated at order 1, 2, 3 | Series converges to empirical threshold; order-2 truncation suffices for 4-component mixtures |
+
+**T6 benchmarks are primarily computational, not corpus-dependent.** The trie
+sparsity and information-efficiency measurements (P15) require only the Q² encoder
+and a set of input vectors. The progressive retrieval measurements (P16) require a
+retrieval index over an existing corpus. The mixed-precision measurements (P17)
+require a modified encoder that supports per-dimension bit allocation. The threshold
+validation uses synthetic signals only.
+
+**Falsification conditions.** If any generated key violates the no-repeat constraint,
+the run-reduction implementation has a bug (P15). If candidate-set sizes do not
+decrease geometrically with prefix depth (P16), the transition key does not behave as
+a multi-resolution address. If mixed-precision encoding cannot match uniform encoding
+at shorter code length for any model (P17), per-dimension variance heterogeneity is
+insufficient to exploit.
+
+---
+
 ## Corpus layout
 
 The complete corpus stays comfortably under 1 GB of raw text, leaving headroom for
@@ -604,6 +671,7 @@ a cross-temporal comparison against C6 (cross-lingual) and C7 (spoken).
 | C6        | Cross-lingual matched-content corpus         | ~75–100 MB      |
 | C7        | Spoken vs. written language corpus           | ~50 MB          |
 | C8        | Gutenberg authors + AI attributed datasets   | ~150 MB         |
+| C9        | Synthetic continuous signals                  | ~0 MB           |
 | **Total** |                                              | **~885–960 MB** |
 
 This leaves comfortable headroom for indices and probe corpora within the 1 GB budget.
@@ -612,24 +680,27 @@ This leaves comfortable headroom for indices and probe corpora within the 1 GB b
 
 ## Cross-phase prediction matrix
 
-| Prediction | T1 | T2 | T3 | T4 | T5 |
-|:----------:|:--:|:--:|:--:|:--:|:--:|
-| §P-2 Hairpin density ordering | Null baseline | Hairpin in call-and-return code | Full probe corpus test | Noisy probe test | — |
-| §P-3 CpG suppression | Null baseline | Confirm or falsify | Confirm at scale | Partial test | — |
-| §P-4 Weighted Lee | — | — | Full benchmark | — | — |
-| §P-5 Reverse complement = antonym | — | — | Full antonym test | Partial test | — |
-| §P-6 Two-stage search | — | — | Latency-matched benchmark | — | — |
-| §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) | — |
-| §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — | — |
-| §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — | — |
-| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — | — |
-| §P-14a Author fingerprint stability | — | — | — | — | Within vs. cross-author CV |
-| §P-14b RLHF entropy compression | — | — | — | — | RLHF CV < human CV |
-| §P-14c Cross-lineage influence | — | — | — | — | Author clustering |
-| §P-14d Temporal ordering | — | — | — | — | Influenced → earlier source |
+| Prediction | T1 | T2 | T3 | T4 | T5 | T6 |
+|:----------:|:--:|:--:|:--:|:--:|:--:|:--:|
+| §P-2 Hairpin density ordering | Null baseline | Hairpin in call-and-return code | Full probe corpus test | Noisy probe test | — | — |
+| §P-3 CpG suppression | Null baseline | Confirm or falsify | Confirm at scale | Partial test | — | — |
+| §P-4 Weighted Lee | — | — | Full benchmark | — | — | — |
+| §P-5 Reverse complement = antonym | — | — | Full antonym test | Partial test | — | — |
+| §P-6 Two-stage search | — | — | Latency-matched benchmark | — | — | — |
+| §P-7 Secondary structure | — | — | Correlation with annotation | Correlation (noisier) | — | — |
+| §P-8 Codon usage bias | Null distribution | Domain-specific biases | Multi-domain comparison | — | — | — |
+| §P-9 Z₈ optimality | — | — | Z₄ vs. Z₈ benchmark | — | — | — |
+| §P-10 Key collision rate | — | Collision-rate benchmark | Collision-rate benchmark | — | — | — |
+| §P-14a Author fingerprint stability | — | — | — | — | Within vs. cross-author CV | — |
+| §P-14b RLHF entropy compression | — | — | — | — | RLHF CV < human CV | — |
+| §P-14c Cross-lineage influence | — | — | — | — | Author clustering | — |
+| §P-14d Temporal ordering | — | — | — | — | Influenced → earlier source | — |
+| §P-15 Trie sparsity | Null trie occupancy | — | Empirical trie occupancy | — | — | Full trie analysis + info efficiency |
+| §P-16 Geode progressive | — | — | Progressive retrieval benchmark | — | — | Candidate-set scaling + info/symbol |
+| §P-17 Mixed-precision | — | — | Variance-guided benchmark | — | — | Threshold validation on synthetics |
 
 Tests in the T1 column establish baseline distributions. A prediction is
-**confirmed** when the T3 or T4 result is statistically significant relative to the
+**confirmed** when the T3, T4, or T6 result is statistically significant relative to the
 T1 null. A prediction is **falsified** when the result is not distinguishable from
 the null at the 95% confidence level across at least two model/corpus combinations.
 
@@ -653,8 +724,11 @@ the null at the 95% confidence level across at least two model/corpus combinatio
 | P14b (RLHF entropy compression) | C8 AI + human subcorpora | Triplet entropy on raw text; embedding models for transition sequences |
 | P14c (cross-lineage influence) | C8 AI + human subcorpora | Raw text stylometric features; mixture model fit |
 | P14d (temporal ordering) | C8 human subcorpus (with author dates) | Same as P14c |
+| P15 (trie sparsity) | C0 (synthetic), C9 (synthetic signals), C1/C3 (NL) | All models; synthetic signals for distribution-controlled tests |
+| P16 (Geode progressive) | C3 (BEIR), C9 (synthetic) | Nomic, EmbeddingGemma with multi-resolution retrieval |
+| P17 (mixed-precision) | C3 (BEIR), C9 (synthetic) | Nomic, EmbeddingGemma with variance-guided bit allocation |
 
 A concrete model matrix with rows corresponding to
 `{MiniLM, Nomic, EmbeddingGemma, mxbai, UniXcoder, Qwen2, Qwen2.5-Coder}` and columns
-corresponding to `{T1–T5, P2–P14}` clarifies exactly which model–phase combinations
+corresponding to `{T1–T6, P2–P17}` clarifies exactly which model–phase combinations
 need to be run vs. which can be pruned for an MVP.
