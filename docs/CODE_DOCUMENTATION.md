@@ -185,7 +185,7 @@ Web Worker with model load + generation + embeddings.
 Main frontend glue: UI, model picker, worker orchestration, Q² and benchmarks.
 
 #### exports
-- Wiht re-exported helpers from submodules: `loadSettings, saveSettings, HFModel, fetchHFModels, formatCount, splitThinkBlocks, stripThinkTags, escapeAndFormatText, min, max`
+- With re-exported helpers from submodules: `loadSettings, saveSettings, HFModel, fetchHFModels, formatCount, splitThinkBlocks, stripThinkTags, escapeAndFormatText, min, max`
 - actions: `selectModel, initModelPicker, handleLocalUrl, startWithModel, initWorker, handleWorkerMessage, onStatus, onProgress, onToken, onEmbedding, onDone, sendMessage, stopGeneration, readConfig, appendAssistantBubble, renderBubble, renderEmbeddingHeatmap, renderQ2Result, switchTab, runBenchmarks`
 
 #### DOM ref and state
