@@ -6,21 +6,19 @@
 
 ## Contents
 
-1. [The Embedding Problem](#1-the-embedding-problem)
-   - 1.1 [Embeddings and the unit hypersphere](#11-embeddings-and-the-unit-hypersphere)
-   - 1.2 [Incommensurability](#12-incommensurability)
-   - 1.3 [Concentration of measure](#13-concentration-of-measure)
-   - 1.4 [The surface-area information bound](#14-the-surface-area-information-bound)
-   - 1.5 [The L1 metric and the cross-polytope](#15-the-l1-metric-and-the-cross-polytope)
-   - 1.6 [The quaternary coordinate](#16-the-quaternary-coordinate)
-   - 1.7 [Index design consequences](#17-index-design-consequences)
-   - 1.8 [Relational geometry and the lingua franca](#18-relational-geometry-and-the-lingua-franca)
+1. [The Quantization Problem](#1-the-quantization-problem)
+   - 1.1 [The quantization problem](#11-the-quantization-problem)
+   - 1.2 [Concentration of measure](#12-concentration-of-measure)
+   - 1.3 [The surface-area information bound](#13-the-surface-area-information-bound)
+   - 1.4 [The L1 metric and the cross-polytope](#14-the-l1-metric-and-the-cross-polytope)
+   - 1.5 [The quaternary coordinate](#15-the-quaternary-coordinate)
+   - 1.6 [The quantization problem restated](#16-the-quantization-problem-restated)
 2. [Quantization](#2-quantization)
-   - 2.1 [The thermal constraint](#21-the-thermal-constraint)
+   - 2.1 [The resource constraint](#21-the-resource-constraint)
    - 2.2 [Binary quantization](#22-binary-quantization)
    - 2.3 [Ternary quantization](#23-ternary-quantization)
-   - 2.4 [Standard Q4 (different problem)](#24-standard-q4-different-problem)
-   - 2.5 [Quaternary semantic quantization](#25-quaternary-semantic-quantization)
+   - 2.4 [Reconstruction vs. structural quantization](#24-reconstruction-vs-structural-quantization)
+   - 2.5 [Quaternary quantization](#25-quaternary-quantization)
    - 2.6 [The Lee metric](#26-the-lee-metric)
    - 2.7 [The Gray map](#27-the-gray-map)
    - 2.8 [The complement involution](#28-the-complement-involution)
@@ -31,89 +29,35 @@
    - 3.4 [Block file organisation](#34-block-file-organisation)
    - 3.5 [Window queries](#35-window-queries)
    - 3.6 [Bucket density](#36-bucket-density)
+4. [The Combinatorial Structure](#4-the-combinatorial-structure)
+   - 4.1 [The Geode factorization and hierarchical quantization](#41-the-geode-factorization-and-hierarchical-quantization)
+   - 4.2 [Euler's polytope formula as a quantization constraint](#42-eulers-polytope-formula-as-a-quantization-constraint)
+   - 4.3 [Mixed-precision quantization](#43-mixed-precision-quantization)
+   - 4.4 [Analytical threshold geometry](#44-analytical-threshold-geometry)
+   - 4.5 [Reconstruction and series reversion](#45-reconstruction-and-series-reversion)
+5. [Application: Semantic Embeddings](#5-application-semantic-embeddings)
+   - 5.1 [Embeddings and the unit hypersphere](#51-embeddings-and-the-unit-hypersphere)
+   - 5.2 [Incommensurability](#52-incommensurability)
+   - 5.3 [The thermal constraint](#53-the-thermal-constraint)
+   - 5.4 [Relational geometry and the lingua franca](#54-relational-geometry-and-the-lingua-franca)
 
 ---
 
-## 1 The Embedding Problem
+## 1 The Quantization Problem
 
-**Why are embeddings incommensurable?** Two models trained on the same corpus
-produce vectors that cannot be directly compared — their coordinate frames are
-arbitrary rotations of one another, fixed only by random initialisation and training
-order. This section builds the answer from first principles: what an embedding is,
-why its coordinate frame is unfixed, and why that constraint is less limiting than it
-first appears.
+### 1.1 The quantization problem
 
-### 1.1 Embeddings and the unit hypersphere
+What is the natural discrete coordinate system for a continuous signal?
 
-A transformer model maps a document to a vector in $\mathbb{R}^n$ by passing its token
-sequence through the network and L2-normalising the hidden-state activation at a
-selected token position. The output is a point on the unit hypersphere:
+A point in $\mathbb{R}^n$ — or on the unit hypersphere $S^{n-1}$ — must be represented in a finite alphabet. The question is which alphabet, which metric, and which encoding preserve the structure that matters while discarding the structure that does not.
 
-$$e \in S^{n-1} = \left\{ x \in \mathbb{R}^n : \|x\| = 1 \right\}$$
+This question arises in many domains. Semantic embeddings are one important application (§5): a transformer model produces a vector on $S^{n-1}$ and the retrieval system must compress it to a discrete code. But the same geometric problem appears in model weight quantization, signal processing, sensor data encoding, and communication systems. In each case, a continuous measurement must be mapped to a small number of discrete levels, and the fidelity of that mapping is governed by the geometry of the space and the metric under which distances are measured.
 
-Each coordinate satisfies $\sum_i e_i^2 = 1$. Semantic similarity between documents is
-measured by cosine similarity, which equals the dot product between normalised vectors:
-
-$$\text{sim}(u, v) = u \cdot v = \cos\theta_{uv}$$
-
-where $\theta_{uv}$ is the angle between $u$ and $v$.
-
-**Why not mean-pool?** Mean-pooling the token activations — computing
-$\bar{h} = \frac{1}{T}\sum_{t=1}^{T} h_t$ where $h_t \in \mathbb{R}^n$ is the
-hidden-state activation at position $t$ — produces, for unit-normalised token vectors
-$h_t$, a vector inside the unit ball ($\|\bar{h}\| \leq 1$). When the document's tokens
-activate semantically diverse directions, as any non-trivial document does, the
-centroid is short because distinct directions cancel. The subsequent L2 renormalisation
-stretches $\bar{h}$ back to $S^{n-1}$ by the factor $1/\|\bar{h}\|$. The components that
-survive cancellation are those common to all token positions — model-specific bias and
-positional structure — not the document's semantically distinctive content.
-Mean-pooling as a dimensional-reduction technique therefore increases the noise and
-lowers the signal.
+The framework developed in this document is general. The quantization machinery — the four-cell decomposition, the Lee metric, the Gray map, the complement involution, the transition key — depends only on the L1 geometry of high-dimensional space, not on the source of the continuous signal. Application-specific considerations (the embedding coordinate frame, the thermal constraint of edge inference) are treated in §5.
 
 ---
 
-### 1.2 Incommensurability
-
-$S^{n-1}$ has no preferred orientation. Every rotation $Q \in O(n)$ is an isometry:
-
-$$u \cdot v = (Qu) \cdot (Qv)$$
-
-A model trained on a corpus places semantically similar documents near each other on
-the sphere, but the absolute coordinate frame is determined by random initialisation
-and training order. A second model trained on the same corpus produces an embedding
-space related to the first by some unknown $Q \in O(n)$:
-
-$$e_B(x) \approx Q \cdot e_A(x)$$
-
-$Q$ is not available from the model weights and cannot be recovered without a large set
-of paired examples and a Procrustes alignment solve.
-
-For any two documents $x, y$ embedded by different models:
-
-$$e_A(x) \cdot e_B(y)$$
-
-depends entirely on $Q$. The dot product measures alignment between two arbitrary
-coordinate frames, not semantic similarity between documents.
-
-An untrained transformer also produces vectors on $S^{n-1}$, but with no training
-signal to cluster similar documents, the geometry carries no semantic content. An
-embedding is meaningful as a retrieval key only after training.
-
-**Coordinate-frame incommensurability does not imply relational incommensurability.**
-The rotation $Q$ scrambles absolute positions. It does not scramble differences.
-For any documents $a, b, c, d$ satisfying $e_A(a) - e_A(b) + e_A(c) \approx e_A(d)$
-in Model A's frame, the same relation holds in Model B's frame, because $Q$ distributes
-linearly over vector arithmetic:
-
-$$Q(e_A(a) - e_A(b) + e_A(c)) = e_B(a) - e_B(b) + e_B(c) \approx e_B(d)$$
-
-Semantic analogies, concept offsets, and the parallelogram structure of the embedding
-space are invariant under rotation. Incommensurability is a property of absolute
-coordinates, not of semantic geometry. The implications are developed in §1.8.
-
----
-
-### 1.3 Concentration of measure
+### 1.2 Concentration of measure
 
 The volume of the $n$-dimensional unit ball:
 
@@ -160,9 +104,9 @@ i.i.d. $\mathcal{N}(0, 1/n)$.
 
 ---
 
-### 1.4 The surface-area information bound
+### 1.3 The surface-area information bound
 
-The shell thickness $\varepsilon^{*}(n) \sim c/n$ shrinks as $n$ grows. If the semantic
+The shell thickness $\varepsilon^{*}(n) \sim c/n$ shrinks as $n$ grows. If the
 space has a characteristic scale $L$, the absolute shell thickness is:
 
 $$\delta(n) = \frac{c \cdot L}{n}$$
@@ -187,13 +131,14 @@ The surface area of $S^{n-1}$ is $\mathcal{A}_{n-1}(1) = 2\pi^{n/2}/\Gamma(n/2)$
 The minimum distinguishable angular separation grows as $\sim 1/\sqrt{n}$, so the
 marginal information per additional dimension decreases as the shell compresses.
 
-The semantic content of a document is encoded in which region of $S^{n-1}$ its
-embedding occupies. The quantization problem is the problem of discretising that
+The information content of a signal is encoded in which region of $S^{n-1}$ its representation occupies. The quantization problem is the problem of discretising that
 surface efficiently.
+
+The Euler polytope formula $V - E + F = \chi$ constrains the combinatorial capacity of any quantization lattice: the number of cells ($F$), boundaries ($E$), and vertices ($V$) are not independent. This is the combinatorial analog of the surface-area bound: just as the continuous information capacity is determined by the area of $S^{n-1}$, the discrete information capacity is determined by the topology of the quantization lattice (§4.2).
 
 ---
 
-### 1.5 The L1 metric and the cross-polytope
+### 1.4 The L1 metric and the cross-polytope
 
 The L2 distance couples all $n$ coordinates under a square root:
 
@@ -221,7 +166,7 @@ faces lie on the coordinate halfspaces, so the grid and the ball are aligned.
 
 ---
 
-### 1.6 The quaternary coordinate
+### 1.5 The quaternary coordinate
 
 Under the L1 metric, $d_1(u, v)$ decomposes into $n$ independent scalar problems:
 for each dimension $i$, how far apart are $u_i$ and $v_i$? The full distance is their
@@ -250,82 +195,34 @@ $$d_L(u, v) = \sum_{i=1}^{n} \min(|u_i - v_i|,\ 4 - |u_i - v_i|)$$
 The Gray map (§2.7) makes this computable by `popcnt(XOR)` on 64-byte vectors
 without symbol decoding.
 
-**The float32 activation** is not the ground truth that the quaternary symbol
+**A continuous measurement** is not the ground truth that the quaternary symbol
 approximates. It is an overcomplete representation of an ordinal position. The bits
 encoding intra-cell displacement contribute to the L2 norm and to shell concentration
-(§1.3); they are not recoverable signal for L1 retrieval. The quantization discards
+(§1.2); they are not recoverable signal for L1 retrieval. The quantization discards
 them.
 
 ---
 
-### 1.7 Index design consequences
+### 1.6 The quantization problem restated
 
-Three consequences follow from §1.1–1.6.
+The question is not: how many bits per dimension approximate angular distance on $S^{n-1}$? The question is: what is the natural discrete coordinate system of the L1 unit ball? The answer — four cells per dimension — is derived in §2.5.
 
-**Coordinate-frame incommensurability.** Quantization thresholds are calibrated from
-one model's activation distribution. A different model produces different thresholds.
-Quaternary codes in absolute terms are not comparable across models; an index must be
-rebuilt when the model changes. The relational structure of the embedding space —
-differences, analogies, topological trajectories — is preserved across models (§1.8),
-but recovering it requires a Procrustes solve over paired examples, which is
-thermally infeasible on constrained hardware.
-
-**The thermal constraint and the geometric constraint coincide.** Cross-model
-alignment requires a Procrustes solve over paired examples — geometrically necessary
-but thermally impossible on constrained hardware. Using the LLM's own activations
-satisfies both constraints simultaneously.
-
-**The quantization problem restated.** The question is not: how many bits per
-dimension approximate angular distance on $S^{n-1}$? The question is: what is the
-natural discrete coordinate system of the L1 unit ball? The answer — four cells per
-dimension — is derived in §2.5.
+This question applies to any domain where continuous signals must be discretized under resource constraints: semantic embeddings, model weight compression, signal quantization, and sensor encoding all face the same geometric problem. The answer — four cells per dimension — is derived in §2.
 
 ---
-
-### 1.8 Relational geometry and the lingua franca
-
-The rotation $Q$ is unknown and unrecoverable without paired supervision. Direct
-cross-model coordinate comparison is therefore meaningless. But $Q$ acts uniformly
-on the entire embedding space — it cannot selectively rotate some concepts while
-leaving others fixed — so the *shape* of the space is preserved.
-
-The canonical illustration: $\text{king} - \text{man} + \text{woman} \approx \text{queen}$. This
-vector arithmetic works not because "king" lives at a special absolute address, but
-because the training corpus encodes a consistent geometric offset between gendered
-role-pair concepts. Both Model A and Model B, having trained on the same language,
-construct the same parallelogram in their respective (rotated) frames. The analogical
-relationship is not a coincidence of one model's random initialisation; it is a
-property of the data.
-
-The transition key (§3) exploits this directly. By recording the *sequence of
-semantic directions visited* during inference — the topological trajectory through
-the embedding space — rather than any absolute coordinate, it indexes shape rather
-than position. Two models reading the same passage may produce entirely different
-float32 vectors at each layer, yet execute the same sequence of semantic turns: the
-same "hairpin" at the subordinate clause, the same "commitment" at the topic word.
-The run-reduced key captures that shared structure without requiring knowledge of $Q$.
-
-Embeddings across models are not fully incommensurable. Their coordinate frames are;
-their semantic geometry is not. The gap between those two facts is where Q2 operates.
-
-$$\underbrace{\text{king} - \text{man} + \text{woman}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{queen}}_{\text{same answer, rotated frame}}$$
-
-The coordinate frames differ by $Q$. The parallelogram does not. Viewed from the
-right angle, the incommensurability dissolves. 🤓
-
----
-
 ## 2 Quantization
 
-### 2.1 The thermal constraint
+### 2.1 The resource constraint
 
-Running a large language model on a consumer device operates near the thermal ceiling
+Quantization operates under a resource budget. The question is: given fixed compute, memory, or energy, what is the highest-fidelity discrete representation?
+
+The resource constraint applies equally to edge inference (thermal), communication channels (bandwidth), and storage systems (capacity). In each case, the number of distinguishable levels per dimension is bounded by the available budget.
+
+**The thermal constraint as a concrete instance.** Running a large language model on a consumer device operates near the thermal ceiling
 of that hardware. A second dedicated embedding model, run in parallel or in sequence,
-would exceed the thermal budget, cause throttling, and drain the battery.
-
-The constraint is therefore: given that an LLM is already running and already producing
-activations, what is the highest-quality semantic index constructible from those
-activations alone, at a fixed and predictable compute cost?
+would exceed the thermal budget, cause throttling, and drain the battery. The constraint is therefore: given that an LLM is already running and already producing
+activations, what is the highest-quality index constructible from those
+activations alone, at a fixed and predictable compute cost? This thermal instance is developed further in the embedding application (§5.3).
 
 ---
 
@@ -369,7 +266,7 @@ strong-positive and strong-negative directions — is not representable.
 
 ---
 
-### 2.4 Standard Q4 (different problem)
+### 2.4 Reconstruction vs. structural quantization
 
 Standard 4-bit quantization for LLM weight compression (GPTQ, AWQ, and related
 methods) assigns 4 bits per parameter using a learned or analytical codebook that
@@ -379,13 +276,11 @@ $$\min_{\hat{W}} \| W - \hat{W} \|_F^2$$
 
 subject to $\hat{W}$ having 4-bit entries ($2^4 = 16$ levels per dimension).
 
-This is weight quantization, not activation quantization for retrieval. The objective,
-metric, and distribution are all different. The two methods are not in the same design
-space.
+This is **reconstruction quantization**: the objective is to minimize $\|W - \hat{W}\|_F^2$, approximating the original signal as closely as possible. **Structural quantization** (the subject of this document) has a different objective: preserve relational and topological structure — distances, trajectories, and complement relationships — rather than pointwise values. The two objectives share the quaternary alphabet but differ in metric, distribution, and purpose.
 
 ---
 
-### 2.5 Quaternary semantic quantization
+### 2.5 Quaternary quantization
 
 The preceding analysis identifies what a correct scheme requires:
 
@@ -430,6 +325,8 @@ of 1 024 document activations per compaction cycle, using the empirical 25th and
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
 assuming a specific activation shape.
 
+**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^*$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the series $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
+
 Under the equiprobable target, each dimension carries:
 
 $$I(v_i;\ q(v_i)) = \log_2 4 = 2 \text{ bits}$$
@@ -452,10 +349,9 @@ $\mathbb{Z}_4$, the Lee distance is:
 
 $$d_L(u, v) = \min(|u - v|,\ 4 - |u - v|)$$
 
-**Why this metric matches semantic distance.** A weak-negative and a weak-positive
-activation ($B$–$C$) are adjacent states: the concept was weakly activated in both
-documents, with opposite sign. Lee distance 1 reflects this. The complement pairs
-$A$–$C$ and $B$–$D$ represent semantic opposition: one document activates a dimension
+**Why this metric matches structural distance.** A weak-negative and a weak-positive
+activation ($B$–$C$) are adjacent states: the coordinate was weakly committed in both cases, with opposite sign. Lee distance 1 reflects this. The complement pairs
+$A$–$C$ and $B$–$D$ represent structural opposition: one document activates a dimension
 strongly in one direction, the other in the complementary direction. Lee distance 2
 reflects this. Strong-negative and strong-positive ($A$–$D$) share strong commitment
 to their respective directions; the cyclic metric assigns them distance 1, not 2.
@@ -623,8 +519,8 @@ transition sequence but different run lengths map to the same $R$.
 
 *Proof.* Run-reduction discards run-length information. $\square$
 
-Run-length invariance means a document that visits a semantic state once and a
-document that dwells in it for many consecutive dimensions share the same key. The key
+Run-length invariance means a signal that visits a quantization state once and a
+signal that dwells in it for many consecutive dimensions share the same key. The key
 records which states were visited, not how long each visit lasted.
 
 **Example of run-reduction:**
@@ -682,7 +578,7 @@ distinction is resolved by the Lee-distance re-ranking step.
 
 The key is left-aligned: $r_0$ occupies the most significant two bits.
 
-**Definition.** The *semantic depth* of a transition at position $i$ in $R$ is $i$.
+**Definition.** The *resolution depth* of a transition at position $i$ in $R$ is $i$.
 Depth 0 is the first transition; depth 31 is the finest resolvable discrimination.
 
 **Proposition 3.6** *(Prefix clustering).* Two keys $K_1$ and $K_2$ share a common
@@ -764,12 +660,12 @@ Any practically chosen window satisfies $\delta < 2^{61}$ ($\approx 2.3\times10^
 a query spanning more than $10^{18}$ consecutive keys is a corpus scan, not a window
 query.
 
-**Semantic meaning of $\delta$.** Setting $\delta = 4^{32-j} - 1$ retrieves exactly
+**Interpretation of $\delta$.** Setting $\delta = 4^{32-j} - 1$ retrieves exactly
 all documents whose transition sequences agree with the query in the first $j$
 transitions (Corollary 3.7):
 
-| Prefix length $j$ | Half-width $\delta$ | Semantic meaning |
-|:-----------------:|:-------------------:|:-----------------|
+| Prefix length $j$ | Half-width $\delta$ | Interpretation |
+|:-----------------:|:-------------------:|:---------------|
 | 32 | 0 | Exact key match |
 | 31 | 3 | First 31 transitions match |
 | 30 | 15 | First 30 transitions match |
@@ -800,11 +696,260 @@ observable universe overstates it by 16 orders of magnitude — the observable u
 contains $\approx 10^{80}$ atoms and $2^{64} \approx 10^{19}$ — but the sparsity
 conclusion is correct regardless.
 
+**Admissible sequence count.** The transition trie has a root of arity $q = 4$ and all subsequent nodes of arity $q - 1 = 3$ (each successor must differ from its predecessor). The number of distinct transition sequences of length $k$ is:
+
+$$D(k) = q \cdot (q-1)^{k-1} = 4 \cdot 3^{k-1}$$
+
+For $k = 32$ (the key capacity), $D(32) = 4 \cdot 3^{31} \approx 2.47 \times 10^{15}$, occupying $\approx 1.34 \times 10^{-4}$ of the $2^{64}$ address space. The no-repeat constraint eliminates $\approx 99.987\%$ of possible 64-bit keys, concentrating all valid transition sequences into a sparse subset.
+
+The generating function for all transition sequences is $S(x) = (1 + x)/(1 - 3x)$, with the Geode factorization $S - 1 = S_1 \cdot G$ where $S_1 = 4x$ and $G = 1/(1 - 3x)$ (§4.1). This decomposition makes the information gain per additional symbol explicit: the first symbol contributes $\log_2 4 = 2$ bits; each subsequent symbol contributes $\log_2 3 \approx 1.585$ bits. A 32-symbol key carries $2 + 31 \times \log_2 3 \approx 51.1$ effective bits of information within its 64-bit container.
+
 **Corollary 3.9** *(Non-trivial windows).* For any practical corpus, a window of
 half-width $\delta = 4^{32-j} - 1$ with $j \leq 28$ returns a non-empty result only when
 the query has neighbours that shared its first $j$ transitions. An empty result is
-informative: no indexed document followed the same high-level semantic path as the
+informative: no indexed document followed the same high-level path as the
 query.
+
+---
+
+## 4 The Combinatorial Structure
+
+### 4.1 The Geode factorization and hierarchical quantization
+
+The central structural result of Wildberger & Rubine (2025) is the factorization:
+
+$$S - 1 = S_1 \cdot G$$
+
+where $S$ is the generating function for all structured codewords, $S_1$ is the generating function for the first quantization step (the coarsest level), and $G$ is the *Geode* — the generating function for everything after the first level has been decided.
+
+In the language of quantization, this factorization describes **hierarchical quantization**: first decide the coarse cell, then refine within it. The Geode $G$ counts the refinement possibilities at each subsequent level.
+
+For Q2's transition key, the factorization is concrete. The generating function for all transition sequences of length $\geq 1$ is:
+
+$$S(x) - 1 = \frac{4x}{1 - 3x} = \underbrace{4x}_{S_1} \cdot \underbrace{\frac{1}{1-3x}}_{G}$$
+
+The first factor $S_1 = 4x$ records the first symbol $r_0$ (4 choices, selecting the block file). The Geode $G = 1/(1-3x) = 1 + 3x + 9x^2 + \cdots$ counts all possible continuations — the tail of the key after the first symbol is fixed.
+
+| Level | Paper | Q² transition key | General quantization |
+|:-----:|:------|:------------------|:--------------------|
+| Full structure | $S$ | All transition sequences | All codewords |
+| First level | $S_1$ | $r_0$ (first symbol → block file) | Coarse quantization cell |
+| Refinement | $G$ | $K_{\text{tail}}$ (remaining key) | Sub-cell refinement |
+| Recursion | $S = 1 + S_1 G$ | Key = prefix + tail | Hierarchical VQ |
+
+The factorization is *recursive*: $G$ itself contains $S$, so the refinement at level 2 factors the same way. This is the algebraic version of a multi-resolution quantization scheme — coarse-to-fine, with the Geode counting the degrees of freedom at each level.
+
+Window queries (§3.5) are already implicitly performing this hierarchical decomposition. A query with prefix length $j$ fixes the first $j$ symbols (the coarse structure) and retrieves all documents that refine those $j$ symbols in any way. The Geode factorization provides the theory behind why this works: the number of valid refinements at depth $j$ is exactly $3^{32-j}$, which is the coefficient structure of $G$.
+
+---
+
+### 4.2 Euler's polytope formula as a quantization constraint
+
+The hyper-Catalan coefficient from Wildberger & Rubine (2025):
+
+$$C_\mathbf{m} = \frac{(E-1)!}{(V-1)! \cdot \mathbf{m}!}$$
+
+is governed by Euler's polytope formula $V - E + F = \chi$, where:
+
+- $F$ = number of cells (the codewords of the quantization lattice),
+- $E$ = number of cell boundaries (where the quantization function is discontinuous),
+- $V$ = number of vertices (where three or more cells meet),
+- $\chi$ = Euler characteristic of the underlying space.
+
+Euler's formula constrains these quantities: you cannot have $F$ cells, $E$ boundaries, and $V$ vertices in arbitrary combination. The topology of the quantization lattice determines admissible $(V, E, F)$ triples.
+
+For Q2 specifically, the $\mathbb{Z}_4$ cycle has $V = 4$ vertices, $E = 4$ edges, and $F = 1$ face (the single outer region):
+
+$$4 - 4 + 1 = 1 = \chi \quad \checkmark$$
+
+For the product lattice $\mathbb{Z}_4^n$, the face structure scales with $n$ and its Euler characteristic is computable from the hyper-Catalan framework.
+
+When extending to higher-order alphabets ($q = 8$, $q = 16$, etc.) or to non-cyclic topologies, Euler's formula provides an *a priori* constraint on what quantization lattice geometries are possible. Rather than searching over lattice designs, one enumerates the admissible $(V, E, F)$ triples and the hyper-Catalan coefficient tells how many distinct quantizations each topology supports.
+
+---
+
+### 4.3 Mixed-precision quantization
+
+The Bi-Tri (and higher) hyper-Catalan arrays (Wildberger & Rubine 2025, Table 1) count structures with $m_2$ binary splits, $m_3$ ternary splits, and $m_4$ quaternary splits. In quantization terms:
+
+- A **binary split** is a 1-bit quantization step (above/below threshold).
+- A **ternary split** is a $\log_2 3 \approx 1.585$-bit step (below/near/above).
+- A **quaternary split** is a 2-bit step (Q2's $\{A, B, C, D\}$).
+
+A general quantization framework may mix these: use 2-bit precision on high-variance dimensions and 1-bit on low-variance dimensions. The number of distinct mixed-precision codebooks with $m_2$ binary dimensions, $m_3$ ternary dimensions, and $m_4$ quaternary dimensions is:
+
+$$C_{(m_2, m_3, m_4)} = \frac{(E-1)!}{(V-1)! \cdot m_2! \cdot m_3! \cdot m_4!}$$
+
+This is a row of the hyper-Catalan array, directly from the paper.
+
+**Concrete example.** Consider a 256-dimensional signal where variance analysis identifies 128 high-variance dimensions and 128 low-variance dimensions. Allocating 2 bits to the high-variance dimensions (quaternary, preserving sign and magnitude class) and 1 bit to the low-variance dimensions (binary, preserving sign only) yields a mixed-precision code of $128 \times 2 + 128 \times 1 = 384$ bits — a 25% reduction from the uniform quaternary code — with the hyper-Catalan framework bounding the number of structurally distinct such allocations.
+
+---
+
+### 4.4 Analytical threshold geometry
+
+For non-Gaussian distributions — mixtures, heavy-tailed activations, quantized signal processing — the equiprobable threshold equation:
+
+$$F(\tau) = \frac{k}{q}, \qquad k = 1, \ldots, q-1$$
+
+for CDF $F$ becomes a polynomial in the distribution parameters. The hyper-Catalan series solves this combinatorially:
+
+$$\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$$
+
+where each $C_\mathbf{m}$ is a hyper-Catalan number and $t_j$ are functions of the distribution parameters.
+
+The series converges by direct evaluation — no Newton iteration, no gradient descent. On constrained hardware, a closed-form series that can be truncated to the precision affordable within the resource budget (§2.1) is preferable to an iterative solver that may not converge within budget. The truncation order itself is a resource-allocation decision: each additional term in the hyper-Catalan series refines the threshold, trading compute cost for quantization precision.
+
+For the standard case ($q = 4$, Gaussian source), the series reduces to the known quartile $\tau^* = \Phi^{-1}(3/4)$. For mixture-of-Gaussians sources — the natural model for multi-modal activation distributions — the threshold is expressible as a hyper-Catalan series in the mixture weights.
+
+---
+
+### 4.5 Reconstruction and series reversion
+
+If Q2 requires a decode path — for lossy compression applications rather than retrieval — the optimal reconstruction point for symbol $s$ is:
+
+$$\hat{x}(s) = \mathbb{E}[x \mid q(x) = s]$$
+
+For non-uniform distributions, this is *not* the cell centroid; it is the conditional expectation within each quantization cell. Computing it for parametric distributions requires inverting the CDF within each cell, which is a series-reversion problem.
+
+The hyper-Catalan series provides this inversion combinatorially, without numerical root-finding. Wildberger & Rubine (2025, §10) show that Lagrange inversion and the hyper-Catalan series are two faces of the same coin: the series coefficients that solve the forward threshold problem also yield the inverse.
+
+This is noted as a future extension. The current Q2 pipeline is retrieval-only (quantize, index, search); no reconstruction step is needed. Should a decode path become necessary — for example, in signal compression or approximate model distillation — the reconstruction formula is already provided by the series-reversion machinery.
+
+---
+
+## 5 Application: Semantic Embeddings
+
+The framework of §1–§4 is general: it applies to any continuous signal that must be discretized under resource constraints. This section develops the primary application — semantic embeddings produced by transformer models — where the continuous signal is a point on the unit hypersphere and the resource constraint is the thermal budget of edge inference.
+
+### 5.1 Embeddings and the unit hypersphere
+
+A transformer model maps a document to a vector in $\mathbb{R}^n$ by passing its token
+sequence through the network and L2-normalising the hidden-state activation at a
+selected token position. The output is a point on the unit hypersphere:
+
+$$e \in S^{n-1} = \left\{ x \in \mathbb{R}^n : \|x\| = 1 \right\}$$
+
+Each coordinate satisfies $\sum_i e_i^2 = 1$. Semantic similarity between documents is
+measured by cosine similarity, which equals the dot product between normalised vectors:
+
+$$\text{sim}(u, v) = u \cdot v = \cos\theta_{uv}$$
+
+where $\theta_{uv}$ is the angle between $u$ and $v$.
+
+**Why not mean-pool?** Mean-pooling the token activations — computing
+$\bar{h} = \frac{1}{T}\sum_{t=1}^{T} h_t$ where $h_t \in \mathbb{R}^n$ is the
+hidden-state activation at position $t$ — produces, for unit-normalised token vectors
+$h_t$, a vector inside the unit ball ($\|\bar{h}\| \leq 1$). When the document's tokens
+activate semantically diverse directions, as any non-trivial document does, the
+centroid is short because distinct directions cancel. The subsequent L2 renormalisation
+stretches $\bar{h}$ back to $S^{n-1}$ by the factor $1/\|\bar{h}\|$. The components that
+survive cancellation are those common to all token positions — model-specific bias and
+positional structure — not the document's semantically distinctive content.
+Mean-pooling as a dimensional-reduction technique therefore increases the noise and
+lowers the signal.
+
+---
+
+### 5.2 Incommensurability
+
+$S^{n-1}$ has no preferred orientation. Every rotation $Q \in O(n)$ is an isometry:
+
+$$u \cdot v = (Qu) \cdot (Qv)$$
+
+A model trained on a corpus places semantically similar documents near each other on
+the sphere, but the absolute coordinate frame is determined by random initialisation
+and training order. A second model trained on the same corpus produces an embedding
+space related to the first by some unknown $Q \in O(n)$:
+
+$$e_B(x) \approx Q \cdot e_A(x)$$
+
+$Q$ is not available from the model weights and cannot be recovered without a large set
+of paired examples and a Procrustes alignment solve.
+
+For any two documents $x, y$ embedded by different models:
+
+$$e_A(x) \cdot e_B(y)$$
+
+depends entirely on $Q$. The dot product measures alignment between two arbitrary
+coordinate frames, not semantic similarity between documents.
+
+An untrained transformer also produces vectors on $S^{n-1}$, but with no training
+signal to cluster similar documents, the geometry carries no semantic content. An
+embedding is meaningful as a retrieval key only after training.
+
+**Coordinate-frame incommensurability does not imply relational incommensurability.**
+The rotation $Q$ scrambles absolute positions. It does not scramble differences.
+For any documents $a, b, c, d$ satisfying $e_A(a) - e_A(b) + e_A(c) \approx e_A(d)$
+in Model A's frame, the same relation holds in Model B's frame, because $Q$ distributes
+linearly over vector arithmetic:
+
+$$Q(e_A(a) - e_A(b) + e_A(c)) = e_B(a) - e_B(b) + e_B(c) \approx e_B(d)$$
+
+Semantic analogies, concept offsets, and the parallelogram structure of the embedding
+space are invariant under rotation. Incommensurability is a property of absolute
+coordinates, not of semantic geometry. The implications are developed in §5.4.
+
+---
+
+### 5.3 The thermal constraint
+
+The thermal constraint is the concrete instance of the general resource constraint (§2.1) specific to edge inference. Running a large language model on a consumer device operates near the thermal ceiling of that hardware. A second dedicated embedding model, run in parallel or in sequence, would exceed the thermal budget, cause throttling, and drain the battery. The constraint is therefore: given that an LLM is already running and already producing activations, what is the highest-quality semantic index constructible from those activations alone, at a fixed and predictable compute cost?
+
+**Coordinate-frame incommensurability.** Quantization thresholds are calibrated from
+one model's activation distribution. A different model produces different thresholds.
+Quaternary codes in absolute terms are not comparable across models; an index must be
+rebuilt when the model changes. The relational structure of the embedding space —
+differences, analogies, topological trajectories — is preserved across models (§5.4),
+but recovering it requires a Procrustes solve over paired examples, which is
+thermally infeasible on constrained hardware.
+
+**The thermal constraint and the geometric constraint coincide.** Cross-model
+alignment requires a Procrustes solve over paired examples — geometrically necessary
+but thermally impossible on constrained hardware. Using the LLM's own activations
+satisfies both constraints simultaneously.
+
+---
+
+### 5.4 Relational geometry and the lingua franca
+
+The rotation $Q$ is unknown and unrecoverable without paired supervision. Direct
+cross-model coordinate comparison is therefore meaningless. But $Q$ acts uniformly
+on the entire embedding space — it cannot selectively rotate some concepts while
+leaving others fixed — so the *shape* of the space is preserved.
+
+The canonical illustration: $\text{king} - \text{man} + \text{woman} \approx \text{queen}$. This
+vector arithmetic works not because "king" lives at a special absolute address, but
+because the training corpus encodes a consistent geometric offset between gendered
+role-pair concepts. Both Model A and Model B, having trained on the same language,
+construct the same parallelogram in their respective (rotated) frames. The analogical
+relationship is not a coincidence of one model's random initialisation; it is a
+property of the data.
+
+The transition key (§3) exploits this directly. By recording the *sequence of
+semantic directions visited* during inference — the topological trajectory through
+the embedding space — rather than any absolute coordinate, it indexes shape rather
+than position. Two models reading the same passage may produce entirely different
+float32 vectors at each layer, yet execute the same sequence of semantic turns: the
+same "hairpin" at the subordinate clause, the same "commitment" at the topic word.
+The run-reduced key captures that shared structure without requiring knowledge of $Q$.
+
+The generalized framework makes the lingua franca case stronger. The transition key captures relational structure that is invariant under rotation. This invariance is not an accident of the semantic embedding application — it is a consequence of the general framework: structural quantization (§2.4) preserves relational geometry by design. The embedding application is a special case where the rotation $Q$ corresponds to the arbitrary coordinate frame of a trained model.
+
+Embeddings across models are not fully incommensurable. Their coordinate frames are;
+their semantic geometry is not. The gap between those two facts is where Q2 operates.
+
+$$\underbrace{\text{king} - \text{man} + \text{woman}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{queen}}_{\text{same answer, rotated frame}}$$
+
+The coordinate frames differ by $Q$. The parallelogram does not. Viewed from the
+right angle, the incommensurability dissolves. 🤓
+
+---
+
+## References
+
+- Hammons, A. R., Kumar, P. V., Calderbank, A. R., Sloane, N. J. A., & Solé, P. (1994). The $\mathbb{Z}_4$-linearity of Kerdock, Preparata, Goethals, and related codes. *IEEE Trans. Inform. Theory* 40:2, 301–319.
+- Wildberger, N. J. & Rubine, D. (2025). A Hyper-Catalan Series Solution to Polynomial Equations, and the Geode. *Amer. Math. Monthly* 132:5, 383–402. DOI: 10.1080/00029890.2025.2460966
 
 ---
 
