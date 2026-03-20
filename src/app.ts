@@ -335,6 +335,11 @@ export function initModelPicker(): void {
   loadBtnEl.addEventListener('click', triggerLoad);
   initSettingsPanel();
   initLocalFileStore();
+
+  // Automatically begin loading the default chat model so the app is usable
+  // immediately without requiring the user to navigate to Settings and click Load.
+  appLog('info', 'Auto-loading default chat model', { modelId: currentSettings.defaultChatModel });
+  startWithModel(currentSettings.defaultChatModel);
 }
 
 /** Wire up settings controls and persist changes to localStorage. */
@@ -604,6 +609,16 @@ export function startWithModel(modelId: string): void {
 
 export function initWorker(modelId: string): void {
   appLog('info', 'initWorker called', { modelId });
+
+  // Terminate any existing worker before creating a new one so we never
+  // have two live workers competing for the same message channel.
+  if (worker) {
+    appLog('info', 'initWorker: terminating previous worker');
+    worker.terminate();
+    worker = null;
+    modelReady = false;
+  }
+
   const workerUrl =
     globalThis.__Q2_WORKER_URL__ ??
     new URL('./worker.js', import.meta.url).toString();
