@@ -281,6 +281,14 @@ async function quantiseAndSend(
   hiddenDim: number,
   dtype: EmbeddingMsg['dtype'],
 ): Promise<void> {
+  if (seqLen < 1) {
+    workerLog('warn', 'quantiseAndSend: seqLen < 1; skipping Q² quantisation', { seqLen });
+    return;
+  }
+  if (hiddenDim < 1) {
+    workerLog('warn', 'quantiseAndSend: hiddenDim < 1; skipping Q² quantisation', { hiddenDim });
+    return;
+  }
   const n = hiddenDim;
   const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
   try {
