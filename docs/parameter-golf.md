@@ -29,11 +29,11 @@ This note outlines how to point Q² at OpenAI's Parameter Golf challenge (train 
   - Shallow attention (6–8 layers, 4–6 heads, 2 KV heads) plus SmearGate-style mixing; depth is recovered by **parameter tying** (ALBERT-style) + liquid recurrence. This keeps parameter count low for the 16 MB cap while letting us spend wall-clock on more steps.
   - Apply **run-reduction transition keys** to per-channel activations on the fly; use transition density as a regularizer (penalize over-fragmented trajectories) to keep q2 thresholds stable under liquid dynamics.
 - **Regularization**
-  - Skip-weight vectors and q_gain stay in fp16 (CONTROL_TENSOR guard) but are stored with per-row scaling; everything else targets q2/int5.
-  - Use logit softcap (already present) + stochastic depth on liquid branch to stabilize fast compilation.
+  - Skip-weight vectors and q_gain stay in fp16, guarded by the upstream `CONTROL_TENSOR` mechanism in the OpenAI Parameter Golf baseline (not defined in this repo), but are stored with per-row scaling; everything else targets q2/int5.
+  - When integrating with the upstream Parameter Golf baseline, enable its existing “logit softcap” mechanism on the logits and combine it with stochastic depth on the liquid branch to stabilize fast compilation; this repo does not currently ship a `logit_softcap` implementation.
 
 ## Training plan (10-minute budget)
-- **Stage A (6–7 min):** train at seq_len 1024 with tied weights and liquid branch active, using a cosine LR warmup→flat→linear warmdown. Compile `zeropower_via_newtonschulz5` and the liquid cell; freeze embeddings for the first 500 steps to stabilize hash collisions.
+- **Stage A (6–7 min):** train at seq_len 1024 with tied weights and liquid branch active, using a cosine LR warmup→flat→linear warmdown. In the upstream Parameter Golf baseline, compile `zeropower_via_newtonschulz5` and the liquid cell (or an equivalent zero-power preconditioner); in this repo, treat that call as a suggested hook rather than an existing function. Freeze embeddings for the first 500 steps to stabilize hash collisions.
 - **Stage B (2–3 min):** switch to seq_len 2048 with **sliding-window eval (stride 64)** to harvest lower bpb; unfreeze embeddings and apply Muon WD on matrices only. Run a brief QAT pass that drives weights toward equiprobable q2 levels (clip at the τ* thresholds from §D-2.5).
 - **Stage C (≤1 min):** structural mixed-precision sweep: promote the densest 5–10% rows (by transition density) to int6, everything else to q2/int5. Capture a checkpoint before compression for ablation.
 
