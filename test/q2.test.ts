@@ -182,9 +182,9 @@ describe('q2LeeDistanceDirect', () => {
 
   it('returns maximum distance (2) for complement pairs A↔C', () => {
     // A=00₂, C=11₂ → complement (DESIGN.md §2.8, distance 2 per dim)
-    // All A → 0x00; All C → 0xFF
+    // All A → 0x00; All C → 0xFF = 11_11_11_11₂ (four C symbols per byte)
     const a = new Uint8Array([0x00, 0x00]); // 8× A
-    const c = new Uint8Array([0xFF, 0xFF]); // 8× C (11₂ packed)
+    const c = new Uint8Array([0xFF, 0xFF]); // 8× C
     // Each of 8 dims differs by 2 bits → total Hamming = 16 = total Lee
     expect(q2LeeDistanceDirect(a, c, 8)).toBe(16);
   });
@@ -197,7 +197,7 @@ describe('q2LeeDistanceDirect', () => {
     expect(q2LeeDistanceDirect(a, b, 8)).toBe(8);
   });
 
-  it('returns 1 per dimension for cyclic-adjacent D↔A (strong extremes)', () => {
+  it('returns 1 per dimension for cyclic-adjacent D↔A', () => {
     // D=10₂, A=00₂ → cyclic adjacent, Lee distance 1 per dim
     // XOR = 10₂ per dim → 1 bit per dim → Hamming 1 = Lee 1
     const d = new Uint8Array([0xAA, 0xAA]); // 8× D (10₂)
