@@ -681,7 +681,7 @@ def train(cfg: Config) -> None:
         for _ in range(batch_size):
             prev_tok, inp, tgt = next(data)
             inp, tgt = inp.unsqueeze(0), tgt.unsqueeze(0)
-            prev_tok = prev_tok.unsqueeze(0)           # (1, 1) → squeezed to (1,) by model
+            prev_tok = prev_tok.unsqueeze(0)           # (1,) → (1,1); squeeze(0) passes (1,) to model
             with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
                 logits = model(inp, prev_token=prev_tok.squeeze(0))
                 loss   = F.cross_entropy(
