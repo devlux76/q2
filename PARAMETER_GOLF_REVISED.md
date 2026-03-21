@@ -191,14 +191,14 @@ class Q2Quantize(torch.autograd.Function):
         # Gray encode: g = sym ⊕ (sym >> 1)
         gray = sym ^ (sym >> 1)
 
-        # Dequantize for forward pass
+        # Dequantize for forward pass (use original symbols, not Gray code)
         # Map {0, 1, 2, 3} → {-1.5τ, -0.5τ, +0.5τ, +1.5τ}
         dequant_map = torch.tensor(
             [-1.5, -0.5, 0.5, 1.5],
             dtype=weight.dtype,
             device=weight.device
         )
-        weight_q = dequant_map[gray] * tau
+        weight_q = dequant_map[sym] * tau
 
         ctx.save_for_backward(weight, weight_q, torch.tensor(tau))
         return weight_q
