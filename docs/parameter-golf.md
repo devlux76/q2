@@ -38,18 +38,18 @@ This note outlines how to point Q² at OpenAI's Parameter Golf challenge (train 
 - **Stage C (≤1 min):** structural mixed-precision sweep: promote the densest 5–10% rows (by transition density) to int6, everything else to q2/int5. Capture a checkpoint before compression for ablation.
 
 ## Compression and artifact packing
-- Export in the existing int8+zlib path but swap the payload to **q2/int5 per-row with 16-bit scales**; keep small control tensors in fp16. Reorder tensors by transition-key order so zstd sees long runs (RLE-friendly).
+- Design an export path that packs weights into an int8-compatible container while storing the payload as **q2/int5 per-row with 16-bit scales**; keep small control tensors in fp16. Reorder tensors by transition-key order so a downstream compressor (for example, zstd run in the submission pipeline) sees long runs (RLE-friendly).
 - Target parameter budget: ≤28 M params → q2 payload ≈ 7 MB; with scales/metadata + code we stay below 15 MB. If BigramHash pushes vocab beyond 10k, cap at 12k and prune rare buckets to stay under budget.
-- Validate round-trip with `final_int8_zlib_roundtrip` and the tokenizer-agnostic bpb path; reject any run that inflates artifact size past 15.5 MB.
+- In the parameter-golf repo, add a round-trip export/import helper (e.g., `final_int8_zlib_roundtrip`) and validate against the tokenizer-agnostic bpb path; reject any run that inflates compressed artifact size past 15.5 MB.
 
 ## Execution checklist for the parameter-golf repo
 1) Add BigramHash tokenizer variant with complement-aware collision resolution; keep the val_bpb byte accounting unchanged.
 2) Implement a **LiquidBlock** (CfC/LTC) that plugs into `train_gpt.py` alongside the existing MLP, with parameter tying across depth (Geode stratum-aware).
 3) Add transition-density logging to drive the mixed q2/int6 schedule (P17), plus a tiny QAT head that nudges weights to τ*; unlock higher-dimension facets only when transition density spikes (Geode progression).
-4) Swap export to q2/int5 per-row + fp16 control tensors; keep zstd-22 compression; order tensors by Geode traversal to boost run-length compression.
+4) Swap export to q2/int5 per-row + fp16 control tensors and rely on an external high-ratio compressor (for example, zstd run at a strong setting in the submission toolchain); order tensors by Geode traversal to boost run-length compression.
 5) Run the 3-stage schedule above, capture logs for p<0.01 delta over the 1.1428 bpb SOTA.
 
 ## Risks and mitigations
 - **Liquid stability:** clamp time constants and use per-head RMSNorm to prevent exploding hidden state; fall back to pure MLP if compilation fails.
 - **Tokenizer drift:** complement-aware hashing must keep byte accounting identical to baseline; add a regression that compares bytes-per-token vs. the stock SP tokenizer on the val set.
-- **Artifact overrun:** if zstd output >15.5 MB, lower vocab to 8k or increase the int6→q2 demotion threshold until size passes.
+- **Artifact overrun:** if the compressed artifact exceeds 15.5 MB, lower vocab to 8k or increase the int6→q2 demotion threshold until size passes.
