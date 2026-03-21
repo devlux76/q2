@@ -265,8 +265,11 @@ for two reasons:
 
 ### 4.5 Geode-derived layer layout
 
-LFM 2.5's 10:6 CfC:GQA ratio was found empirically. The Geode factorization
-(§D-4.1) provides a principled derivation that eliminates the guesswork.
+LFM 2.5's 10:6 CfC:GQA ratio was found empirically. Note that 10:6 cannot be
+reduced to 5:3: the numbers are absolute layer counts (10 CfC + 6 GQA = 16 layers
+total), not a bare ratio. Reducing to 5:3 would describe a different 8-layer
+model, halving the depth. The Geode factorization (§D-4.1) provides a principled
+derivation that eliminates the guesswork.
 
 The generating function for Q²'s transition sequences:
 
