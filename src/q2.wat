@@ -425,13 +425,14 @@
               (v128.load
                 (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2)))))
 
-            ;; Cascaded ≤ masks (≤ is NOT >)
+            ;; Cascaded ≤ masks (native f32x4.le preserves NaN→D semantics
+            ;; matching the scalar path's f32.le, which returns false for NaN)
             (local.set $mask_a
-              (v128.not (f32x4.gt (local.get $v4) (local.get $neg_tau4))))
+              (f32x4.le (local.get $v4) (local.get $neg_tau4)))
             (local.set $mask_b
-              (v128.not (f32x4.gt (local.get $v4) (local.get $zero4))))
+              (f32x4.le (local.get $v4) (local.get $zero4)))
             (local.set $mask_c
-              (v128.not (f32x4.gt (local.get $v4) (local.get $tau4))))
+              (f32x4.le (local.get $v4) (local.get $tau4)))
 
             ;; Branchless symbol selection: D=3 → C=2 → B=1 → A=0
             (local.set $sym4

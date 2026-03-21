@@ -177,16 +177,16 @@ describe('q2LeeDistanceDirect', () => {
   it('returns 0 for identical vectors', () => {
     // All D: Gray 10₂ → 0xAA per byte
     const a = new Uint8Array([0xAA, 0xAA]);
-    expect(q2LeeDistanceDirect(a, a, 8)).toBe(0);
+    expect(q2LeeDistanceDirect(a, a)).toBe(0);
   });
 
-  it('returns maximum distance (2) for complement pairs A↔C', () => {
+  it('returns 2 per dimension (16 total for n=8) for complement pairs A↔C', () => {
     // A=00₂, C=11₂ → complement (DESIGN.md §2.8, distance 2 per dim)
     // All A → 0x00; All C → 0xFF = 11_11_11_11₂ (four C symbols per byte)
     const a = new Uint8Array([0x00, 0x00]); // 8× A
     const c = new Uint8Array([0xFF, 0xFF]); // 8× C
     // Each of 8 dims differs by 2 bits → total Hamming = 16 = total Lee
-    expect(q2LeeDistanceDirect(a, c, 8)).toBe(16);
+    expect(q2LeeDistanceDirect(a, c)).toBe(16);
   });
 
   it('returns 1 per dimension for adjacent symbols A↔B', () => {
@@ -194,7 +194,7 @@ describe('q2LeeDistanceDirect', () => {
     // All A → 0x00; All B → 01_01_01_01₂ = 0x55
     const a = new Uint8Array([0x00, 0x00]); // 8× A
     const b = new Uint8Array([0x55, 0x55]); // 8× B
-    expect(q2LeeDistanceDirect(a, b, 8)).toBe(8);
+    expect(q2LeeDistanceDirect(a, b)).toBe(8);
   });
 
   it('returns 1 per dimension for cyclic-adjacent D↔A', () => {
@@ -202,17 +202,17 @@ describe('q2LeeDistanceDirect', () => {
     // XOR = 10₂ per dim → 1 bit per dim → Hamming 1 = Lee 1
     const d = new Uint8Array([0xAA, 0xAA]); // 8× D (10₂)
     const a = new Uint8Array([0x00, 0x00]); // 8× A (00₂)
-    expect(q2LeeDistanceDirect(d, a, 8)).toBe(8);
+    expect(q2LeeDistanceDirect(d, a)).toBe(8);
   });
 
   it('is symmetric: distance(a,b) = distance(b,a)', () => {
     const a = new Uint8Array([0xAA, 0x55]); // mixed D and B
     const b = new Uint8Array([0xFF, 0x00]); // mixed C and A
-    expect(q2LeeDistanceDirect(a, b, 8)).toBe(q2LeeDistanceDirect(b, a, 8));
+    expect(q2LeeDistanceDirect(a, b)).toBe(q2LeeDistanceDirect(b, a));
   });
 
-  it('works with n=0 (empty vectors)', () => {
-    expect(q2LeeDistanceDirect(new Uint8Array(0), new Uint8Array(0), 0)).toBe(0);
+  it('works with empty vectors', () => {
+    expect(q2LeeDistanceDirect(new Uint8Array(0), new Uint8Array(0))).toBe(0);
   });
 });
 
