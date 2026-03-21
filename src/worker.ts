@@ -39,6 +39,13 @@ import type {
   EmbeddingMsg,
   Dtype,
 } from './types.js';
+import {
+  getKernel,
+  DTYPE_TO_Q2,
+  Q2_DTYPE_FP32,
+  Q2_INPUT_OFFSET,
+  Q2_OUTPUT_OFFSET,
+} from './q2.js';
 
 /** Subset of the ProgressInfo union we care about for download tracking. */
 interface DownloadProgress {
@@ -251,6 +258,52 @@ let activeDtype: EmbeddingMsg['dtype'] = 'fp32';
 
 function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
   workerScope.postMessage(msg, transfer);
+}
+
+/**
+ * Run the Q² WASM kernel on a raw embedding buffer and send the compact result
+ * to the main thread.
+ *
+ * By quantising in the worker we avoid transferring the full activation buffer
+ * across the thread boundary.  Only the packed output (n/4 bytes) and the
+ * 64-bit key are sent — roughly 64× less data than the raw fp32 input for a
+ * typical hidden dimension of 4096.
+ *
+ * @param embeddingBuffer - raw activation bytes (owned; will NOT be transferred)
+ * @param seqLen          - number of token positions in the buffer
+ * @param hiddenDim       - embedding dimension n
+ * @param dtype           - element dtype of the activation buffer
+ */
+async function quantiseAndSend(
+  embeddingBuffer: ArrayBuffer,
+  seqLen: number,
+  hiddenDim: number,
+  dtype: EmbeddingMsg['dtype'],
+): Promise<void> {
+  const n = hiddenDim;
+  const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
+  try {
+    const kernel = await getKernel();
+    const mem = new Uint8Array(kernel.memory.buffer);
+
+    // Copy activation bytes into WASM linear memory at the fixed input offset.
+    mem.set(new Uint8Array(embeddingBuffer), Q2_INPUT_OFFSET);
+
+    // L2-normalise last token, threshold, Gray-encode → packed output at Q2_OUTPUT_OFFSET.
+    kernel.quantise(Q2_INPUT_OFFSET, seqLen, n, dtypeId, Q2_OUTPUT_OFFSET);
+
+    // Derive the 64-bit transition key.
+    const key = BigInt.asUintN(64, kernel.key(Q2_OUTPUT_OFFSET, n));
+
+    // Slice to an independent buffer so we can transfer ownership without
+    // detaching the WASM module's shared memory view.
+    const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2).slice();
+
+    workerLog('debug', 'Q² kernel produced key', { key: `0x${key.toString(16).padStart(16, '0')}`, n });
+    send({ type: 'q2', packed: packed.buffer, key, n }, [packed.buffer]);
+  } catch (err) {
+    workerLog('warn', 'Q² kernel failed; skipping quantisation result', { error: err });
+  }
 }
 
 // ─── Model loading ────────────────────────────────────────────────────────────

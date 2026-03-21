@@ -101,6 +101,26 @@ export interface EmbeddingMsg {
   dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q2';
 }
 
+/**
+ * Q² quantisation result produced by the worker kernel.
+ *
+ * The worker runs the Q² WASM kernel immediately after extracting an embedding,
+ * so only the compact quantised representation crosses the thread boundary
+ * instead of the raw activation buffer (~64× smaller for fp32 n=4096).
+ */
+export interface Q2Msg {
+  type: 'q2';
+  /**
+   * n/4 packed Gray-encoded bytes (transferable ArrayBuffer).
+   * Transfer via postMessage(msg, [packed]) to avoid structured-clone copy.
+   */
+  packed: ArrayBuffer;
+  /** 64-bit MSB-aligned transition key (DESIGN.md §2.2). */
+  key: bigint;
+  /** Original embedding dimension (n). */
+  n: number;
+}
+
 export interface DoneMsg {
   type: 'done';
 }
@@ -115,6 +135,7 @@ export type WorkerOutMsg =
   | ProgressMsg
   | TokenMsg
   | EmbeddingMsg
+  | Q2Msg
   | DoneMsg
   | ErrorMsg;
 

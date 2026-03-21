@@ -249,6 +249,18 @@ describe('app.ts helpers and DOM integration', () => {
     expect(stats.textContent).toContain('dtype=fp32');
   });
 
+  it('onQ2 renders the Q² result without needing the raw embedding buffer', () => {
+    const stats = document.querySelector('#embedding-stats') as HTMLElement;
+    stats.textContent = '';
+
+    // n=8 → 2 packed bytes; key produced by the worker kernel
+    const packed = new Uint8Array([0xAA, 0xAA]); // D D D D D D D D
+    app.onQ2({ type: 'q2', packed: packed.buffer, key: 0xdd8c000000000000n, n: 8 });
+
+    expect(stats.textContent).toContain('Q²:');
+    expect(stats.textContent).toContain('2 bytes');
+  });
+
   it('sendMessage posts a generate message and updates the UI', async () => {
     const input = document.querySelector('#user-input') as HTMLTextAreaElement;
     const sendBtn = document.querySelector('#send-btn') as HTMLButtonElement;
