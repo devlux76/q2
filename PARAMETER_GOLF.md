@@ -15,6 +15,7 @@ Section references of the form §R-x refer to [RELATED_WORK.md](RELATED_WORK.md)
 4. [Architecture: Liquid Time Constant Networks](#4-architecture-liquid-time-constant-networks)
    - 4.5 [Geode-derived layer layout](#45-geode-derived-layer-layout)
 5. [The Combined Strategy](#5-the-combined-strategy)
+   - 5.5 [LIV cache-line packing and byte tokenization](#55-liv-cache-line-packing-and-byte-tokenization)
 6. [Implementation Roadmap](#6-implementation-roadmap)
 7. [Performance Projections](#7-performance-projections)
 8. [References](#references)
@@ -448,6 +449,92 @@ This mirrors the BitNet finding (§R-3.1) that training-from-scratch QAT require
 a brief float-precision warm-up to establish the initial activation distribution
 before the quantization constraint is imposed.
 
+### 5.5 LIV cache-line packing and byte tokenization
+
+Two additional techniques, compatible with the Geode architecture, that can
+improve parameter efficiency and reduce artifact size further:
+
+#### 5.5.1 LIV cache-line packing
+
+LIV (Liquid Integrated Vision/Language) symbols use 5-bit quantisation (int5,
+32 levels). A 64-bit register holds:
+
+$$12 \times 5 + 2 + 2 = 64 \text{ bits}$$
+
+That is, **12 LIV symbols** (60 bits) plus a **2-bit Q² tag** and 2 unused bits.
+The Q² tag is a coarse-context label — one of 4 values matching the
+$S_1 = 4x$ coarse level of the Geode factorization — that identifies which
+GQA "bucket" produced the 12-symbol LIV block.
+
+**Packing layout** (bits 63 → 0, MSB-first):
+
+```
+[sym0(5)] [sym1(5)] … [sym11(5)] [tag(2)] [00]
+ bit 63                 bits 8:4   bits 3:2  1:0
+```
+
+sym0 → bits [63:59], sym1 → bits [58:54], …, sym11 → bits [8:4]; tag → bits
+[3:2]; bits [1:0] are unused (zero).
+
+This layout has two computable advantages:
+
+1. **Parallel dispatch by tag.** The 2-bit tag [0..3] partitions the packed
+   words into 4 groups. Each GPU streaming multiprocessor processes one tag
+   group, maximizing cache locality and SM utilization without coordination
+   overhead.
+
+2. **The 10-LIV codon representation.** Taking only the top 10 × 5 = 50 bits,
+   the block can be interpreted as **two 5 × 5 binary matrices** $M_1$ and
+   $M_2$ (25 + 25 = 50 bits). Their Boolean matrix product:
+
+   $$C_{ij} = \bigvee_k \left[(M_1)_{ik} \wedge (M_2)_{kj}\right]$$
+
+   is a deterministic function of the pair. This means:
+   - A "codon" (the Boolean product $C$) uniquely identifies the (M₁, M₂)
+     pair up to equivalence.
+   - Any candidate pair can be verified against a stored codon in $O(25)$
+     Boolean operations — cheap on GPU via warp-level bitwise ops.
+   - The remaining 14 bits (2 LIV sym11 bits + 2-bit tag + 2 unused) serve as
+     a sequence index ordering codons for distributed processing.
+
+   This convolution-verifiable structure mirrors the role of the Q² transition
+   key (§D-3.3) but at a coarser 5-bit resolution, providing a hardware-level
+   checksum for the LIV block without extra storage.
+
+`scripts/q2_pack.py` exports `pack_liv_cacheline` and `unpack_liv_cacheline`
+that implement this layout on GPU-resident tensors.
+
+#### 5.5.2 Byte tokenization — skip the tokeniser encoder
+
+The SP-1024 tokenizer introduces a pre-processing step (encode/decode) that
+costs latency and requires a vocabulary embedding matrix of size
+$V \times d = 1024 \times 768 \approx 1.6$ MB.
+
+At the byte level, vocabulary is always exactly 256, regardless of corpus
+language or domain:
+
+| Tokenization | Vocab | Embedding cost | Tokenizer | Compression |
+|:-------------|:-----:|:--------------:|:---------:|:-----------:|
+| SP-1024 | 1024 | 1.57 MB | Required | ~3× sub-word |
+| Raw bytes | 256 | 0.39 MB | None | 1× byte |
+
+The embedding savings alone free ~1.2 MB — enough for additional model
+parameters at 2 bits/weight ($\approx 5$ M extra weights).
+
+**Training on raw bytes.** Set `BYTE_TOKENS=1` to enable byte mode in
+`scripts/train_q2_ltc.py`. The data shards are read as raw `uint8` streams;
+each byte becomes a token id in [0, 255]. No SentencePiece encode/decode step
+is needed anywhere in the pipeline:
+
+```bash
+BYTE_TOKENS=1 VOCAB_SIZE=256 torchrun --standalone --nproc_per_node=8 \
+    scripts/train_q2_ltc.py
+```
+
+The model sees the same FineWeb text; the challenge scorer operates on bytes
+and computes bpb directly on the byte sequence, so there is no evaluation
+penalty for skipping the tokenizer.
+
 ---
 
 ## 6 Implementation Roadmap
@@ -474,6 +561,8 @@ Key functions:
   MSB-first; packing uses a single batched `|` operation over the 4-symbol groups.
 - `pack_state_dict(state_dict, out_path)` — serialise to Q2BN format.
 - `unpack_state_dict(in_path, device)` — deserialise back to float tensors.
+- `pack_liv_cacheline(symbols, seq_tags)` / `unpack_liv_cacheline(packed, n)` —
+  LIV 5-bit cache-line packing (§5.5.1): 12 LIV + 4-bit Q² tag per 64-bit word.
 
 CLI usage:
 
@@ -494,11 +583,11 @@ python scripts/q2_pack.py --unpack model.q2bin
   Refreshes τ* every `tau_update_every` steps from the empirical weight
   distribution.
 
-- **`CfCBlock`** — One Geode G-node (3-way refinement).  Runs the closed-form
+- **`CfCBlock`** — One Geode G-level (3-way refinement).  Runs the closed-form
   LTC update per token; state `h` propagates across the sequence with no KV
   cache.  All projections are `Q2Linear`.
 
-- **`GQABlock`** — One Geode S1-node (4-way coarse selection).  Uses
+- **`GQABlock`** — One Geode S1-level (4-way coarse selection).  Uses
   `F.scaled_dot_product_attention` (FlashAttention kernel on H100) with GQA
   head sharing.  SwiGLU MLP with 3× expansion.  All projections are `Q2Linear`.
 
@@ -511,6 +600,8 @@ python scripts/q2_pack.py --unpack model.q2bin
 - **Training loop** — `torch.compile(mode="max-autotune")` for kernel fusion;
   bfloat16 autocast; gradient accumulation; cosine LR + warmup; SWA from 60% of
   training; sliding-window validation; automatic Q2BN + zstd-22 packaging.
+  Byte-mode training (`BYTE_TOKENS=1`) skips the tokeniser encoder entirely
+  (§5.5.2).
 
 Single-GPU smoke test:
 
@@ -518,10 +609,16 @@ Single-GPU smoke test:
 MAX_STEPS=200 BATCH_TOKENS=8192 python scripts/train_q2_ltc.py
 ```
 
-Full 8×H100 run:
+Full 8×H100 run (SP-1024 tokens):
 
 ```bash
 torchrun --standalone --nproc_per_node=8 scripts/train_q2_ltc.py
+```
+
+Full 8×H100 run (raw bytes, no tokeniser):
+
+```bash
+BYTE_TOKENS=1 torchrun --standalone --nproc_per_node=8 scripts/train_q2_ltc.py
 ```
 
 ### 6.3 Phase 3 — Artifact packaging (built into training script)

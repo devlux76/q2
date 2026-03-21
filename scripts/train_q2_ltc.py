@@ -58,7 +58,8 @@ class Config:
     n_kv_heads: int = int(os.getenv("N_KV_HEADS", "4"))
     n_layers:   int = 16     # fixed: [GQA, CfC, CfC, CfC] × 4
     mlp_ratio:  int = 3      # MLP hidden = d_model × mlp_ratio
-    vocab_size: int = int(os.getenv("VOCAB_SIZE", "1024"))
+    # vocab_size: set to 256 for byte-mode (BYTE_TOKENS=1); default 1024 for SP-1024.
+    vocab_size: int = 256 if os.getenv("BYTE_TOKENS", "0") == "1" else int(os.getenv("VOCAB_SIZE", "1024"))
 
     # Q²-QAT
     q2_warmup:        int   = int(os.getenv("Q2_WARMUP",  "500"))
@@ -76,6 +77,9 @@ class Config:
     warmup_steps: int   = int(os.getenv("WARMUP_STEPS", "200"))
     val_every:    int   = int(os.getenv("VAL_EVERY",    "200"))
     val_tokens:   int   = 1_000_000
+    # Byte mode: read raw bytes from .bin shards (no tokeniser encoder needed).
+    # Tokens are raw uint8 bytes [0,255]; vocab_size is automatically set to 256.
+    byte_tokens:  bool  = os.getenv("BYTE_TOKENS", "0") == "1"
 
     # Paths
     data_path: str = os.getenv("DATA_PATH", "./data/datasets/fineweb10B_sp1024")
@@ -178,7 +182,7 @@ class Q2Linear(nn.Linear):
         self.quantised = True
 
 
-# ── CfC block (Geode G-node: one 3-way refinement step) ──────────────────────
+# ── CfC block (Geode G-level: one 3-way refinement step) ─────────────────────
 
 class CfCBlock(nn.Module):
     """Closed-form Continuous-time recurrent block.
@@ -236,12 +240,12 @@ class CfCBlock(nn.Module):
         return residual + self.out(y), h
 
 
-# ── GQA block (Geode S1-node: one 4-way coarse selection) ────────────────────
+# ── GQA block (Geode S1-level: one 4-way coarse selection) ───────────────────
 
 class GQABlock(nn.Module):
     """Grouped Query Attention block with fused MLP.
 
-    Implements one step of the Geode S1 = 4x coarse-quantisation node.
+    Implements one step of the Geode S1 = 4x coarse-quantisation level.
     Uses PyTorch's fused scaled_dot_product_attention (FlashAttention path on
     Ampere/Hopper hardware) for memory-efficient causal attention.
 
@@ -485,11 +489,18 @@ def token_stream(
     device: torch.device,
     rank: int = 0,
     world: int = 1,
+    byte_tokens: bool = False,
 ) -> Iterator[Tuple[Tensor, Tensor]]:
     """Yield (input_ids, target_ids) pairs of length seq_len.
 
     Shards are distributed round-robin across ranks so each GPU sees a
     disjoint subset of the data.
+
+    When byte_tokens=True the .bin shards are read as raw uint8 bytes; each
+    byte is directly used as a token (vocab size 256, no tokeniser encoder).
+    This skips the SentencePiece encode step entirely (see §5.5 of
+    PARAMETER_GOLF.md).  The data_path should point to a directory of raw
+    text .bin files (UTF-8 or binary).
     """
     import numpy as np
     files = _shard_files(data_path)
@@ -500,7 +511,11 @@ def token_stream(
 
     while True:
         for f in my_files:
-            if f.suffix == ".npy":
+            if byte_tokens:
+                # Raw-byte mode: each byte is a token directly (vocab=256).
+                raw = f.read_bytes()
+                tokens_np = np.frombuffer(raw, dtype=np.uint8)
+            elif f.suffix == ".npy":
                 # Load NumPy shards via np.load to correctly handle the .npy header.
                 arr = np.load(f, mmap_mode="r")
                 if arr.dtype != np.uint16:
@@ -585,6 +600,8 @@ def train(cfg: Config) -> None:
         n_params = model.count_parameters()
         print(f"Q2-LTC model: {n_params:,} parameters ({n_params / 1e6:.1f} M)")
         print(f"Layer layout: [GQA, CfC, CfC, CfC] × 4 = {cfg.n_layers} layers")
+        tok_mode = "byte-level (vocab=256, no tokeniser)" if cfg.byte_tokens else f"SP-{cfg.vocab_size}"
+        print(f"Token mode:   {tok_mode}")
 
     if use_dist:
         model = DDP(model, device_ids=[local])
@@ -614,7 +631,8 @@ def train(cfg: Config) -> None:
 
     # bfloat16 autocast on H100; no GradScaler needed (bf16 has enough dynamic range).
     batch_size = max(1, cfg.batch_tokens // cfg.seq_len)
-    data = token_stream(cfg.data_path, cfg.seq_len, device, rank, world)
+    data = token_stream(cfg.data_path, cfg.seq_len, device, rank, world,
+                        byte_tokens=cfg.byte_tokens)
 
     if master:
         Path(cfg.out_dir).mkdir(parents=True, exist_ok=True)

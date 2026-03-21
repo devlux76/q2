@@ -274,6 +274,90 @@ def unpack_state_dict(
     return result
 
 
+# ── LIV cache-line packing (§5.5 of PARAMETER_GOLF.md) ──────────────────────
+#
+# LIV (Liquid Integrated Vision/Language) symbols use 5-bit quantisation
+# (int5, 32 levels).  A 64-bit word can hold:
+#
+#   12 LIV × 5 bits = 60 bits  +  2-bit tag  +  2 unused bits = 64 bits
+#   10 LIV × 5 bits = 50 bits  = two 5×5 binary matrices (codon verifiable)
+#
+# Exact bit layout (bits 63 … 0, MSB-first):
+#   [sym0(5)] [sym1(5)] … [sym11(5)] [tag(2)] [00]
+#   bits 63:59  58:54     8:4          3:2     1:0
+#
+# sym0  → shift = 64 - 5*(0+1) = 59  → bits [63:59]
+# sym11 → shift = 64 - 5*(11+1) = 4  → bits [8:4]
+# tag   → bits [3:2], values in [0..3] matching the Geode S1 = 4x four levels
+# bits [1:0] are unused (zero).
+#
+# The 2-bit Q² tag distributes 64-bit words across 4 groups for parallel GPU
+# warp dispatch by Geode coarse level.
+
+
+def pack_liv_cacheline(
+    symbols: Tensor,
+    seq_tags: Tensor | None = None,
+) -> Tensor:
+    """Pack 5-bit LIV symbols into 64-bit words, 12 per word.
+
+    Packs 12 LIV symbols (values in [0, 31]) per uint64 word with a 2-bit
+    Q² sequence tag in bits [3:2].  Bits [1:0] are unused (zero).
+
+    Bit layout (bits 63 → 0):
+        sym0[63:59] sym1[58:54] … sym11[8:4] tag[3:2] 00
+
+    The 2-bit tag (4 values = one Q² symbol from the Geode S1 = 4x level)
+    allows cache-line-level partitioning across GPU streaming multiprocessors:
+    each SM processes one of the 4 tag groups independently.
+
+    Args:
+        symbols:  (N,) uint8/int in [0, 31].  Padded to multiple of 12.
+        seq_tags: (N//12,) uint8 in [0, 3].  2-bit tag per word.
+                  If None, all tags are set to 0.
+
+    Returns:
+        (ceil(N/12),) int64 packed words.
+    """
+    if symbols.numel() % 12 != 0:
+        pad = 12 - (symbols.numel() % 12)
+        symbols = torch.cat([symbols.flatten(), symbols.new_zeros(pad)])
+    n_words = symbols.numel() // 12
+    s = symbols.view(n_words, 12).to(torch.int64) & 0x1F  # 5-bit clamp
+
+    # sym0 → shift=59 (bits [63:59]), sym11 → shift=4 (bits [8:4]).
+    word = torch.zeros(n_words, dtype=torch.int64, device=symbols.device)
+    for i in range(12):
+        shift = 64 - 5 * (i + 1)   # sym0→59, sym1→54, …, sym11→4
+        word |= s[:, i] << shift
+
+    # 2-bit tag in bits [3:2]; bits [1:0] remain zero.
+    if seq_tags is not None:
+        tag = seq_tags.view(n_words).to(torch.int64) & 0x3
+        word |= tag << 2
+    return word
+
+
+def unpack_liv_cacheline(packed: Tensor, n: int) -> Tuple[Tensor, Tensor]:
+    """Unpack 64-bit words to 5-bit LIV symbols and 2-bit Q² tags.
+
+    Args:
+        packed: (N_words,) int64.
+        n:      total number of symbols to return (≤ N_words × 12).
+
+    Returns:
+        symbols:  (n,) uint8 in [0, 31].
+        seq_tags: (N_words,) uint8 in [0, 3].
+    """
+    n_words = packed.shape[0]
+    out = torch.zeros(n_words * 12, dtype=torch.uint8, device=packed.device)
+    for i in range(12):
+        shift = 64 - 5 * (i + 1)   # matches pack_liv_cacheline
+        out[i::12] = ((packed >> shift) & 0x1F).to(torch.uint8)
+    seq_tags = ((packed >> 2) & 0x3).to(torch.uint8)
+    return out[:n], seq_tags
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
