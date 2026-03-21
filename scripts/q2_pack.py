@@ -380,7 +380,7 @@ def unpack_state_dict(
     return result
 
 
-# ── LIV cache-line packing (§5.5 of PARAMETER_GOLF.md) ──────────────────────
+# ── LIV cache-line packing (§5.5 of docs/parameter-golf/ANALYSIS.md) ──────────────────────
 #
 # LIV (Liquid Integrated Vision/Language) symbols use 5-bit quantisation
 # (int5, 32 levels).  A 64-bit word can hold:

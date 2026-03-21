@@ -1,9 +1,9 @@
 # Parameter Golf: A Q²-Based Strategy
 
-> **Related documents:** [DESIGN.md](DESIGN.md) · [RELATED_WORK.md](RELATED_WORK.md)
+> **Related documents:** [DESIGN.md](../../DESIGN.md) · [RELATED_WORK.md](../../RELATED_WORK.md)
 
-Section references of the form §D-x.y refer to [DESIGN.md](DESIGN.md).
-Section references of the form §R-x refer to [RELATED_WORK.md](RELATED_WORK.md).
+Section references of the form §D-x.y refer to [DESIGN.md](../../DESIGN.md).
+Section references of the form §R-x refer to [RELATED_WORK.md](../../RELATED_WORK.md).
 
 ---
 
@@ -830,14 +830,14 @@ For QAT-from-scratch, 2-bit is the correct choice from both a Williams perspecti
 
 #### Reconciliation with parallel analyses
 
-Two parallel analyses (in `PARAMETER_GOLF_REVISED.md` and `docs/parameter-golf.md`
-on the `main` branch) reach compatible conclusions:
+Two parallel analyses (in `APPROACH_REVISED.md` and `STRATEGY.md`
+in this folder) reach compatible conclusions:
 
-- `PARAMETER_GOLF_REVISED.md` correctly identifies that **odd bit-widths are
+- `APPROACH_REVISED.md` correctly identifies that **odd bit-widths are
   suboptimal for cache alignment** and recommends power-of-2 widths. Williams
   confirms this: every wasted bit reduces $N$, directly increasing bpb.
 
-- `docs/parameter-golf.md` recommends mixed int5/int6 precision, which is the
+- `STRATEGY.md` recommends mixed int5/int6 precision, which is the
   leaderboard SOTA approach. The Williams analysis shows this is suboptimal vs.
   2-bit QAT because it achieves $N_{\text{eff}} \approx 24$ M at int5 (not the
   nominal 25.6 M, due to register alignment), while Q² 2-bit achieves $N = 64$ M.
