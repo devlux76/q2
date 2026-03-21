@@ -496,9 +496,9 @@ Given a quantized vector $V = (v_0, v_1, \ldots, v_{n-1}) \in \{0,1,2,3\}^n$,
 **run-reduction** produces a transition sequence by a single left-to-right pass:
 
 ```
-R ← (v₀)
+R <- (v[0])
 for i in 1..n-1:
-    if vᵢ ≠ vᵢ₋₁: append vᵢ to R
+    if v[i] != v[i-1]: append v[i] to R
 ```
 
 The result $R = (r_0, r_1, \ldots, r_{k-1})$ is the sequence of distinct consecutive
@@ -572,7 +572,7 @@ distinction is resolved by the Lee-distance re-ranking step.
 
 | b63–62 | b61–60 | b59–58 | b57–56 | b55–54 | b53–52 | … | b5–4 | b3–2 | b1–0 |
 |:------:|:------:|:------:|:------:|:------:|:------:|:-:|:----:|:----:|:----:|
-| r₀ | r₁ | r₂ | r₃ | r₄ | r₅ | … | r₂₉ | r₃₀ | r₃₁ (LSB) |
+| $r_0$ | $r_1$ | $r_2$ | $r_3$ | $r_4$ | $r_5$ | … | $r_{29}$ | $r_{30}$ | $r_{31}$ (LSB) |
 
 ---
 
@@ -734,7 +734,7 @@ $$S(x) - 1 = \frac{4x}{1 - 3x} = \underbrace{4x}_{S_1} \cdot \underbrace{\frac{1
 
 The first factor $S_1 = 4x$ records the first symbol $r_0$ (4 choices, selecting the block file). The Geode $G = 1/(1-3x) = 1 + 3x + 9x^2 + \cdots$ counts all possible continuations — the tail of the key after the first symbol is fixed.
 
-| Level | Paper | Q² transition key | General quantization |
+| Level | Paper | Q2 transition key | General quantization |
 |:-----:|:------|:------------------|:--------------------|
 | Full structure | $S$ | All transition sequences | All codewords |
 | First level | $S_1$ | $r_0$ (first symbol → block file) | Coarse quantization cell |

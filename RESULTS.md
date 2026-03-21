@@ -29,7 +29,7 @@ This produces components drawn from Uniform[-1, 1]. After L2 normalisation of a
 E[‖u‖²] = n/3 = 128/3, so each normalised component follows approximately:
 
 ```
-v_i ≈ u_i / √(n/3)  →  Uniform[−√(3/n), √(3/n)]  ≈  Uniform[−0.153, 0.153]
+v_i ~ u_i / sqrt(n/3)  ->  Uniform[-sqrt(3/n), sqrt(3/n)]  ~  Uniform[-0.153, 0.153]
 ```
 
 The quantisation threshold is τ* = Φ⁻¹(¾)/√n ≈ 0.6745/√128 ≈ 0.0596, which
@@ -49,7 +49,7 @@ producing systematically skewed symbol probabilities:
 With 500 trials × 128 dimensions = 64,000 total symbols, the predicted χ² is:
 
 ```
-χ² = 4 × (3520² / 16000) ≈ 3098
+chi2 = 4 * (3520^2 / 16000) ~ 3098
 ```
 
 This matches the observed 3127.86 to within rounding of the approximated marginal
@@ -74,7 +74,7 @@ The benchmark was corrected to generate pre-normalisation components from N(0, 1
 using Box-Muller, matching the Gaussian assumption under which τ* was derived:
 
 ```ts
-// Box-Muller: pairs of uniform samples → standard normal pairs
+// Box-Muller: pairs of uniform samples -> standard normal pairs
 for (let i = 0; i < n; i += 2) {
   const u1 = Math.random(), u2 = Math.random();
   const r = Math.sqrt(-2 * Math.log(u1));
