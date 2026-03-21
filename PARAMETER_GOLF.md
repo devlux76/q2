@@ -194,10 +194,10 @@ $$\dot{h}(t) = -\left[\frac{1}{\tau} + f(h(t), x(t); \theta)\right] h(t) + f(h(t
 
 analytically, yielding a closed-form update:
 
-$$h(t + \Delta t) = \sigma\!\left(-A_1(t) \cdot \Delta t\right) \odot h(t) + \frac{A_2(t)}{A_1(t)} \cdot \left[1 - \sigma\!\left(-A_1(t) \cdot \Delta t\right)\right]$$
+$$h(t + \Delta t) = \exp\!\left(-A_1(t) \cdot \Delta t\right) \odot h(t) + \frac{A_2(t)}{A_1(t)} \cdot \left[1 - \exp\!\left(-A_1(t) \cdot \Delta t\right)\right]$$
 
 where $A_1, A_2$ are functions of the input $x(t)$ and current state $h(t)$, and
-$\sigma$ is the sigmoid function. This closed form:
+$\exp$ denotes the elementwise exponential. This closed form:
 
 1. Eliminates the numerical integration loop of vanilla LTC networks.
 2. Provides causal, single-pass inference: each token updates the state $h$ in
