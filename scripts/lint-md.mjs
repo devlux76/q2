@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * lint-md.mjs — Lints Markdown files for encoding issues that break GitHub
- * rendering of KaTeX math and Mermaid diagrams.
+ * rendering of KaTeX math, Mermaid diagrams, code blocks, and tables.
  *
  * Checks performed:
  *   1. Emoji characters (U+1F000+) inside LaTeX $...$ or $$...$$ blocks —
@@ -13,6 +13,12 @@
  *      support and silently corrupt Mermaid output.
  *   4. Unicode MINUS SIGN (U+2212) anywhere in Mermaid blocks — diagram
  *      labels should use ASCII hyphen-minus.
+ *   5. Unicode subscript/superscript digits (U+2070–U+209F), modifier
+ *      letters (U+1D00–U+1D9F), mathematical arrows (U+2190–U+21FF), and
+ *      mathematical operators (U+2200–U+22FF) inside fenced code blocks —
+ *      monospace fonts often lack these glyphs.
+ *   6. (Emoji in prose is intentionally allowed — only emoji inside LaTeX
+ *      math or Mermaid blocks is flagged, as it breaks rendering.)
  *
  * Usage:
  *   bun scripts/lint-md.mjs [file.md ...]      # lint specific files
@@ -31,17 +37,6 @@ const root = join(__dirname, '..');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-/** Split content on $$ boundaries; odd-indexed parts are display math. */
-function displayMathBlocks(content) {
-  const parts = content.split('$$');
-  const blocks = [];
-  for (let i = 1; i < parts.length; i += 2) {
-    const start = parts.slice(0, i).join('$$').length + 2; // byte offset approx
-    blocks.push({ text: parts[i], partIndex: i });
-  }
-  return blocks;
-}
-
 /** Extract the content and approximate line number of each ```mermaid block. */
 function mermaidBlocks(lines) {
   const blocks = [];
@@ -56,6 +51,30 @@ function mermaidBlocks(lines) {
     } else if (inside && lines[i].trim() === '```') {
       blocks.push({ lines: buf, startLine });
       inside = false;
+    } else if (inside) {
+      buf.push({ text: lines[i], lineNo: i + 1 });
+    }
+  }
+  return blocks;
+}
+
+/** Extract the content and line numbers of non-Mermaid fenced code blocks. */
+function fencedCodeBlocks(lines) {
+  const blocks = [];
+  let inside = false;
+  let isMermaid = false;
+  let buf = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (/^(`{3,}|~{3,})/.test(trimmed)) {
+      if (!inside) {
+        inside = true;
+        isMermaid = trimmed === '```mermaid';
+        buf = [];
+      } else {
+        if (!isMermaid) blocks.push(buf);
+        inside = false;
+      }
     } else if (inside) {
       buf.push({ text: lines[i], lineNo: i + 1 });
     }
@@ -116,7 +135,7 @@ function checkDisplayMath(content, filePath) {
 }
 
 /**
- * Rule 2 & 3: scan Mermaid blocks for disallowed Unicode.
+ * Rule 3 & 4: scan Mermaid blocks for disallowed Unicode.
  */
 function checkMermaid(content, filePath) {
   const lines = content.split('\n');
@@ -163,6 +182,60 @@ function checkMermaid(content, filePath) {
   return violations;
 }
 
+/**
+ * Rule 5: scan fenced code blocks for Unicode characters that do not render
+ * reliably in monospace fonts.  Catches subscripts, superscripts, modifier
+ * letters, mathematical arrows, and mathematical operators.
+ */
+function checkCodeBlocks(content, filePath) {
+  const lines = content.split('\n');
+  const violations = [];
+
+  for (const block of fencedCodeBlocks(lines)) {
+    for (const { text, lineNo } of block) {
+      for (let j = 0; j < text.length; ) {
+        const cp = text.codePointAt(j);
+        const advance = cp > 0xffff ? 2 : 1;
+
+        // Unicode subscript/superscript digits & letters:
+        //   U+2070–U+209F  (superscripts and subscripts)
+        //   U+1D00–U+1D9F  (phonetic/modifier letters used as subscripts)
+        if (
+          (cp >= 0x2070 && cp <= 0x209f) ||
+          (cp >= 0x1d00 && cp <= 0x1d9f)
+        ) {
+          violations.push({
+            file: filePath, line: lineNo,
+            message: `Unicode subscript/superscript U+${cp.toString(16).toUpperCase()} ('${String.fromCodePoint(cp)}') in code block — use plain ASCII instead`,
+          });
+        }
+
+        // Mathematical arrows (U+2190–U+21FF): ← → ↑ ↓ etc.
+        if (cp >= 0x2190 && cp <= 0x21ff) {
+          violations.push({
+            file: filePath, line: lineNo,
+            message: `Unicode arrow U+${cp.toString(16).toUpperCase()} ('${String.fromCodePoint(cp)}') in code block — use ASCII equivalent instead`,
+          });
+        }
+
+        // Mathematical operators (U+2200–U+22FF): ≠ ≤ ≥ etc.
+        if (cp >= 0x2200 && cp <= 0x22ff) {
+          violations.push({
+            file: filePath, line: lineNo,
+            message: `Unicode math operator U+${cp.toString(16).toUpperCase()} ('${String.fromCodePoint(cp)}') in code block — use ASCII equivalent instead`,
+          });
+        }
+
+        j += advance;
+      }
+    }
+  }
+  return violations;
+}
+
+// Emoji in prose is intentionally allowed (only emoji inside LaTeX math or
+// Mermaid blocks is flagged by the block-specific rules above).
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -187,6 +260,7 @@ for (const filePath of files) {
   const violations = [
     ...checkDisplayMath(content, filePath),
     ...checkMermaid(content, filePath),
+    ...checkCodeBlocks(content, filePath),
   ];
 
   for (const { file, line, message } of violations) {
