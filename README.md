@@ -14,7 +14,7 @@ Q² converts a model's hidden activations into a compact, retrieval-friendly 64�
 - Gray‑encode and pack symbols into bytes, then run‑reduce into a transition sequence.
 - Emit the first 32 transitions as a 64‑bit key, which can be searched efficiently with a Lee distance.
 
-Q2 starts with quaternary quantization of a local model's own native embeddings. This produces something of a fingerprint for the semantic geometry the model is currently evaluating.
+Q² starts with quaternary quantization of a local model's own native embeddings. This produces something of a fingerprint for the semantic geometry the model is currently evaluating.
 
 This geometry is a product of human language itself. Therefore, we propose that mapping the geometry will produce faster and more accurate embeddings and we believe it most likely solves the incommensurability problem of vector similarity search.
 

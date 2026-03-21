@@ -1,7 +1,7 @@
 # DESIGN.md Revision Plan
 
 > Section-by-section assessment: what is removed, revised, new, or unchanged
-> when Q2 generalizes beyond semantic embeddings and integrates Wildberger-Rubine.
+> when Q² generalizes beyond semantic embeddings and integrates Wildberger-Rubine.
 
 ---
 
@@ -191,7 +191,7 @@ quantization for retrieval." In a general framework, the distinction is between:
 
 - **Reconstruction quantization** (GPTQ, AWQ): minimize $\|W - \hat{W}\|_F^2$.
   The goal is to approximate the original signal.
-- **Structural quantization** (Q2): preserve relational/topological structure.
+- **Structural quantization** (Q²): preserve relational/topological structure.
   The goal is to preserve distances, not values.
 
 The section should frame this as two different quantization objectives, not as
@@ -358,7 +358,7 @@ order maps to precision/cost tradeoff.
 
 #### §4.5 Reconstruction and series reversion
 
-If Q2 ever needs a decode path (lossy compression, not just retrieval), the
+If Q² ever needs a decode path (lossy compression, not just retrieval), the
 optimal reconstruction point $\mathbb{E}[x \mid q(x) = s]$ requires inverting
 the CDF within each cell. The Lagrange-inversion / hyper-Catalan series
 provides this without numerical root-finding.

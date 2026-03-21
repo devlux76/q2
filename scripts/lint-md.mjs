@@ -6,18 +6,21 @@
  * Checks performed:
  *   1. Emoji characters (U+1F000+) inside LaTeX $...$ or $$...$$ blocks —
  *      KaTeX cannot render emoji inside \text{} or math mode.
- *   2. Unicode MINUS SIGN (U+2212 −) inside LaTeX math blocks — use ASCII
+ *   2. Literal asterisk '*' (U+002A) inside display math $$...$$ blocks —
+ *      Markdown's italic/bold parser consumes it before KaTeX renders,
+ *      causing "Extra close brace or missing open brace" errors. Use \ast.
+ *   3. Unicode MINUS SIGN (U+2212 −) inside LaTeX math blocks — use ASCII
  *      hyphen-minus (-) inside \text{...} and in Mermaid labels instead.
- *   3. Rare Unicode subscript/modifier letters (U+1D00–U+1D9F, U+2080–U+20A0)
+ *   4. Rare Unicode subscript/modifier letters (U+1D00–U+1D9F, U+2080–U+20A0)
  *      in Mermaid diagram source — these characters have limited renderer
  *      support and silently corrupt Mermaid output.
- *   4. Unicode MINUS SIGN (U+2212) anywhere in Mermaid blocks — diagram
+ *   5. Unicode MINUS SIGN (U+2212) anywhere in Mermaid blocks — diagram
  *      labels should use ASCII hyphen-minus.
- *   5. Unicode subscript/superscript digits (U+2070–U+209F), modifier
+ *   6. Unicode subscript/superscript digits (U+2070–U+209F), modifier
  *      letters (U+1D00–U+1D9F), mathematical arrows (U+2190–U+21FF), and
  *      mathematical operators (U+2200–U+22FF) inside fenced code blocks —
  *      monospace fonts often lack these glyphs.
- *   6. (Emoji in prose is intentionally allowed — only emoji inside LaTeX
+ *   7. (Emoji in prose is intentionally allowed — only emoji inside LaTeX
  *      math or Mermaid blocks is flagged, as it breaks rendering.)
  *
  * Usage:
@@ -114,6 +117,16 @@ function checkDisplayMath(content, filePath) {
           violations.push({
             file: filePath, line: lineNo,
             message: `Emoji U+${cp.toString(16).toUpperCase()} ('${String.fromCodePoint(cp)}') inside LaTeX display math — KaTeX cannot render emoji; use \\text{word} instead`,
+          });
+        } else if (cp === 0x002A) {
+          // ASCII asterisk * inside display math — Markdown italic/bold parser
+          // consumes it before KaTeX sees it, leaving unmatched braces and
+          // producing "Extra close brace or missing open brace" errors.
+          // Use \ast instead (e.g. \tau^{\ast} not \tau^{*}).
+          const lineNo = lineOf(content, offset + 2 + j);
+          violations.push({
+            file: filePath, line: lineNo,
+            message: `Literal '*' (U+002A) inside LaTeX display math — Markdown parses it as italic/bold before KaTeX renders it; use \\ast instead`,
           });
         } else if (cp === 0x2212) {
           // U+2212 MINUS SIGN inside math — check if it's inside \text{...}
