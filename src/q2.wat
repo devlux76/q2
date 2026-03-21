@@ -1,8 +1,8 @@
 (module
   ;; ─────────────────────────────────────────────────────────────────────────────
-  ;; Q² — Quaternary Quantisation Kernel
+  ;; Q² — Quaternary Quantisation Kernel (SIMD-accelerated)
   ;; Source:        src/q2.wat
-  ;; Specification: DESIGN.md §1.5 – §2.2
+  ;; Specification: DESIGN.md §1.5 – §2.8
   ;;
   ;; Memory layout (8 pages = 512 KB):
   ;;   [0x00000, 0x10000)  page 0 — f32 working buffer (≤ 16 384 dims)
@@ -11,9 +11,26 @@
   ;;   [0x40000, 0x80000)  pages 4-7 — host input area ($input_ptr must be ≥ 0x40000)
   ;;
   ;; Exports:
-  ;;   mem              — shared linear memory (host writes input here, reads output)
-  ;;   q2_quantise(...) — L2-normalise (last token position) + quaternary-quantise → packed Gray bytes
-  ;;   q2_key(...)      — run-reduction → 64-bit MSB-aligned transition key
+  ;;   mem                — shared linear memory (host writes input here, reads output)
+  ;;   q2_quantise(...)   — L2-normalise (last token position) + quaternary-quantise → packed Gray bytes
+  ;;   q2_key(...)        — run-reduction → 64-bit MSB-aligned transition key
+  ;;   q2_lee_distance(…) — SIMD Lee distance via XOR + popcnt on packed Gray vectors
+  ;;
+  ;; Performance notes (SIMD optimisation):
+  ;;   The fp32 dtype path (dtype=0) uses 128-bit SIMD (v128) throughout:
+  ;;     • v128.load      — loads 4× f32 in a single instruction
+  ;;     • f32x4.mul/add  — accumulates L2 norm across 4 lanes simultaneously
+  ;;     • f32x4.splat    — broadcasts norm_inv for parallel normalisation
+  ;;     • f32x4.gt       — vectorised threshold comparison (3 compares per 4 dims)
+  ;;     • v128.bitselect — branchless symbol classification (no if/else branching)
+  ;;     • i32x4.extract_lane — packs 4 Gray codes into one byte
+  ;;   Horizontal f32x4 reduction uses i8x16.shuffle (pairwise swap-and-add).
+  ;;   The Lee distance function (q2_lee_distance) uses v128.xor + i8x16.popcnt
+  ;;   to compute exact cyclic Lee distance in the Z₄ ring without decoding
+  ;;   Gray symbols — the fastest hardware-accelerated distance primitive
+  ;;   (DESIGN.md §2.6, §2.7 Theorem 2.1: d_H(φ(u),φ(v)) = d_L(u,v)).
+  ;;   Non-fp32 dtype paths (fp16, q8, q4, q2) remain scalar since
+  ;;   transformers.js always provides fp32 activations on the hot path.
   ;; ─────────────────────────────────────────────────────────────────────────────
 
   (memory (export "mem") 8)
@@ -213,6 +230,21 @@
   ;;   The n/4 input bytes are copied directly from $input_ptr to $out_ptr, and
   ;;   the function returns without performing load/L2-normalise/threshold/
   ;;   quantise/Gray-encode/pack steps.
+  ;;
+  ;; SIMD fast path (dtype = 0, fp32):
+  ;;   When dtype=0 the kernel uses 128-bit SIMD (v128) to process 4 f32
+  ;;   dimensions per iteration.  Every loop body operates on v128 registers:
+  ;;     Load:       v128.load  (4 f32s from the input tensor in one op)
+  ;;     Norm²:      f32x4.mul + f32x4.add  (4-wide FMA accumulation)
+  ;;     Normalise:  f32x4.mul with splatted 1/‖v‖  (4-wide broadcast multiply)
+  ;;     Quantise:   3× f32x4.gt + v128.not + v128.bitselect  (branchless
+  ;;                 symbol classification — no if/else per dimension)
+  ;;     Gray + Pack: v128.xor + i32x4.shr_u → i32x4.extract_lane × 4
+  ;;                 (4 Gray codes combined into one output byte)
+  ;;   Horizontal reduction for the L2 norm uses i8x16.shuffle (pair-wise
+  ;;   swap-and-add) to sum the 4 f32 accumulator lanes.
+  ;;   Result: the fp32 hot path executes ~4× fewer loop iterations with
+  ;;   wider data movement and zero branching in the inner quantisation loop.
   ;; ─────────────────────────────────────────────────────────────────────────────
   (func (export "q2_quantise")
     (param $input_ptr i32)
@@ -234,6 +266,20 @@
     (local $g         i32)
     (local $byte_idx  i32)
     (local $bit_shift i32)
+    ;; SIMD locals
+    (local $v4         v128)     ;; current 4× f32 vector
+    (local $acc4       v128)     ;; SIMD accumulator for norm²
+    (local $hi4        v128)     ;; temp for horizontal reduction
+    (local $tau4       v128)     ;; splatted threshold
+    (local $neg_tau4   v128)     ;; splatted −threshold
+    (local $zero4      v128)     ;; splatted 0.0
+    (local $mask_a     v128)     ;; v ≤ −τ  (A mask)
+    (local $mask_b     v128)     ;; v ≤  0  (A|B mask)
+    (local $mask_c     v128)     ;; v ≤  τ  (A|B|C mask)
+    (local $sym4       v128)     ;; 4× i32 symbol values
+    (local $gray4      v128)     ;; 4× i32 Gray codes
+    (local $src_base   i32)      ;; byte offset of last-token row start in input
+    (local $packed_byte i32)     ;; assembled output byte
 
     (local.set $n_bytes (i32.shr_u (local.get $n) (i32.const 2)))
 
@@ -263,6 +309,181 @@
         (return (i32.const 0))
       )
     )
+
+    ;; ══════════════════════════════════════════════════════════════════════════
+    ;; dtype = 0 (fp32): SIMD fast path — process 4 f32 dimensions per iteration
+    ;; ══════════════════════════════════════════════════════════════════════════
+    (if (i32.eqz (local.get $dtype))
+      (then
+        ;; Byte offset of last-token row start: input_ptr + (seq_len-1)*n*4
+        (local.set $src_base
+          (i32.add (local.get $input_ptr)
+            (i32.shl
+              (i32.mul
+                (i32.sub (local.get $seq_len) (i32.const 1))
+                (local.get $n))
+              (i32.const 2))))
+
+        ;; ── SIMD Step 1: Load last token into working buffer (4 f32s/iter) ──
+        (local.set $d (i32.const 0))
+        (block $sload_done
+          (loop $sload_loop
+            (br_if $sload_done (i32.ge_u (local.get $d) (local.get $n)))
+            (v128.store
+              (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2)))
+              (v128.load
+                (i32.add (local.get $src_base) (i32.shl (local.get $d) (i32.const 2)))))
+            (local.set $d (i32.add (local.get $d) (i32.const 4)))
+            (br $sload_loop)
+          )
+        )
+
+        ;; ── SIMD Step 2: Compute squared L2 norm (4-wide accumulation) ──────
+        (local.set $acc4 (f32x4.splat (f32.const 0.0)))
+        (local.set $d (i32.const 0))
+        (block $snorm_done
+          (loop $snorm_loop
+            (br_if $snorm_done (i32.ge_u (local.get $d) (local.get $n)))
+            (local.set $v4
+              (v128.load
+                (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2)))))
+            (local.set $acc4
+              (f32x4.add (local.get $acc4)
+                (f32x4.mul (local.get $v4) (local.get $v4))))
+            (local.set $d (i32.add (local.get $d) (i32.const 4)))
+            (br $snorm_loop)
+          )
+        )
+
+        ;; Horizontal sum: acc4 = [a, b, c, d] → a+b+c+d in lane 0
+        ;; Step A: swap lanes [2,3] ↔ [0,1] and add
+        (local.set $hi4
+          (i8x16.shuffle 8 9 10 11  12 13 14 15  0 1 2 3  4 5 6 7
+            (local.get $acc4) (local.get $acc4)))
+        (local.set $acc4 (f32x4.add (local.get $acc4) (local.get $hi4)))
+        ;; Step B: swap lane 1 ↔ lane 0 and add
+        (local.set $hi4
+          (i8x16.shuffle 4 5 6 7  0 1 2 3  8 9 10 11  12 13 14 15
+            (local.get $acc4) (local.get $acc4)))
+        (local.set $acc4 (f32x4.add (local.get $acc4) (local.get $hi4)))
+        ;; norm_sq is now in lane 0
+        (local.set $norm_sq (f32x4.extract_lane 0 (local.get $acc4)))
+
+        ;; ── SIMD Step 3: L2-normalise (skip if ‖v‖ ≈ 0) ────────────────────
+        (if (f32.gt (local.get $norm_sq) (f32.const 1e-16))
+          (then
+            (local.set $norm_inv
+              (f32.div (f32.const 1.0) (f32.sqrt (local.get $norm_sq))))
+            (local.set $v4 (f32x4.splat (local.get $norm_inv)))
+            (local.set $d (i32.const 0))
+            (block $snrm_done
+              (loop $snrm_loop
+                (br_if $snrm_done (i32.ge_u (local.get $d) (local.get $n)))
+                (local.set $acc_ptr
+                  (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2))))
+                (v128.store (local.get $acc_ptr)
+                  (f32x4.mul (v128.load (local.get $acc_ptr)) (local.get $v4)))
+                (local.set $d (i32.add (local.get $d) (i32.const 4)))
+                (br $snrm_loop)
+              )
+            )
+          )
+        )
+
+        ;; ── SIMD Step 4: Compute threshold τ* = 0.6745 / √n ────────────────
+        (local.set $tau
+          (f32.div (f32.const 0.6745)
+            (f32.sqrt (f32.convert_i32_u (local.get $n)))))
+        (local.set $tau4   (f32x4.splat (local.get $tau)))
+        (local.set $neg_tau4 (f32x4.splat (f32.neg (local.get $tau))))
+        (local.set $zero4  (f32x4.splat (f32.const 0.0)))
+
+        ;; ── SIMD Step 5+6: Quantise → Gray-encode → pack (4 dims → 1 byte) ─
+        ;; For every group of 4 f32 values, produce one packed output byte.
+        ;; Uses branchless SIMD: 3 vector compares + bitselect (no if/else).
+        ;;
+        ;; Classification via cascaded ≤ comparisons (≤ = NOT >):
+        ;;   mask_a = v ≤ −τ   → where A (sym = 0)
+        ;;   mask_b = v ≤  0   → where A or B (sym ≤ 1)
+        ;;   mask_c = v ≤  τ   → where A, B, or C (sym ≤ 2)
+        ;;
+        ;; Symbol selection (start with 3=D, overlay lower values):
+        ;;   sym = bitselect(2, 3, mask_c)  →  2 where v ≤ τ, else 3
+        ;;   sym = bitselect(1, sym, mask_b) → 1 where v ≤ 0
+        ;;   sym = bitselect(0, sym, mask_a) → 0 where v ≤ −τ
+        ;;
+        ;; Gray-encode: g = sym ⊕ (sym >> 1)  (DESIGN.md §2.7, φ(n) = n ⊕ ⌊n/2⌋)
+        ;;
+        ;; Pack: extract 4 lanes, shift into MSB-first positions, OR together.
+        (local.set $d (i32.const 0))
+        (block $sq_done
+          (loop $sq_loop
+            (br_if $sq_done (i32.ge_u (local.get $d) (local.get $n)))
+
+            ;; Load 4 normalised f32 values
+            (local.set $v4
+              (v128.load
+                (i32.add (global.get $ACCUM_BASE) (i32.shl (local.get $d) (i32.const 2)))))
+
+            ;; Cascaded ≤ masks (native f32x4.le preserves NaN→D semantics
+            ;; matching the scalar path's f32.le, which returns false for NaN)
+            (local.set $mask_a
+              (f32x4.le (local.get $v4) (local.get $neg_tau4)))
+            (local.set $mask_b
+              (f32x4.le (local.get $v4) (local.get $zero4)))
+            (local.set $mask_c
+              (f32x4.le (local.get $v4) (local.get $tau4)))
+
+            ;; Branchless symbol selection: D=3 → C=2 → B=1 → A=0
+            (local.set $sym4
+              (v128.bitselect
+                (i32x4.splat (i32.const 2))
+                (i32x4.splat (i32.const 3))
+                (local.get $mask_c)))
+            (local.set $sym4
+              (v128.bitselect
+                (i32x4.splat (i32.const 1))
+                (local.get $sym4)
+                (local.get $mask_b)))
+            (local.set $sym4
+              (v128.bitselect
+                (i32x4.splat (i32.const 0))
+                (local.get $sym4)
+                (local.get $mask_a)))
+
+            ;; Gray-encode: g = sym ⊕ (sym >> 1)
+            (local.set $gray4
+              (v128.xor (local.get $sym4)
+                (i32x4.shr_u (local.get $sym4) (i32.const 1))))
+
+            ;; Pack 4 Gray codes into one byte (MSB-first):
+            ;;   byte = g[0]<<6 | g[1]<<4 | g[2]<<2 | g[3]
+            (local.set $packed_byte
+              (i32.or
+                (i32.or
+                  (i32.shl (i32x4.extract_lane 0 (local.get $gray4)) (i32.const 6))
+                  (i32.shl (i32x4.extract_lane 1 (local.get $gray4)) (i32.const 4)))
+                (i32.or
+                  (i32.shl (i32x4.extract_lane 2 (local.get $gray4)) (i32.const 2))
+                  (i32x4.extract_lane 3 (local.get $gray4)))))
+
+            ;; Write directly — no pre-zeroing needed
+            (i32.store8
+              (i32.add (local.get $out_ptr) (i32.shr_u (local.get $d) (i32.const 2)))
+              (local.get $packed_byte))
+
+            (local.set $d (i32.add (local.get $d) (i32.const 4)))
+            (br $sq_loop)
+          )
+        )
+
+        (return (local.get $n_bytes))
+      )
+    )
+
+    ;; ══════════════════════════════════════════════════════════════════════════
+    ;; Non-fp32 dtypes (1-3): scalar fallback path
+    ;; ══════════════════════════════════════════════════════════════════════════
 
     ;; ── Step 1: Load last token position into working buffer ────────────────
     ;; element index of last token, dimension d: (seq_len − 1) × n + d
@@ -486,5 +707,117 @@
     )
 
     (local.get $key)
+  )
+
+  ;; ─────────────────────────────────────────────────────────────────────────────
+  ;; q2_lee_distance — SIMD Lee distance between two packed Gray-encoded Q² vectors.
+  ;;
+  ;; Computes the total Lee distance between two Q² vectors, exploiting the
+  ;; isometry established by Theorem 2.1 (Hammons et al., 1994):
+  ;;
+  ;;   d_H(φ(u), φ(v)) = d_L(u, v)   for all u, v ∈ Z₄ⁿ
+  ;;
+  ;; where φ is the Gray map (DESIGN.md §2.7) and d_L is the Lee metric on Z₄.
+  ;; Because each Q² symbol is Gray-encoded to 2 bits, the Hamming distance
+  ;; between the encoded bit-vectors equals the Lee distance on the original
+  ;; Z₄ vectors — and Hamming distance is simply popcnt(XOR).
+  ;;
+  ;; This function uses 128-bit SIMD to XOR 16 packed bytes at a time, count
+  ;; set bits per byte with i8x16.popcnt, and horizontally sum via
+  ;; i16x8.extadd_pairwise_i8x16_u + i32x4.extadd_pairwise_i16x8_u for a
+  ;; fully vectorised distance computation (DESIGN.md §2.6).
+  ;;
+  ;; Parameters:
+  ;;   $a_ptr  pointer to first  packed Gray-encoded vector (n/4 bytes)
+  ;;   $b_ptr  pointer to second packed Gray-encoded vector (n/4 bytes)
+  ;;   $n      original embedding dimension (n/4 = number of packed bytes)
+  ;;
+  ;; Returns:
+  ;;   i32  total Lee distance (sum of per-dimension Lee distances)
+  ;; ─────────────────────────────────────────────────────────────────────────────
+  (func (export "q2_lee_distance")
+    (param $a_ptr i32)
+    (param $b_ptr i32)
+    (param $n     i32)
+    (result i32)
+
+    (local $n_bytes  i32)
+    (local $d        i32)
+    (local $total    i32)
+    (local $xored    v128)
+    (local $popcnt   v128)
+    (local $pairs    v128)
+    (local $quads    v128)
+    (local $hi       v128)
+
+    (local.set $n_bytes (i32.shr_u (local.get $n) (i32.const 2)))
+    (local.set $total (i32.const 0))
+    (local.set $d (i32.const 0))
+
+    ;; ── SIMD loop: process 16 packed bytes (64 Q² symbols) per iteration ────
+    (block $simd_done
+      (loop $simd_loop
+        ;; Need at least 16 bytes remaining for a SIMD iteration
+        (br_if $simd_done
+          (i32.gt_u
+            (i32.add (local.get $d) (i32.const 16))
+            (local.get $n_bytes)))
+
+        ;; XOR corresponding packed bytes: differing bits = Hamming distance bits
+        (local.set $xored
+          (v128.xor
+            (v128.load (i32.add (local.get $a_ptr) (local.get $d)))
+            (v128.load (i32.add (local.get $b_ptr) (local.get $d)))))
+
+        ;; Count set bits per byte: each byte's popcount = Lee distance for
+        ;; the 4 Q² symbols packed in that byte (Theorem 2.1)
+        (local.set $popcnt (i8x16.popcnt (local.get $xored)))
+
+        ;; Horizontal sum of all 16 byte popcounts → single i32 total
+        ;; Step 1: pairwise add adjacent u8 → 8× u16
+        (local.set $pairs
+          (i16x8.extadd_pairwise_i8x16_u (local.get $popcnt)))
+        ;; Step 2: pairwise add adjacent u16 → 4× u32
+        (local.set $quads
+          (i32x4.extadd_pairwise_i16x8_u (local.get $pairs)))
+        ;; Step 3: horizontal sum of 4 i32 lanes
+        ;; Swap lanes [2,3] ↔ [0,1] and add
+        (local.set $hi
+          (i8x16.shuffle 8 9 10 11  12 13 14 15  0 1 2 3  4 5 6 7
+            (local.get $quads) (local.get $quads)))
+        (local.set $quads (i32x4.add (local.get $quads) (local.get $hi)))
+        ;; Swap lane 1 ↔ lane 0 and add
+        (local.set $hi
+          (i8x16.shuffle 4 5 6 7  0 1 2 3  8 9 10 11  12 13 14 15
+            (local.get $quads) (local.get $quads)))
+        (local.set $quads (i32x4.add (local.get $quads) (local.get $hi)))
+
+        (local.set $total
+          (i32.add (local.get $total) (i32x4.extract_lane 0 (local.get $quads))))
+
+        (local.set $d (i32.add (local.get $d) (i32.const 16)))
+        (br $simd_loop)
+      )
+    )
+
+    ;; ── Scalar tail: remaining bytes (< 16) ─────────────────────────────────
+    (block $tail_done
+      (loop $tail_loop
+        (br_if $tail_done (i32.ge_u (local.get $d) (local.get $n_bytes)))
+
+        ;; XOR one byte, count bits with i32.popcnt
+        (local.set $total
+          (i32.add (local.get $total)
+            (i32.popcnt
+              (i32.xor
+                (i32.load8_u (i32.add (local.get $a_ptr) (local.get $d)))
+                (i32.load8_u (i32.add (local.get $b_ptr) (local.get $d)))))))
+
+        (local.set $d (i32.add (local.get $d) (i32.const 1)))
+        (br $tail_loop)
+      )
+    )
+
+    (local.get $total)
   )
 )

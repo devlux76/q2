@@ -83,22 +83,34 @@ export const DTYPE_TO_Q2: Record<string, Q2Dtype> = {
  * Regenerate with: bun run build:wat
  */
 const WASM_B64 =
-  'AGFzbQEAAAABHARgAX8BfWADf39/AX1gBX9/f39/AX9gAn9/AX4DBQQAAQIDBQMBAAgGBgF/AEEACwce' +
-  'AwNtZW0CAAtxMl9xdWFudGlzZQACBnEyX2tleQADCrsGBFgBA38gAEGAgAJxQRB0IQEgAEEKdkEfcSEC' +
-  'IABB/wdxIQMgAkUEQCABvg8LIAJBH0YEQCABQYCAgPwHIANBDXRycr4PCyABIAJB8ABqQRd0IANBDXRy' +
-  'cr4LigEBAX8CQAJAAkACQAJAIAIOBAABAgMECyAAIAFBAnRqKgIADwsgACABQQF0ai8BABAADwsgACAB' +
-  'aiwAALIPCyAAIAFBAXZqLQAAIQMgAUEBcQRAIANBD3EhAwUgA0EEdiEDCyADQQhrsg8LIAAgAUECdmot' +
-  'AAAhAyADQQMgAUEDcWtBAXR2QQNxswu8AwMEfwR9BH8gAkECdiEFIANBBEYEQEEAIQYCQANAIAYgBU8N' +
-  'ASAEIAZqIAAgBmotAAA6AAAgBkEBaiEGDAALCyAFDwtBACEGAkADQCAGIAJPDQEgAUEBayACbCAGaiEH' +
-  'IwAgBkECdGohCCAIIAAgByADEAE4AgAgBkEBaiEGDAALC0MAAAAAIQpBACEGAkADQCAGIAJPDQEjACAG' +
-  'QQJ0aioCACEJIAogCSAJlJIhCiAGQQFqIQYMAAsLIApDlZXmJF4EQEMAAIA/IAqRlSELQQAhBgJAA0Ag' +
-  'BiACTw0BIwAgBkECdGohCCAIIAgqAgAgC5Q4AgAgBkEBaiEGDAALCwtDCKwsPyACs5GVIQxBACEGAkAD' +
-  'QCAGIAVPDQEgBCAGakEAOgAAIAZBAWohBgwACwtBACEGAkADQCAGIAJPDQEjACAGQQJ0aioCACEJQQMh' +
-  'DSAJIAyMXwRAQQAhDQUgCUMAAAAAXwRAQQEhDQUgCSAMXwRAQQIhDQsLCyANIA1BAXZzIQ4gBkECdiEP' +
-  'QQMgBkEDcWtBAXQhECAEIA9qIAQgD2otAAAgDiAQdHI6AAAgBkEBaiEGDAALCyAFC5UBAwZ/AX4Bf0H/' +
-  'ASEHQgAhCEEAIQlBACECAkADQCACIAFPDQEgAkECdiEDQQMgAkEDcWtBAXQhBCAAIANqLQAAIAR2QQNx' +
-  'IQUgBUECcSAFQQF2IAVBAXFzciEGIAYgB0cEQCAGIQcgCUEgSQRAIAggBq1BPiAJQQF0a62GhCEIIAlB' +
-  'AWohCQsLIAJBAWohAgwACwsgCAs=';
+  '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';
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64.replace(/\s+/g, ''));
@@ -154,6 +166,19 @@ export interface Q2Kernel {
    * @returns            64-bit key as BigInt (DESIGN.md §2.2)
    */
   key(_packedOffset: number, _n: number): bigint;
+
+  /**
+   * Compute the Lee distance between two packed Gray-encoded Q² vectors.
+   *
+   * Uses SIMD-accelerated XOR + popcnt to exploit the Gray-map isometry
+   * (DESIGN.md §2.7 Theorem 2.1): d_H(φ(u), φ(v)) = d_L(u, v).
+   *
+   * @param aOffset - byte offset in WASM memory for the first packed vector
+   * @param bOffset - byte offset in WASM memory for the second packed vector
+   * @param n       - original embedding dimension (n/4 packed bytes per vector)
+   * @returns       total Lee distance (sum of per-dimension distances)
+   */
+  leeDistance(_aOffset: number, _bOffset: number, _n: number): number;
 }
 
 // ─── Instantiation ────────────────────────────────────────────────────────────
@@ -180,6 +205,7 @@ async function instantiate(): Promise<Q2Kernel> {
     mem: WebAssembly.Memory;
     q2_quantise: (_ip: number, _sl: number, _n: number, _dt: number, _op: number) => number;
     q2_key: (_sp: number, _n: number) => bigint;
+    q2_lee_distance: (_ap: number, _bp: number, _n: number) => number;
   };
   const e = instance.exports as WasmExports;
 
@@ -190,6 +216,9 @@ async function instantiate(): Promise<Q2Kernel> {
     },
     key(packedOffset, n) {
       return e.q2_key(packedOffset, n);
+    },
+    leeDistance(aOffset, bOffset, n) {
+      return e.q2_lee_distance(aOffset, bOffset, n);
     },
   };
 }
@@ -302,3 +331,20 @@ export function l2Normalise(data: Float32Array, n: number): Float32Array {
 
   return v;
 }
+
+/**
+ * Compute the Lee distance between two packed Gray-encoded Q² vectors.
+ *
+ * This is a convenience re-export of {@link leeDistancePacked} from q2stats.ts.
+ * Both exploit the Gray-map isometry (DESIGN.md §2.7 Theorem 2.1):
+ *   d_H(φ(u), φ(v)) = d_L(u, v)
+ *
+ * Hamming distance on Gray-encoded bits equals Lee distance on Z₄ originals,
+ * so the total distance is simply popcount(a XOR b) over all packed bytes.
+ * Distance is computed over min(a.length, b.length) bytes.
+ *
+ * @param a - first  packed Gray-encoded vector (n/4 bytes)
+ * @param b - second packed Gray-encoded vector (n/4 bytes)
+ * @returns total Lee distance (sum of per-dimension Lee distances)
+ */
+export { leeDistancePacked as q2LeeDistanceDirect } from './q2stats.js';
