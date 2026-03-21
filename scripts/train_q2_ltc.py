@@ -729,7 +729,10 @@ def train(cfg: Config) -> None:
     print(f"  code:       {code_bytes:,} bytes")
     print(f"  TOTAL:      {total:,} bytes ({total / 1e6:.3f} MB)")
     if total > 16_000_000:
-        print("  WARNING: exceeds 16 MB budget — reduce d_model or add layers")
+        print(
+            "  WARNING: exceeds 16 MB budget — reduce d_model and/or reduce "
+            "layers / BigramHash size / precision allocation"
+        )
     else:
         print("  ✓ within 16 MB budget")
 
