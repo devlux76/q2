@@ -305,29 +305,29 @@ $$\{A,\ B,\ C,\ D\} \;\longleftrightarrow\; \{\text{strong-},\ \text{weak-},\ \t
 where $n_s$ is the embedding dimension[^1], the maximum-entropy condition requires
 equiprobable states:
 
-$$P(v_i \leq -\tau^{*}) = P(-\tau^{*} < v_i \leq 0) = P(0 < v_i \leq \tau^{*}) = P(v_i > \tau^{*}) = \tfrac{1}{4}$$
+$$P(v_i \leq -\tau^{\ast}) = P(-\tau^{\ast} < v_i \leq 0) = P(0 < v_i \leq \tau^{\ast}) = P(v_i > \tau^{\ast}) = \tfrac{1}{4}$$
 
 The threshold is:
 
-$$\tau^{*} = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
+$$\tau^{\ast} = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
 
 **The quantization function:**
 
-$$q(v_i) = \begin{cases} A & v_i \leq -\tau^{*} \\ B & -\tau^{*} < v_i \leq 0 \\ C & 0 < v_i \leq \tau^{*} \\ D & v_i > \tau^{*} \end{cases}$$
+$$q(v_i) = \begin{cases} A & v_i \leq -\tau^{\ast} \\ B & -\tau^{\ast} < v_i \leq 0 \\ C & 0 < v_i \leq \tau^{\ast} \\ D & v_i > \tau^{\ast} \end{cases}$$
 
-The four equiprobable zones on the real line, separated by $-\tau^{*}$, $0$, and $+\tau^{*}$:
+The four equiprobable zones on the real line, separated by $-\tau^{\ast}$, $0$, and $+\tau^{\ast}$:
 
 ```mermaid
 graph LR
     A["A\nstrong -\n≤ -τ*"] --- B["B\nweak -\n(-τ*, 0]"] --- C["C\nweak +\n(0, τ*]"] --- D["D\nstrong +\n> τ*"]
 ```
 
-**Empirical calibration.** In practice $\tau^{*}$ is estimated from a reservoir sample
+**Empirical calibration.** In practice $\tau^{\ast}$ is estimated from a reservoir sample
 of 1 024 sample activations per compaction cycle, using the empirical 25th and 75th
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
 assuming a specific activation shape.
 
-**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^*$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025; the formal development is in §4.4). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the threshold solution $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
+**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^{\ast}$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025; the formal development is in §4.4). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the threshold solution $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
 
 Under the equiprobable target, each dimension carries:
 
@@ -728,13 +728,13 @@ where $S$ is the generating function for all structured codewords, $S_1$ is the 
 
 In the language of quantization, this factorization describes **hierarchical quantization**: first decide the coarse cell, then refine within it. The Geode $G$ counts the refinement possibilities at each subsequent level.
 
-For Q2's transition key, the factorization is concrete. The generating function for all transition sequences of length $\geq 1$ is:
+For Q²'s transition key, the factorization is concrete. The generating function for all transition sequences of length $\geq 1$ is:
 
 $$S(x) - 1 = \frac{4x}{1 - 3x} = \underbrace{4x}_{S_1} \cdot \underbrace{\frac{1}{1-3x}}_{G}$$
 
 The first factor $S_1 = 4x$ records the first symbol $r_0$ (4 choices, selecting the block file). The Geode $G = 1/(1-3x) = 1 + 3x + 9x^2 + \cdots$ counts all possible continuations — the tail of the key after the first symbol is fixed.
 
-| Level | Paper | Q2 transition key | General quantization |
+| Level | Paper | Q² transition key | General quantization |
 |:-----:|:------|:------------------|:--------------------|
 | Full structure | $S$ | All transition sequences | All codewords |
 | First level | $S_1$ | $r_0$ (first symbol → block file) | Coarse quantization cell |
@@ -762,7 +762,7 @@ is governed by Euler's polytope formula $V - E + F = \chi$, where:
 
 Euler's formula constrains these quantities: you cannot have $F$ cells, $E$ boundaries, and $V$ vertices in arbitrary combination. The topology of the quantization lattice determines admissible $(V, E, F)$ triples.
 
-For Q2 specifically, the $\mathbb{Z}_4$ cycle has $V = 4$ vertices, $E = 4$ edges, and $F = 1$ face (the single outer region):
+For Q² specifically, the $\mathbb{Z}_4$ cycle has $V = 4$ vertices, $E = 4$ edges, and $F = 1$ face (the single outer region):
 
 $$4 - 4 + 1 = 1 = \chi \quad \checkmark$$
 
@@ -778,7 +778,7 @@ The Bi-Tri (and higher) hyper-Catalan arrays (Wildberger & Rubine 2025, Table 1)
 
 - A **binary split** is a 1-bit quantization step (above/below threshold).
 - A **ternary split** is a $\log_2 3 \approx 1.585$-bit step (below/near/above).
-- A **quaternary split** is a 2-bit step (Q2's $\{A, B, C, D\}$).
+- A **quaternary split** is a 2-bit step (Q²'s $\{A, B, C, D\}$).
 
 A general quantization framework may mix these: use 2-bit precision on high-variance dimensions and 1-bit on low-variance dimensions. The number of distinct mixed-precision codebooks with $m_2$ binary dimensions, $m_3$ ternary dimensions, and $m_4$ quaternary dimensions is:
 
@@ -804,13 +804,13 @@ where each $C_\mathbf{m}$ is a hyper-Catalan number and $t_j$ are functions of t
 
 The series converges by direct evaluation — no Newton iteration, no gradient descent. On constrained hardware, a closed-form series that can be truncated to the precision affordable within the resource budget (§2.1) is preferable to an iterative solver that may not converge within budget. The truncation order itself is a resource-allocation decision: each additional term in the hyper-Catalan series refines the threshold, trading compute cost for quantization precision.
 
-For the standard case ($q = 4$, Gaussian source), the series reduces to the known quartile $\tau^* = \Phi^{-1}(3/4)$. For mixture-of-Gaussians sources — the natural model for multi-modal activation distributions — the threshold is expressible as a hyper-Catalan series in the mixture weights.
+For the standard case ($q = 4$, Gaussian source), the series reduces to the known quartile $\tau^{\ast} = \Phi^{-1}(3/4)$. For mixture-of-Gaussians sources — the natural model for multi-modal activation distributions — the threshold is expressible as a hyper-Catalan series in the mixture weights.
 
 ---
 
 ### 4.5 Reconstruction and series reversion
 
-If Q2 requires a decode path — for lossy compression applications rather than retrieval — the optimal reconstruction point for symbol $s$ is:
+If Q² requires a decode path — for lossy compression applications rather than retrieval — the optimal reconstruction point for symbol $s$ is:
 
 $$\hat{x}(s) = \mathbb{E}[x \mid q(x) = s]$$
 
@@ -818,7 +818,7 @@ For non-uniform distributions, this is *not* the cell centroid; it is the condit
 
 The hyper-Catalan series provides this inversion combinatorially, without numerical root-finding. Wildberger & Rubine (2025, §10) show that Lagrange inversion and the hyper-Catalan series are two faces of the same coin: the series coefficients that solve the forward threshold problem also yield the inverse.
 
-This is noted as a future extension. The current Q2 pipeline is retrieval-only (quantize, index, search); no reconstruction step is needed. Should a decode path become necessary — for example, in signal compression or approximate model distillation — the reconstruction formula is already provided by the series-reversion machinery.
+This is noted as a future extension. The current Q² pipeline is retrieval-only (quantize, index, search); no reconstruction step is needed. Should a decode path become necessary — for example, in signal compression or approximate model distillation — the reconstruction formula is already provided by the series-reversion machinery.
 
 ---
 
@@ -941,7 +941,7 @@ The run-reduced key captures that shared structure without requiring knowledge o
 The generalized framework makes the lingua franca case stronger. The transition key captures relational structure that is invariant under rotation. This invariance is not an accident of the semantic embedding application — it is a consequence of the general framework: structural quantization (§2.4) preserves relational geometry by design. The embedding application is a special case where the rotation $Q$ corresponds to the arbitrary coordinate frame of a trained model.
 
 Embeddings across models are not fully incommensurable. Their coordinate frames are;
-their semantic geometry is not. The gap between those two facts is where Q2 operates.
+their semantic geometry is not. The gap between those two facts is where Q² operates.
 
 $$\underbrace{\text{king} - \text{man} + \text{woman}}_{\text{vector arithmetic on any model}} \approx \underbrace{\text{queen}}_{\text{same answer, rotated frame}}$$
 
