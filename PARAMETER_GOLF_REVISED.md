@@ -9,7 +9,7 @@
 Based on critical feedback, this revised strategy focuses on:
 
 1. **Pure PyTorch/GPU implementation** - No WASM, leverage 8×H100 GPUs directly
-2. **Power-of-2 bit widths only** - Z₄ (2-bit), Z₈ (4-bit), Z₁₂ (6-bit), Z₁₆ (8-bit)
+2. **Even bit widths (power-of-2 where possible)** - Z₄ (2-bit), Z₈ (4-bit), Z₁₂ (6-bit transitional), Z₁₆ (8-bit)
 3. **Cache-line optimization** - Design for 64-byte cache lines and SIMD registers
 4. **Geode-guided architecture** - Exploit hierarchical structure for efficiency
 
