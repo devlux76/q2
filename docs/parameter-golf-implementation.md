@@ -332,7 +332,8 @@ class CfCCell(nn.Module):
         """
         # Compute ODE right-hand side
         u_in = self.w_in(x)
-        u_rec = self.w_rec(h) * self.wiring_mask.unsqueeze(0)
+        # Apply sparsity mask to recurrent weight matrix, then compute recurrent input
+        u_rec = torch.matmul(h, (self.w_rec.weight * self.wiring_mask).t())
         u = self.activation(u_in + u_rec)
 
         # Closed-form solution: Euler integration with learned time constants
