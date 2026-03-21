@@ -10,8 +10,8 @@ This note outlines how to point Q² at OpenAI's Parameter Golf challenge (train 
 
 ## Fit for Q²
 - Use the equiprobable quaternary thresholds (§D-2.5) so each symbol carries ~2 bits; Gray + Lee structure (§D-2.7, §D-2.8) preserves complement geometry when we quantize weights, activations, and transition keys.
-- Mixed-precision oracle from transition density (§D-3.6, §P17): channels with short runs/high Lee curvature stay at int6/fp16; long-run channels drop to q2.
-- Geode progression (§D-4.1, §P16): start with coarse q2, then refine a small subset of facets (heads/MLP rows) that remain loss-critical after a short probe run.
+- Mixed-precision oracle from transition density (§D-3.6, §P-17): channels with short runs/high Lee curvature stay at int6/fp16; long-run channels drop to q2.
+- Geode progression (§D-4.1, §P-16): start with coarse q2, then refine a small subset of facets (heads/MLP rows) that remain loss-critical after a short probe run.
 
 ## Wildberger–Geode structure (answering “the structure itself”)
 - Treat each attention head / MLP row as a **facet** in the Geode factorization (§D-4.1): parameter-tie facets that live on the same stratum so depth grows without new parameters; liquid blocks share the same tying map.
