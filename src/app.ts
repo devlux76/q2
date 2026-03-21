@@ -25,16 +25,13 @@ import type {
   ChatMessage,
   GenerationConfig,
   EmbeddingMsg,
+  ModelOutputsMsg,
+  Q2Msg,
 } from './types.js';
 import {
-  getKernel,
   l2Normalise,
   q2EncodeDirect,
   q2KeyDirect,
-  DTYPE_TO_Q2,
-  Q2_DTYPE_FP32,
-  Q2_INPUT_OFFSET,
-  Q2_OUTPUT_OFFSET,
 } from './q2.js';
 import {
   deleteStoredFile,
@@ -681,6 +678,12 @@ export function handleWorkerMessage(msg: WorkerOutMsg): void {
     case 'embedding':
       onEmbedding(msg);
       break;
+    case 'model-outputs':
+      onModelOutputs(msg);
+      break;
+    case 'q2':
+      onQ2(msg);
+      break;
     case 'done':
       onDone();
       break;
@@ -828,55 +831,48 @@ export function onEmbedding(msg: EmbeddingMsg): void {
       `Shape: [${seqLen} × ${hiddenDim}]  dtype=${dtype}  stats=unavailable`;
   }
 
-  // ── Q² kernel ────────────────────────────────────────────────────────────
-  // Run the quaternary quantisation in the background.  The WASM kernel is
-  // preferred; if instantiation fails (e.g. in test environments that lack
-  // WebAssembly.instantiate) we fall back to the pure-TS implementation.
-  const n = hiddenDim;
-  const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
+}
 
-  if (seqLen < 1) {
-    appLog('warn', 'Q² embedding: seqLen < 1; skipping quantisation', { seqLen });
-    return;
+/**
+ * Handles the compact Q² quantisation result sent by the worker kernel.
+ *
+ * The worker runs the Q² WASM kernel before sending, so only packed bytes
+ * and the 64-bit key cross the thread boundary (see worker.ts quantiseAndSend).
+ */
+/**
+ * Shows the user which ONNX output nodes the loaded model exports and whether
+ * Q² fingerprinting was able to locate a hidden-state tensor among them.
+ *
+ * Called once per generation turn, immediately after the embedding forward
+ * pass in the worker.  Surfaced in the embedding panel so the user knows
+ * exactly why Q² may be unavailable and what the model actually exports.
+ */
+export function onModelOutputs(msg: ModelOutputsMsg): void {
+  appLog('info', 'onModelOutputs received', msg);
+  embeddingPanel.classList.remove('hidden');
+
+  // Format each output as  name[d0×d1×…]  for compact display.
+  const outputList = Object.entries(msg.outputs)
+    .map(([name, dims]) => `${name}[${dims.join('×')}]`)
+    .join('  ');
+
+  if (msg.hiddenStateKey !== null) {
+    embeddingStats.textContent =
+      `ONNX outputs: ${outputList}\n` +
+      `Q² using: ${msg.hiddenStateKey}[${(msg.outputs[msg.hiddenStateKey] ?? []).join('×')}]`;
+  } else {
+    embeddingStats.textContent =
+      `ONNX outputs: ${outputList}\n` +
+      `Q² unavailable — no 3-D hidden-state output found.\n` +
+      `To enable Q² fingerprinting, re-export the model with a last_hidden_state ` +
+      `(or equivalent) output node, or use a model that already exports one.`;
   }
+}
 
-  appLog('debug', 'onEmbedding: starting Q² kernel', { hiddenDim: n, dtypeId, seqLen });
-  void (async () => {
-    try {
-      const kernel = await getKernel();
-      const mem = new Uint8Array(kernel.memory.buffer);
-
-      // Copy the raw activation buffer into WASM memory at the input offset.
-      const inputBytes = new Uint8Array(msg.data);
-      mem.set(inputBytes, Q2_INPUT_OFFSET);
-
-      // Run quantisation: L2-normalise last token, threshold, Gray-encode.
-      kernel.quantise(Q2_INPUT_OFFSET, seqLen, n, dtypeId, Q2_OUTPUT_OFFSET);
-
-      // Derive the 64-bit transition key.
-      const rawKey = kernel.key(Q2_OUTPUT_OFFSET, n);
-      const key = BigInt.asUintN(64, rawKey);
-
-      appLog('debug', 'Q² WASM kernel produced key', { key: `0x${key.toString(16).padStart(16, '0')}`, hiddenDim: n });
-      // Read back packed bytes.
-      const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2);
-      renderQ2Result(packed, key, n, currentSettings.q2KeyDisplayMode);
-    } catch {
-      // WASM unavailable — use the pure-TypeScript fallback (fp32 only).
-      // This path is taken in test environments and SSR contexts.
-      // For sub-fp32 dtypes the WASM kernel is required; log a warning and skip.
-      if (dtype !== 'fp32') {
-        appLog('warn', 'Q² TS fallback: non-fp32 dtype requires WASM kernel; skipping', { dtype });
-        return;
-      }
-      appLog('debug', 'Q² falling back to TS implementation', { seqLen, hiddenDim: n });
-      const all = new Float32Array(msg.data);
-      const vec = l2Normalise(all.subarray((seqLen - 1) * n, seqLen * n), n);
-      const { packed, key } = q2EncodeDirect(vec, n);
-      appLog('debug', 'Q² TS fallback produced key', { key: `0x${BigInt.asUintN(64, key).toString(16).padStart(16, '0')}`, hiddenDim: n });
-      renderQ2Result(packed, BigInt.asUintN(64, key), n, currentSettings.q2KeyDisplayMode);
-    }
-  })();
+export function onQ2(msg: Q2Msg): void {
+  const packed = new Uint8Array(msg.packed);
+  appLog('debug', 'onQ2 received', { n: msg.n, key: `0x${msg.key.toString(16).padStart(16, '0')}` });
+  renderQ2Result(packed, msg.key, msg.n, currentSettings.q2KeyDisplayMode);
 }
 
 export function onDone(): void {

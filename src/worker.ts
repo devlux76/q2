@@ -38,7 +38,15 @@ import type {
   GenerationConfig,
   EmbeddingMsg,
   Dtype,
+  ModelOutputsMsg,
 } from './types.js';
+import {
+  getKernel,
+  DTYPE_TO_Q2,
+  Q2_DTYPE_FP32,
+  Q2_INPUT_OFFSET,
+  Q2_OUTPUT_OFFSET,
+} from './q2.js';
 
 /** Subset of the ProgressInfo union we care about for download tracking. */
 interface DownloadProgress {
@@ -253,6 +261,60 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
   workerScope.postMessage(msg, transfer);
 }
 
+/**
+ * Run the Q² WASM kernel on a raw embedding buffer and send the compact result
+ * to the main thread.
+ *
+ * By quantising in the worker we avoid transferring the full activation buffer
+ * across the thread boundary.  Only the packed output (n/4 bytes) and the
+ * 64-bit key are sent — roughly 64× less data than the raw fp32 input for a
+ * typical hidden dimension of 4096.
+ *
+ * @param embeddingBuffer - raw activation bytes (owned; will NOT be transferred)
+ * @param seqLen          - number of token positions in the buffer
+ * @param hiddenDim       - embedding dimension n
+ * @param dtype           - element dtype of the activation buffer
+ */
+async function quantiseAndSend(
+  embeddingBuffer: ArrayBuffer,
+  seqLen: number,
+  hiddenDim: number,
+  dtype: EmbeddingMsg['dtype'],
+): Promise<void> {
+  if (seqLen < 1) {
+    workerLog('warn', 'quantiseAndSend: seqLen < 1; skipping Q² quantisation', { seqLen });
+    return;
+  }
+  if (hiddenDim < 1) {
+    workerLog('warn', 'quantiseAndSend: hiddenDim < 1; skipping Q² quantisation', { hiddenDim });
+    return;
+  }
+  const n = hiddenDim;
+  const dtypeId = DTYPE_TO_Q2[dtype] ?? Q2_DTYPE_FP32;
+  try {
+    const kernel = await getKernel();
+    const mem = new Uint8Array(kernel.memory.buffer);
+
+    // Copy activation bytes into WASM linear memory at the fixed input offset.
+    mem.set(new Uint8Array(embeddingBuffer), Q2_INPUT_OFFSET);
+
+    // L2-normalise last token, threshold, Gray-encode → packed output at Q2_OUTPUT_OFFSET.
+    kernel.quantise(Q2_INPUT_OFFSET, seqLen, n, dtypeId, Q2_OUTPUT_OFFSET);
+
+    // Derive the 64-bit transition key.
+    const key = BigInt.asUintN(64, kernel.key(Q2_OUTPUT_OFFSET, n));
+
+    // Slice to an independent buffer so we can transfer ownership without
+    // detaching the WASM module's shared memory view.
+    const packed = new Uint8Array(kernel.memory.buffer, Q2_OUTPUT_OFFSET, n >> 2).slice();
+
+    workerLog('debug', 'Q² kernel produced key', { key: `0x${key.toString(16).padStart(16, '0')}`, n });
+    send({ type: 'q2', packed: packed.buffer, key, n }, [packed.buffer]);
+  } catch (err) {
+    workerLog('warn', 'Q² kernel failed; skipping quantisation result', { error: err });
+  }
+}
+
 // ─── Model loading ────────────────────────────────────────────────────────────
 
 /**
@@ -450,27 +512,112 @@ async function generateResponse(
       outputLength: output.length,
     });
 
-    // ── Embedding extraction ─────────────────────────────────────────────────
-    // NOTE: Accessing per-layer hidden states during generation is NOT
-    // supported by the transformers.js text-generation pipeline.  The
-    // model.generate() loop in transformers.js v3 does not collect hidden
-    // states — output_hidden_states in GenerationConfig has no effect.
+    // ── Embedding extraction via direct model forward pass ───────────────────
+    // The text-generation pipeline returns decoded text, not raw tensors.
+    // To get the last-token hidden state we tokenize the full generated
+    // conversation and call pipe.model() directly (one additional forward pass,
+    // no KV cache, O(seqLen) attention).
     //
-    // The correct approach to obtain hidden states is:
-    //   1. Use a feature-extraction pipeline with a dedicated embedding model.
-    //   2. Or call pipe.model.forward() on the generated token sequence with
-    //      a model that exports intermediate hidden states in its ONNX graph.
+    // Hidden-state detection strategy (in order):
+    //   1. Try each name in HIDDEN_STATE_CANDIDATES.
+    //   2. Fall back to any 3-D output (shape [batch, seq, hidden]) — this
+    //      handles models like LFM2.5 that use non-standard output names.
     //
-    // Standard onnx-community text-generation models export only
-    // {logits, past_key_values}.  To use Q² fingerprinting, configure a
-    // dedicated embedding model via the benchModelT3 setting.
-    const extConfig = config as GenerationConfig & { return_embeddings?: boolean };
-    const wantEmbeddings = extConfig.return_embeddings === true;
-    if (wantEmbeddings) {
-      workerLog('warn',
-        'Embedding extraction via text-generation pipeline is not supported. ' +
-        'Use a feature-extraction pipeline with a dedicated embedding model instead.');
-    }
+    // Regardless of outcome we send a ModelOutputsMsg so the main thread
+    // can show the user exactly what the model exports and why Q² may be
+    // unavailable.
+    void (async () => {
+      try {
+        // Reconstruct the full conversation text from the pipeline output so we
+        // can re-tokenize it for the embedding forward pass.
+        const fullConv = output[0]?.generated_text;
+        const convText =
+          typeof fullConv === 'string'
+            ? fullConv
+            : (fullConv as ChatMessage[] ?? []).map((m: ChatMessage) => m.content).join('\n');
+
+        // Tokenize without padding — we want the exact sequence length so the
+        // last token position maps cleanly to the final hidden-state row.
+        const tokenized = (pipe!.tokenizer as unknown as (
+          text: string,
+          opts: Record<string, unknown>,
+        ) => Record<string, unknown>)(convText, {
+          return_tensors: 'pt',
+          truncation: true,
+        });
+
+        // Direct model call.  In transformers.js the PreTrainedModel is callable;
+        // it runs the underlying ONNX session and returns an object whose keys
+        // are the ONNX graph output names.
+        type OnnxTensor = { dims: number[]; data: Float32Array };
+        const modelCallable = pipe!.model as unknown as (
+          inputs: Record<string, unknown>,
+        ) => Promise<Record<string, OnnxTensor>>;
+        const modelOutput = await modelCallable(tokenized);
+
+        // Build the shape map for ModelOutputsMsg (sent regardless of outcome).
+        const outputShapes: Record<string, number[]> = {};
+        for (const [k, v] of Object.entries(modelOutput)) {
+          if (v?.dims) outputShapes[k] = v.dims;
+        }
+        workerLog('info', 'Model ONNX outputs', outputShapes);
+
+        // ── Locate the hidden-state tensor ──────────────────────────────────
+        // Well-known names tried first, then any 3-D output as a catch-all so
+        // non-standard architectures (e.g. LFM2.5) are detected automatically.
+        const HIDDEN_STATE_CANDIDATES = [
+          'last_hidden_state',        // standard HF / transformers.js
+          'hidden_states',
+          'last_conv_hidden_states',  // possible LFM2.5 naming
+          'encoder_last_hidden_state',
+        ];
+
+        let hiddenStateKey: string | null = null;
+        let hiddenState: OnnxTensor | null = null;
+
+        for (const key of HIDDEN_STATE_CANDIDATES) {
+          const t = modelOutput[key];
+          if (t?.dims.length === 3) { hiddenStateKey = key; hiddenState = t; break; }
+        }
+        if (!hiddenState) {
+          // Shape-based fallback: any 3-D output is likely a hidden state.
+          for (const [key, t] of Object.entries(modelOutput)) {
+            if (t?.dims.length === 3) {
+              hiddenStateKey = key;
+              hiddenState = t;
+              workerLog('info',
+                `Hidden state auto-detected via shape: "${key}" dims=${JSON.stringify(t.dims)}`);
+              break;
+            }
+          }
+        }
+
+        // Always inform the main thread of what the model exported.
+        const modelOutputsMsg: ModelOutputsMsg = {
+          type: 'model-outputs',
+          outputs: outputShapes,
+          hiddenStateKey,
+        };
+        send(modelOutputsMsg);
+
+        if (!hiddenState || hiddenStateKey === null) {
+          workerLog('warn',
+            'No 3-D hidden-state output found; Q² fingerprinting unavailable for this model.',
+            { availableOutputs: Object.keys(outputShapes) });
+          return;
+        }
+
+        const [, seqLen, hiddenDim] = hiddenState.dims;
+        // hiddenState.data is a shared view backed by the ONNX runtime buffer;
+        // slice() makes an independent copy safe to hand off to the Q² kernel.
+        const data = hiddenState.data.slice().buffer;
+        workerLog('info', 'Embedding forward pass complete',
+          { key: hiddenStateKey, seqLen, hiddenDim });
+        await quantiseAndSend(data, seqLen!, hiddenDim!, 'fp32');
+      } catch (err) {
+        workerLog('warn', 'Embedding extraction failed', { error: err });
+      }
+    })();
 
     send({ type: 'done' });
   } catch (err) {

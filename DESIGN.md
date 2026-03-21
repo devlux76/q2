@@ -74,7 +74,7 @@ $$f_{\text{shell}}(n, \varepsilon) = 1 - (1-\varepsilon)^n$$
 For any fixed $\varepsilon > 0$, $f_{\text{shell}} \to 1$ as $n \to \infty$. The shell
 thickness required to capture fraction $f$ is:
 
-$$\varepsilon^{*}(f, n) = 1 - (1-f)^{1/n} \approx \frac{-\ln(1-f)}{n}$$
+$$\varepsilon^{\ast}(f, n) = 1 - (1-f)^{1/n} \approx \frac{-\ln(1-f)}{n}$$
 
 | Fraction captured | Shell thickness |
 |:-----------------:|:---------------:|
