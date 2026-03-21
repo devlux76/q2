@@ -8,25 +8,25 @@ import { defineConfig } from '@playwright/test';
  */
 
 /**
- * Chromium launch args for WebGPU support in CI.
+ * Chromium launch args for WebGPU support.
  *
- * On CPU-only runners (ubuntu-latest, no GPU hardware):
- *   --use-gl=swiftshader forces Chromium to use the Mesa/SwiftShader software
- *   rasterizer.  WebGPU then runs through the Vulkan-over-SwiftShader adapter,
- *   which is slow but always available.  WASM is the final inference fallback.
+ * Local Docker runs (e2e/run-local.sh):
+ *   /dev/dri is passed to the container for Intel/AMD GPU access.  The run
+ *   script sets E2E_GPU_AVAILABLE=1 automatically when /dev/dri is present,
+ *   which drops --use-gl=swiftshader and lets Chromium use hardware Vulkan
+ *   (Intel ANV / AMD RADV).
  *
- * On GPU runners (ubuntu-latest-gpu / self-hosted with NVIDIA):
- *   Drop --use-gl=swiftshader so Chromium can use the real hardware GPU via
- *   Vulkan/ANGLE.  Set the E2E_GPU_AVAILABLE=1 repository variable (see
- *   ci.yml comments) to activate this path.
+ * Without GPU (lavapipe fallback):
+ *   --use-gl=swiftshader forces the Mesa software Vulkan rasterizer.
+ *   WebGPU still works; inference falls back to WASM.
  */
 const gpuArgs = [
   '--enable-gpu',
   '--ignore-gpu-blocklist',
   '--enable-unsafe-webgpu',
   '--disable-gpu-sandbox',
-  // Use SwiftShader (software GL) only on CPU-only runners.  On a real GPU
-  // runner set E2E_GPU_AVAILABLE=1 to let Chrome use hardware rendering.
+  // Use SwiftShader (software GL) when no GPU is available.
+  // Dropped when E2E_GPU_AVAILABLE=1 (set by run-local.sh on /dev/dri systems).
   ...( process.env.E2E_GPU_AVAILABLE ? [] : ['--use-gl=swiftshader'] ),
 ];
 
@@ -52,9 +52,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
     headless: true,
     /* Enable WebGPU and hardware-acceleration hints.
-     * On runners with a real GPU these flags allow WebGPU inference.
-     * On CPU-only runners SwiftShader software-GL is used instead
-     * (see gpuArgs above). */
+     * On systems with Intel/AMD GPU: hardware Vulkan via /dev/dri passthrough.
+     * Without GPU: Mesa lavapipe (software Vulkan) via SwiftShader flag. */
     launchOptions: {
       args: gpuArgs,
     },

@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run Playwright E2E tests before pushing.
+# Requires Docker (see e2e/run-local.sh).
+#
+# Skip when Docker is unavailable or for a quick push:
+#   git push --no-verify
+
+if ! command -v docker > /dev/null 2>&1; then
+  echo "⚠ Docker not found — skipping E2E tests. Install Docker to enable local E2E."
+  exit 0
+fi
+
+echo "▶ Running E2E tests before push (skip with: git push --no-verify)..."
+bun run test:e2e:local
