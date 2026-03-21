@@ -3,7 +3,7 @@
 train_q2_ltc.py — Q²-QAT Hybrid LTC-Transformer for OpenAI Parameter Golf.
 
 Architecture: [GQA, CfC, CfC, CfC] × 4 = 16 layers (Geode-derived, see §4.5
-of PARAMETER_GOLF.md).  The layer layout is derived from the Geode factorization
+of docs/parameter-golf/ANALYSIS.md).  The layer layout is derived from the Geode factorization
 S(x) - 1 = S1·G where S1=4x gives 4 GQA (coarse) blocks and G=1/(1-3x) gives
 3 CfC (refinement) blocks per GQA block.
 
@@ -515,7 +515,7 @@ def token_stream(
     When byte_tokens=True the .bin shards are read as raw uint8 bytes; each
     byte is directly used as a token (vocab size 256, no tokeniser encoder).
     This skips the SentencePiece encode step entirely (see §5.5 of
-    PARAMETER_GOLF.md).  The data_path should point to a directory of raw
+    docs/parameter-golf/ANALYSIS.md).  The data_path should point to a directory of raw
     text .bin files (UTF-8 or binary).
     """
     import numpy as np

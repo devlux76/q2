@@ -4,7 +4,7 @@
 Quaternary Quantization
 
 > **Quality gate:** this repo treats lint warnings as errors, and `bun run check` (lint + typecheck) is required for builds, tests, and CI.
-> **Parameter Golf:** the approach for the OpenAI challenge is in [`docs/parameter-golf.md`](docs/parameter-golf.md).
+> **Parameter Golf:** all documents for the OpenAI challenge are in [`docs/parameter-golf/`](docs/parameter-golf/).
 
 ## What it does
 

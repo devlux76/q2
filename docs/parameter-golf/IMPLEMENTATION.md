@@ -1,7 +1,7 @@
 # Parameter Golf: Implementation Roadmap
 
 > **Status**: Ready for implementation
-> **Related**: [PARAMETER_GOLF_APPROACH.md](../PARAMETER_GOLF_APPROACH.md)
+> **Related**: [APPROACH_INITIAL.md](APPROACH_INITIAL.md)
 
 This document provides tactical implementation details for the Q² Parameter Golf strategy.
 

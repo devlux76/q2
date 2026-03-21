@@ -1,8 +1,8 @@
 # Parameter Golf: Revised Strategy (PyTorch-Native Q²)
 
 > **Status**: Revised based on feedback
-> **Supersedes**: PARAMETER_GOLF_APPROACH.md (initial strategy)
-> **Related**: [DESIGN.md](DESIGN.md), [RELATED_WORK.md](RELATED_WORK.md)
+> **Supersedes**: APPROACH_INITIAL.md (initial strategy)
+> **Related**: [DESIGN.md](../../DESIGN.md), [RELATED_WORK.md](../../RELATED_WORK.md)
 
 ## Executive Summary
 
@@ -576,4 +576,4 @@ The core Q² mathematical framework (Lee metric, Gray map, Geode factorization) 
 
 **Document Status**: Ready for implementation
 **Last Updated**: 2026-03-21
-**Supersedes**: PARAMETER_GOLF_APPROACH.md
+**Supersedes**: APPROACH_INITIAL.md

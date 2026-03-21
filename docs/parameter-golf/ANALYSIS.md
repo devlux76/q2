@@ -1,9 +1,9 @@
 # Parameter Golf: A Q²-Based Strategy
 
-> **Related documents:** [DESIGN.md](DESIGN.md) · [RELATED_WORK.md](RELATED_WORK.md)
+> **Related documents:** [DESIGN.md](../../DESIGN.md) · [RELATED_WORK.md](../../RELATED_WORK.md)
 
-Section references of the form §D-x.y refer to [DESIGN.md](DESIGN.md).
-Section references of the form §R-x refer to [RELATED_WORK.md](RELATED_WORK.md).
+Section references of the form §D-x.y refer to [DESIGN.md](../../DESIGN.md).
+Section references of the form §R-x refer to [RELATED_WORK.md](../../RELATED_WORK.md).
 
 ---
 
@@ -265,8 +265,11 @@ for two reasons:
 
 ### 4.5 Geode-derived layer layout
 
-LFM 2.5's 10:6 CfC:GQA ratio was found empirically. The Geode factorization
-(§D-4.1) provides a principled derivation that eliminates the guesswork.
+LFM 2.5's 10:6 CfC:GQA ratio was found empirically. Note that 10:6 cannot be
+reduced to 5:3: the numbers are absolute layer counts (10 CfC + 6 GQA = 16 layers
+total), not a bare ratio. Reducing to 5:3 would describe a different 8-layer
+model, halving the depth. The Geode factorization (§D-4.1) provides a principled
+derivation that eliminates the guesswork.
 
 The generating function for Q²'s transition sequences:
 
@@ -830,14 +833,14 @@ For QAT-from-scratch, 2-bit is the correct choice from both a Williams perspecti
 
 #### Reconciliation with parallel analyses
 
-Two parallel analyses (in `PARAMETER_GOLF_REVISED.md` and `docs/parameter-golf.md`
-on the `main` branch) reach compatible conclusions:
+Two parallel analyses (in `APPROACH_REVISED.md` and `STRATEGY.md`
+in this folder) reach compatible conclusions:
 
-- `PARAMETER_GOLF_REVISED.md` correctly identifies that **odd bit-widths are
+- `APPROACH_REVISED.md` correctly identifies that **odd bit-widths are
   suboptimal for cache alignment** and recommends power-of-2 widths. Williams
   confirms this: every wasted bit reduces $N$, directly increasing bpb.
 
-- `docs/parameter-golf.md` recommends mixed int5/int6 precision, which is the
+- `STRATEGY.md` recommends mixed int5/int6 precision, which is the
   leaderboard SOTA approach. The Williams analysis shows this is suboptimal vs.
   2-bit QAT because it achieves $N_{\text{eff}} \approx 24$ M at int5 (not the
   nominal 25.6 M, due to register alignment), while Q² 2-bit achieves $N = 64$ M.
