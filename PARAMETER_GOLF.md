@@ -18,6 +18,7 @@ Section references of the form §R-x refer to [RELATED_WORK.md](RELATED_WORK.md)
    - 5.5 [LIV cache-line packing and byte tokenization](#55-liv-cache-line-packing-and-byte-tokenization)
 6. [Implementation Roadmap](#6-implementation-roadmap)
 7. [Performance Projections](#7-performance-projections)
+   - 7.5 [Williams SpaceTime bound and optimal bit width](#75-williams-spacetime-bound-and-optimal-bit-width)
 8. [References](#references)
 
 ---
@@ -720,12 +721,140 @@ A score of 1.00–1.05 bpb would represent a substantial improvement over the
 current SOTA (1.1428 bpb) — an advance of roughly 0.08–0.14 bpb, well above the
 0.005-nat (~0.007 bpb) significance threshold required for leaderboard submission.
 
+### 7.5 Williams SpaceTime bound and optimal bit width
+
+**Ryan Williams (2025)** proved that any multitape Turing machine running in time
+$t(n)$ can be simulated in space:
+
+$$S = \mathcal{O}\!\left(\sqrt{t(n) \cdot \log t(n)}\right)$$
+
+(Williams, *Simulating Time With Square-Root Space*, STOC 2025 / arXiv:2502.17779.)
+This is a dramatic improvement over the Hopcroft–Paul–Valiant 1975 bound of
+$\mathcal{O}(t / \log t)$, and it gives a rigorous information-theoretic relationship
+between computation time and storage space.
+
+#### Applying Williams to the 16 MB / 10-minute constraint
+
+**Available computation** (8×H100, BF16, 10 min):
+
+$$t = 8 \times 989 \times 10^{12} \times 600 \approx 4.75 \times 10^{18} \text{ FLOPS}$$
+
+**Williams lower bound on space** needed to faithfully simulate $t$:
+
+$$S_{\min} = \mathcal{O}\!\left(\sqrt{4.75 \times 10^{18} \times \log_2(4.75 \times 10^{18})}\right)
+           = \mathcal{O}\!\left(\sqrt{4.75 \times 10^{18} \times 62}\right)
+           \approx 1.72 \times 10^{10} \text{ bits} \approx 2.15 \text{ GB}$$
+
+**Our artifact space**: $S = 16 \times 10^6 \times 8 = 1.28 \times 10^8$ bits (16 MB).
+
+$$\frac{S}{S_{\min}} \approx \frac{1.28 \times 10^8}{1.72 \times 10^{10}} = 0.0075 = 0.75\%$$
+
+We have **0.75% of the Williams-implied storage**. This places the challenge firmly
+in the deep-compression regime: the model is far too small to faithfully represent
+all computation in the training run. Only the most structured, compressible patterns
+in FineWeb can be captured.
+
+#### Reverse: what does 16 MB imply about effective computation?
+
+Inverting $S^2 \approx t \cdot \log_2 t$ for $S = 1.28 \times 10^8$ bits:
+
+$$S^2 = 1.638 \times 10^{16} \implies t_{\max} \approx 3.4 \times 10^{14} \text{ FLOPS}$$
+
+**Interpretation**: A 16 MB model can faithfully encode the structure of approximately
+$3.4 \times 10^{14}$ FLOPS of computation — or about $7 \times 10^{-3}$% of the
+10-minute H100 training budget. The remaining training FLOPS refine the model's
+weights without encoding qualitatively new information (they push the stored structure
+toward the FineWeb distribution, but cannot expand the model's capacity).
+
+This is why the challenge rewards **compression per bit above all else**: every bit
+is precious. Any format that wastes bits on alignment padding, metadata overhead, or
+suboptimal bit-width penalizes the final score.
+
+#### Cache-line efficiency by bit width
+
+A 64-byte cache line holds 512 bits. The waste per line and total parameter budget
+for each integer bit width. The table shows **GPU-native 64-bit register alignment**
+(CUDA operates on 64-bit or 32-bit aligned chunks):
+
+| Bits/weight | Params/register | Wasted bits/register | Params/cache-line | Effective N (16 MB) |
+|:-----------:|:---------------:|:--------------------:|:-----------------:|:-------------------:|
+| 1 | 64 | 0 | 512 | 128 M |
+| **2 (Z₄)** | **32** | **0** | **256** | **64 M** |
+| 4 (Z₈) | 16 | 0 | 128 | 32 M |
+| **5 (int5)** | 12 | **4** | **96** | **~24 M** |
+| **6 (int6)** | 10 | **4** | **80** | **~20 M** |
+| 8 (Z₁₆) | 8 | 0 | 64 | 16 M |
+
+Power-of-2 bit widths (1, 2, 4, 8) divide evenly into 64-bit registers — **zero
+waste**. For int5 and int6, packing per 64-bit register leaves 4 unused bits
+(6.25% per register). Across 2,000,000 registers in 16 MB:
+
+$$2{,}000{,}000 \times 4 \text{ bits} = 8{,}000{,}000 \text{ bits} = 1 \text{ MB wasted}$$
+
+That 1 MB recovers $\approx 4$ M additional Z₄ parameters (1 MB × 8 / 2 bits =
+4 M params) — enough to noticeably move bpb via Chinchilla scaling (§7.2).
+
+#### The LIV bit-width question resolved
+
+The current SOTA uses post-training quantization to **int5** (LFM 2.5 GGUF format).
+Several parallel analyses have been debating whether LIV blocks need 4 or 5 bits.
+The Williams + cache-line analysis gives a definitive answer:
+
+1. **For Q²-QAT training from scratch**: use Z₄ **2-bit** throughout.  
+   This maximises $N = 64$ M parameters — the information-theoretically optimal
+   choice for integer bit widths, given that 2-bit is the minimum meaningful
+   representation (1-bit binary weights are viable but lose the complement structure
+   of $\mathbb{Z}_4$ that makes Q² quantization uniquely effective).
+
+2. **For LIV-format post-training compression**: **4-bit (Z₈)** strictly dominates
+   **5-bit (int5)** for GPU-aligned storage because 4-bit has zero register waste
+   ($N = 32$ M) while int5 wastes 4 bits per register ($N \approx 24$ M effective,
+   not 25.6 M nominal).
+
+3. **The §5.5.1 scheme** (12 LIV × 5-bit + 4-bit Q² tag = 64 bits exactly) IS a
+   perfectly aligned 64-bit word — no register waste — but allocates 4 of 64 bits
+   to metadata rather than weight storage, giving an effective density of
+   $64/12 = 5.33$ bits/LIV. This is useful for parallel dispatch and codon
+   verification, but less dense than pure Z₄ (2 bits/param) or Z₈ (4 bits/param).
+
+**Bottom line**: Our Q²-QAT approach uses Z₄ 2-bit weights for all model parameters.
+This is the unique integer bit-width that simultaneously:
+- Achieves maximum $N = 64$ M parameters in the 16 MB budget
+- Packs perfectly into 64-bit registers and 64-byte cache lines (zero waste)
+- Preserves the $\mathbb{Z}_4$ complement structure and Lee metric
+- Falls within the training-from-scratch QAT regime proven competitive by BitNet (§R-3.1)
+
+The int5/int6 debate applies to post-training quantization of float-trained models.
+For QAT-from-scratch, 2-bit is the correct choice from both a Williams perspective
+(maximise $N$) and an algebraic one (preserve $\mathbb{Z}_4$ ring structure).
+
+#### Reconciliation with parallel analyses
+
+Two parallel analyses (in `PARAMETER_GOLF_REVISED.md` and `docs/parameter-golf.md`
+on the `main` branch) reach compatible conclusions:
+
+- `PARAMETER_GOLF_REVISED.md` correctly identifies that **odd bit-widths are
+  suboptimal for cache alignment** and recommends power-of-2 widths. Williams
+  confirms this: every wasted bit reduces $N$, directly increasing bpb.
+
+- `docs/parameter-golf.md` recommends mixed int5/int6 precision, which is the
+  leaderboard SOTA approach. The Williams analysis shows this is suboptimal vs.
+  2-bit QAT because it achieves $N_{\text{eff}} \approx 24$ M at int5 (not the
+  nominal 25.6 M, due to register alignment), while Q² 2-bit achieves $N = 64$ M.
+  From §7.2, the predicted $\Delta\text{bpb} \approx 0.08$ from this parameter
+  gap alone.
+
+The three analyses converge on: **maximum parameters at lowest possible bit-width
+with perfect cache alignment** — which is Q² 2-bit.
+
 ---
 
 ## 8 References
 
 - OpenAI Parameter Golf challenge. <https://openai.com/index/parameter-golf/>
 - OpenAI Parameter Golf GitHub repository. <https://github.com/openai/parameter-golf>
+- Williams, R. (2025). Simulating Time With Square-Root Space. *Proc. STOC 2025*.
+  arXiv:2502.17779. (§7.5)
 - Hasani, R., Lechner, M., Amini, A., Rus, D., & Grosse-Wentrup, M. (2021). Liquid
   Time-constant Networks. *AAAI-2021*. arXiv:2006.04439.
 - Hasani, R., Lechner, M., Amini, A., Liebenwein, L., Ray, A., Tschaikowski, M.,
