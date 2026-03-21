@@ -13,6 +13,13 @@ This note outlines how to point Q² at OpenAI's Parameter Golf challenge (train 
 - Mixed-precision oracle from transition density (§D-3.6, §P17): channels with short runs/high Lee curvature stay at int6/fp16; long-run channels drop to q2.
 - Geode progression (§D-4.1, §P16): start with coarse q2, then refine a small subset of facets (heads/MLP rows) that remain loss-critical after a short probe run.
 
+## Wildberger–Geode structure (answering “the structure itself”)
+- Treat each attention head / MLP row as a **facet** in the Geode factorization (§D-4.1): parameter-tie facets that live on the same stratum so depth grows without new parameters; liquid blocks share the same tying map.
+- Enforce the **Euler polytope constraint** (§D-4.2) as a budget rule: limit new facets by requiring V−E+F to stay constant when we add heads; this caps parameter growth and keeps the artifact under 16 MB.
+- Use **hierarchical unlock**: Stage A trains only the lowest-dimension facets; Stage B unlocks higher-curvature facets whose transition density spikes; Stage C demotes low-curvature facets back to q2 while keeping int6 for the unlocked set.
+- Apply **trie sparsity** (§P15) to hashed vocab: prune BigramHash buckets whose transition sequences collapse to shallow tries, freeing bytes for higher-curvature facets.
+- During export, **facet ordering** follows Geode traversal so zstd sees long runs (same structure as §D-3.4 block layout), improving compression without changing weights.
+
 ## Architecture: liquid + tied + hashed
 - **Tokenizer/embeddings**
   - Keep the leaderboard BigramHash(10k) idea but align with Q² by forcing equiprobable symbol usage: hash collisions are re-mapped with the complement involution so the four code points stay balanced (§D-2.5).
@@ -37,13 +44,12 @@ This note outlines how to point Q² at OpenAI's Parameter Golf challenge (train 
 
 ## Execution checklist for the parameter-golf repo
 1) Add BigramHash tokenizer variant with complement-aware collision resolution; keep the val_bpb byte accounting unchanged.
-2) Implement a **LiquidBlock** (CfC/LTC) that plugs into `train_gpt.py` alongside the existing MLP, with parameter tying across depth.
-3) Add transition-density logging to drive the mixed q2/int6 schedule (P17), plus a tiny QAT head that nudges weights to τ*.
-4) Swap export to q2/int5 per-row + fp16 control tensors; keep zstd-22 compression.
+2) Implement a **LiquidBlock** (CfC/LTC) that plugs into `train_gpt.py` alongside the existing MLP, with parameter tying across depth (Geode stratum-aware).
+3) Add transition-density logging to drive the mixed q2/int6 schedule (P17), plus a tiny QAT head that nudges weights to τ*; unlock higher-dimension facets only when transition density spikes (Geode progression).
+4) Swap export to q2/int5 per-row + fp16 control tensors; keep zstd-22 compression; order tensors by Geode traversal to boost run-length compression.
 5) Run the 3-stage schedule above, capture logs for p<0.01 delta over the 1.1428 bpb SOTA.
 
 ## Risks and mitigations
 - **Liquid stability:** clamp time constants and use per-head RMSNorm to prevent exploding hidden state; fall back to pure MLP if compilation fails.
 - **Tokenizer drift:** complement-aware hashing must keep byte accounting identical to baseline; add a regression that compares bytes-per-token vs. the stock SP tokenizer on the val set.
 - **Artifact overrun:** if zstd output >15.5 MB, lower vocab to 8k or increase the int6→q2 demotion threshold until size passes.
-
