@@ -455,9 +455,9 @@ class Muon(torch.optim.Optimizer):
                 else:
                     state["buf"].mul_(mom).add_(g)
                     g = (g + state["buf"] * mom) if group["nesterov"] else state["buf"]
-                # Spectral normalisation: scale by 1/σ_max.
+                # Per-matrix normalisation: scale by inverse Frobenius norm (cheap stabiliser).
                 if g.ndim >= 2:
-                    sigma = torch.linalg.norm(g, ord=2)
+                    sigma = torch.linalg.norm(g)  # Frobenius norm (avoids per-step SVD cost)
                     if sigma > 0:
                         g = g / sigma
                 if wd > 0:
