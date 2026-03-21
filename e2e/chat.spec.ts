@@ -13,6 +13,7 @@ import { test, expect } from '@playwright/test';
 test.setTimeout(480_000);
 
 const MODEL_ID = process.env.E2E_MODEL ?? 'onnx-community/Qwen3.5-0.8B-ONNX';
+const MODEL_DTYPE = process.env.E2E_DTYPE ?? 'q4';
 
 test.describe('Real chat interaction', () => {
   test('sends a message and receives a streamed response', async ({ page }, testInfo) => {
@@ -24,7 +25,7 @@ test.describe('Real chat interaction', () => {
     // ── Step 1: Load the model ─────────────────────────────────────────────
     await page.click('#tab-settings');
     await page.fill('#model-custom-id', MODEL_ID);
-    await page.selectOption('#model-dtype', 'q4');
+    await page.selectOption('#model-dtype', MODEL_DTYPE);
     await page.click('#load-btn');
 
     // Wait for model to finish loading.

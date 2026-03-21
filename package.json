@@ -25,6 +25,7 @@
     "test": "vitest run --coverage",
     "pretest:e2e": "bun run build",
     "test:e2e": "playwright test",
+    "test:e2e:local": "bash e2e/run-local.sh",
     "test:browser": "vitest run --browser",
     "coverage": "vitest run --coverage",
     "deploy": "bun run build"

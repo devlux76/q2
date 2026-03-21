@@ -7,7 +7,7 @@
  * ONNX Runtime WASM session, and the UI transitions to "ready".
  *
  * The default model is onnx-community/Qwen3.5-0.8B-ONNX (q4).  Override with
- * the E2E_MODEL environment variable for faster CI runs.
+ * the E2E_MODEL and E2E_DTYPE environment variables for faster CI runs.
  */
 import { test, expect } from '@playwright/test';
 
@@ -15,6 +15,7 @@ import { test, expect } from '@playwright/test';
 test.setTimeout(300_000);
 
 const MODEL_ID = process.env.E2E_MODEL ?? 'onnx-community/Qwen3.5-0.8B-ONNX';
+const MODEL_DTYPE = process.env.E2E_DTYPE ?? 'q4';
 
 test.describe('Real model loading via transformers.js', () => {
   test('loads a model and transitions to ready state', async ({ page }, testInfo) => {
@@ -28,8 +29,8 @@ test.describe('Real model loading via transformers.js', () => {
     await page.click('#tab-settings');
     await page.fill('#model-custom-id', MODEL_ID);
 
-    // Ensure q4 dtype is selected (smallest download).
-    await page.selectOption('#model-dtype', 'q4');
+    // Ensure the configured dtype is selected (q4 is the smallest download by default).
+    await page.selectOption('#model-dtype', MODEL_DTYPE);
 
     await page.screenshot({ path: testInfo.outputPath('model-before-load.png'), fullPage: true });
 

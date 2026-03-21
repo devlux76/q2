@@ -21,21 +21,12 @@ jobs:
       - run: bun run check
       - run: bun run test
 
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 'latest'
-      - run: bun install
-      - run: bun run build
-      - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: e2e-screenshots
-          path: e2e-results/
-          retention-days: 30
+  # E2E tests are NOT run in CI — they require GPU/Vulkan to run transformers.js
+  # models in WebGPU mode within a reasonable time budget, and GitHub Actions
+  # Pro does not offer GPU-enabled runners.
+  #
+  # Run E2E tests locally before pushing:
+  #   bun run test:e2e:local    (builds a Docker image with Mesa Vulkan + Playwright)
+  #
+  # See e2e/Dockerfile and e2e/run-local.sh for details.
+  # The pre-push git hook runs this automatically.
