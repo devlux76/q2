@@ -267,7 +267,7 @@ where $\tau^* = \Phi^{-1}(3/4) / \sqrt{n}$ for equiprobable states.
 
 ### 5.2 Mixed-Precision Allocation
 
-From §D-4.3 and P17 of PREDICTIONS.md:
+From §D-4.3 and §P-17:
 
 ```python
 # Variance-guided bit allocation
