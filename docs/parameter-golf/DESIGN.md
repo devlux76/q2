@@ -166,8 +166,11 @@ $$S(x) - 1 = \underbrace{4x}_{S_1} \cdot \underbrace{\frac{1}{1-3x}}_{G}$$
 
 $$\underbrace{[\text{GQA},\ \text{CfC},\ \text{CfC},\ \text{CfC}]}_{\text{one Geode level}} \times 4 = 16 \text{ layers}$$
 
-4 GQA + 12 CfC, ratio 3:1 (CfC:GQA). More CfC-heavy than LFM 2.5's
-empirical 10:6 = 1.67:1 — predicted by the Geode for short-context (2048-token)
+4 GQA + 12 CfC, ratio 3:1 (CfC:GQA). Note that LFM 2.5's 10:6 cannot be
+reduced to 5:3 — these are absolute layer counts (10 CfC + 6 GQA = 16 layers
+total), not a bare ratio. Reducing to 5:3 would halve the depth to 8 layers.
+Our Geode-derived 12:4 is also 16 layers total, but more CfC-heavy
+(ratio 3:1 vs 1.67:1), predicted by the Geode for short-context (2048-token)
 workloads where less attention is needed.
 
 ### 3.3 Information flow
