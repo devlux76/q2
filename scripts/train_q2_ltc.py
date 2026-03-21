@@ -472,6 +472,8 @@ class Muon(torch.optim.Optimizer):
 def _shard_files(data_path: str) -> list[Path]:
     p = Path(data_path)
     files = sorted(p.glob("*.bin")) + sorted(p.glob("*.npy"))
+    # Exclude validation shards (e.g., fineweb_val_*.bin/.npy) from the training set.
+    files = [f for f in files if not f.name.startswith("fineweb_val_")]
     if not files:
         raise FileNotFoundError(f"No .bin/.npy shards found in {data_path!r}")
     return files
