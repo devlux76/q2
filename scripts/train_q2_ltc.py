@@ -196,6 +196,12 @@ class CfCBlock(nn.Module):
     sequence without growing a KV cache.  Memory cost per layer: O(batch·d)
     regardless of sequence length.
 
+    **GPU efficiency:** the time constants A1 and A2 are computed from the
+    input x only (not from h), enabling a single batched matmul over all T
+    tokens.  The state update is then a sequential element-wise scan — cheap
+    because it has no matmul inside the loop — making the total cost dominated
+    by the three linear projections (ff_a1, ff_a2, out), not the recurrence.
+
     All Q2Linear layers participate in Q²-QAT when activate_q2() is called
     on the parent model.
     """
@@ -203,10 +209,12 @@ class CfCBlock(nn.Module):
     def __init__(self, d_model: int):
         super().__init__()
         self.norm  = nn.RMSNorm(d_model)
-        # A1: decay-rate network (input=[x,h] → positive scalar per dim)
-        self.ff_a1 = Q2Linear(d_model * 2, d_model)
-        # A2: integration-target network (input=[x,h] → target state)
-        self.ff_a2 = Q2Linear(d_model * 2, d_model)
+        # A1: decay-rate network (input=x → positive scalar per dim).
+        # Takes d_model (not 2*d_model) so all T tokens are processed in one
+        # batched matmul, with no per-token Python dispatch.
+        self.ff_a1 = Q2Linear(d_model, d_model)
+        # A2: integration-target network (same reasoning).
+        self.ff_a2 = Q2Linear(d_model, d_model)
         self.out   = Q2Linear(d_model, d_model)
         # Learnable log time-step (log-parameterised → strictly positive).
         self.log_dt = nn.Parameter(torch.zeros(d_model))
@@ -223,21 +231,25 @@ class CfCBlock(nn.Module):
         """
         B, T, D = x.shape
         residual = x
-        x = self.norm(x)
+        x_norm = self.norm(x)
         dt = self.log_dt.exp()   # (D,) — positive, learnable time step
 
-        out_steps: list[Tensor] = []
-        for t in range(T):
-            xt = x[:, t, :]                              # (B, D)
-            xh = torch.cat([xt, h], dim=-1)              # (B, 2D)
-            a1 = F.softplus(self.ff_a1(xh))              # (B, D) decay rate > 0
-            a2 = self.ff_a2(xh)                          # (B, D) integration target
-            decay = torch.exp(-a1 * dt)                  # (B, D) in (0, 1)
-            h = decay * h + (a2 / (a1 + 1e-6)) * (1.0 - decay)
-            out_steps.append(h)
+        # Compute all time constants in one batched matmul over (B·T, D).
+        # No h dependency here → fully parallel over the sequence dimension.
+        a1    = F.softplus(self.ff_a1(x_norm))      # (B, T, D) decay rate > 0
+        a2    = self.ff_a2(x_norm)                   # (B, T, D) integration target
+        decay = torch.exp(-a1 * dt)                  # (B, T, D) in (0, 1)
+        c     = (a2 / (a1 + 1e-6)) * (1.0 - decay)  # (B, T, D) affine offset
 
-        y = torch.stack(out_steps, dim=1)                # (B, T, D)
-        return residual + self.out(y), h
+        # Sequential scan: h[t] = decay[t]*h[t-1] + c[t].
+        # Each step is element-wise (no matmul); torch.compile traces this loop
+        # into a fused CUDA kernel automatically.
+        out_buf = torch.empty_like(decay)
+        for t in range(T):
+            h = decay[:, t] * h + c[:, t]
+            out_buf[:, t] = h
+
+        return residual + self.out(out_buf), h
 
 
 # ── GQA block (Geode S1-level: one 4-way coarse selection) ───────────────────
@@ -490,8 +502,12 @@ def token_stream(
     rank: int = 0,
     world: int = 1,
     byte_tokens: bool = False,
-) -> Iterator[Tuple[Tensor, Tensor]]:
-    """Yield (input_ids, target_ids) pairs of length seq_len.
+) -> Iterator[Tuple[Tensor, Tensor, Tensor]]:
+    """Yield (prev_token, input_ids, target_ids) triples of length seq_len.
+
+    prev_token is the single token immediately before input_ids[0]; the model
+    uses it to apply the BigramHash log-prior at position 0.  It is a (1,)
+    int64 tensor.  At the start of a new shard, prev_token is 0 (padding).
 
     Shards are distributed round-robin across ranks so each GPU sees a
     disjoint subset of the data.
@@ -526,9 +542,13 @@ def token_stream(
                 raw = f.read_bytes()
                 tokens_np = np.frombuffer(raw, dtype=np.uint16)
             tokens = torch.from_numpy(tokens_np.copy()).to(torch.long)
+            # Track the last token of the previous chunk as BigramHash context.
+            shard_prev = torch.zeros(1, dtype=torch.long, device=device)
             for start in range(0, len(tokens) - seq_len - 1, seq_len + 1):
                 chunk = tokens[start : start + seq_len + 1].to(device)
-                yield chunk[:seq_len], chunk[1:]
+                inp, tgt = chunk[:seq_len], chunk[1:]
+                yield shard_prev, inp, tgt
+                shard_prev = inp[-1:]  # last token of this chunk is prev for next
 
 
 # ── validation ─────────────────────────────────────────────────────────────────
@@ -659,10 +679,11 @@ def train(cfg: Config) -> None:
         optimizer.zero_grad(set_to_none=True)
         total_loss = 0.0
         for _ in range(batch_size):
-            inp, tgt = next(data)
+            prev_tok, inp, tgt = next(data)
             inp, tgt = inp.unsqueeze(0), tgt.unsqueeze(0)
+            prev_tok = prev_tok.unsqueeze(0)           # (1, 1) → squeezed to (1,) by model
             with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-                logits = model(inp)
+                logits = model(inp, prev_token=prev_tok.squeeze(0))
                 loss   = F.cross_entropy(
                     logits.view(-1, cfg.vocab_size),
                     tgt.view(-1),
@@ -707,9 +728,18 @@ def train(cfg: Config) -> None:
 
     print("\nPackaging artifact …")
 
-    final_sd = {
+    final_model = swa_model.module if swa_active else raw_model
+
+    # Build the state dict for packing: only trainable parameters, no buffers.
+    # Tied weights (embed.weight ≡ lm_head.weight) are handled by q2_pack via
+    # alias records — we include both keys here and pack_state_dict will emit
+    # lm_head.weight as an alias pointing to embed.weight automatically.
+    # bigram_logprobs is a buffer saved separately (not Q2-packed).
+    sd = final_model.state_dict()
+    packable_sd = {
         k: v.cpu()
-        for k, v in (swa_model.module if swa_active else raw_model).state_dict().items()
+        for k, v in sd.items()
+        if k != "bigram_logprobs"
     }
 
     # Import q2_pack from this scripts/ directory.
@@ -723,8 +753,14 @@ def train(cfg: Config) -> None:
     _spec.loader.exec_module(q2_pack)  # type: ignore[union-attr]
 
     q2bin_path = Path(cfg.out_dir) / "model.q2bin"
-    raw_bytes = q2_pack.pack_state_dict(final_sd, q2bin_path)
+    raw_bytes = q2_pack.pack_state_dict(packable_sd, q2bin_path)
     print(f"  Q2-packed:  {raw_bytes:,} bytes ({raw_bytes / 1e6:.3f} MB)")
+
+    # Save bigram_logprobs separately as fp16 (loaded at inference, not Q2-packed).
+    bigram_path = Path(cfg.out_dir) / "bigram_logprobs.fp16"
+    bigram_buf = sd["bigram_logprobs"].cpu().half().contiguous().numpy().tobytes()
+    bigram_path.write_bytes(bigram_buf)
+    print(f"  bigrams:    {len(bigram_buf):,} bytes ({len(bigram_buf) / 1e6:.3f} MB)")
 
     # Compress with zstd level 22 (requires the `zstandard` package).
     try:

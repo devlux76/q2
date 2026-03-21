@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import io
 import math
+import re
 import struct
 from pathlib import Path
 from typing import Dict, Tuple
@@ -35,7 +36,7 @@ _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Magic bytes and version for the binary format.
 _HEADER_MAGIC = b"Q2BN"
-_FORMAT_VERSION = 1
+_FORMAT_VERSION = 2  # v2 adds per-row τ and alias records
 
 # ── quantisation ──────────────────────────────────────────────────────────────
 
@@ -157,49 +158,115 @@ def pack_tensor(W: Tensor) -> Tuple[bytes, int]:
 
     dtype_flag meanings:
         0  →  Q2 packed  (2-D or higher weight matrix)
+                         data = rows*2 fp16 τ bytes  +  packed symbol bytes
         1  →  fp16 raw   (1-D tensor: bias, layer-norm scale/shift)
+        2  →  alias      (handled by pack_state_dict; never returned here)
 
-    1-D tensors are stored as fp16 to preserve their exact values, since they
-    are too small to benefit from Q2 packing and are critical for training
-    stability (layer-norm parameters, biases).
+    Multi-dimensional tensors (ndim > 2) are flattened to (shape[0], prod(shape[1:]))
+    before quantisation.  The original shape is stored separately in the header
+    so unpack_state_dict can reshape correctly.
+
+    Per-row τ is serialised as fp16 so that unpack_state_dict can dequantise
+    weights back to their trained magnitudes, not just unit-scale symbols.
     """
     if W.ndim < 2:
         return W.cpu().half().contiguous().numpy().tobytes(), 1
 
-    W_dev = W.to(_DEVICE).float()
-    tau   = empirical_tau(W_dev)
+    # Flatten to 2-D: (rows, cols)
+    rows = W.shape[0]
+    cols = math.prod(W.shape[1:])
+    W_2d = W.reshape(rows, cols)
+
+    W_dev = W_2d.to(_DEVICE).float()
+    tau   = empirical_tau(W_dev)          # (rows, 1) float32
     sym   = q2_quantise(W_dev, tau)
     gray  = gray_encode(sym)
-    pack  = pack_symbols(gray)
-    return pack.cpu().contiguous().numpy().tobytes(), 0
+    pack  = pack_symbols(gray)            # (rows, ceil(cols/4)) uint8
+
+    # Serialise: fp16 τ (rows × 2 bytes) followed by packed symbols.
+    tau_fp16 = tau.squeeze(1).half().cpu().contiguous().numpy().tobytes()
+    pack_b   = pack.cpu().contiguous().numpy().tobytes()
+    return tau_fp16 + pack_b, 0
+
+
+def _geode_stratum(key: str) -> Tuple[int, int]:
+    """Sort key for Geode-stratum ordering in the binary file.
+
+    Ordering follows the Geode tree traversal (S-1 = S1·G):
+        stratum 0 : embedding, emb_norm  (input interface)
+        strata 1–4: [GQA, CfC, CfC, CfC] blocks in sequence-order
+                    each GQA+CfC group maps to one S1 vertex and its G sub-tree
+        stratum 5 : output norm, lm_head (output interface)
+        stratum 6 : anything else (buffers etc.)
+
+    Parameters that belong to the same Geode computation unit are adjacent in
+    the file, maximising run-length compression (zstd sees long identical-structure
+    blocks) and enabling sorted page-through during inference reconstruction.
+    """
+    if key.startswith(("embed.", "emb_norm.")):
+        return (0, 0)
+
+    m = re.match(r"layers\.(\d+)\.", key)
+    if m:
+        layer_idx = int(m.group(1))
+        # Group index: each [GQA+CfC×3] unit = 4 consecutive layer indices.
+        group = layer_idx // 4          # 0, 1, 2, 3
+        within = layer_idx % 4          # 0=GQA, 1-3=CfC
+        # GQA (S1 coarse) sorts before its CfC sub-tree (G refinement).
+        return (1 + group, within)
+
+    if key.startswith(("norm.", "lm_head.")):
+        return (5, 0)
+
+    return (6, 0)
 
 
 def pack_state_dict(
     state_dict: Dict[str, Tensor],
     out_path: str | Path,
 ) -> int:
-    """Serialise a PyTorch state dict to the Q2 binary format.
+    """Serialise a PyTorch state dict to the Q2 binary format (v2).
 
     Wire format (all integers big-endian):
         4 B   magic      "Q2BN"
-        1 B   version    uint8
+        1 B   version    uint8 = 2
 
-        Per tensor (repeated):
+        Per tensor (repeated, ordered by Geode stratum):
             4 B   key_len    uint32
             *     key        UTF-8 bytes
             1 B   ndim       uint8
             4*n   shape      uint32 × ndim
-            1 B   dtype_flag uint8  (0 = Q2 packed, 1 = fp16 raw)
+            1 B   dtype_flag uint8:
+                    0 = Q2 packed with per-row τ
+                        data = rows*2 fp16 τ + ceil(cols/4)*rows packed bytes
+                    1 = fp16 raw (1-D tensors)
+                    2 = alias — data is 4-byte key_len + alias_key UTF-8;
+                        unpacker must resolve to a previously-loaded tensor.
             8 B   n_bytes    uint64
-            *     data       packed bytes
+            *     data       (dtype_flag-specific content above)
 
     Returns the total file size in bytes.
+
+    Tied weights (embed.weight ≡ lm_head.weight) are deduplicated automatically:
+    the first occurrence is serialised in full; subsequent occurrences become
+    alias records.  This mirrors the "clustering and collisions are ok" rule
+    from the Q² design (§D-2.5): we use the structure to avoid redundancy rather
+    than fighting it.
     """
     buf = io.BytesIO()
     buf.write(_HEADER_MAGIC)
     buf.write(struct.pack(">B", _FORMAT_VERSION))
 
-    for key, W in state_dict.items():
+    # Sort entries by Geode stratum so the file layout mirrors the computation
+    # tree (§5.5.1: parallel dispatch by tag; §D-4.1: Geode traversal order).
+    ordered_keys = sorted(state_dict.keys(), key=_geode_stratum)
+
+    # Track tensors we have already written, keyed by data pointer.
+    # Used to emit alias records for tied weights (e.g., embed.weight ≡ lm_head.weight).
+    seen_ptrs: Dict[int, str] = {}
+
+    for key in ordered_keys:
+        W = state_dict[key]
         key_b = key.encode()
         buf.write(struct.pack(">I", len(key_b)))
         buf.write(key_b)
@@ -208,9 +275,18 @@ def pack_state_dict(
         buf.write(struct.pack(">B", len(shape)))
         buf.write(struct.pack(f">{len(shape)}I", *shape))
 
-        data, dtype_flag = pack_tensor(W)
-        buf.write(struct.pack(">BQ", dtype_flag, len(data)))
-        buf.write(data)
+        ptr = W.data_ptr()
+        if ptr in seen_ptrs:
+            # Emit alias record: dtype_flag=2, data = alias_key bytes.
+            alias_key_b = seen_ptrs[ptr].encode()
+            alias_data  = struct.pack(">I", len(alias_key_b)) + alias_key_b
+            buf.write(struct.pack(">BQ", 2, len(alias_data)))
+            buf.write(alias_data)
+        else:
+            seen_ptrs[ptr] = key
+            data, dtype_flag = pack_tensor(W)
+            buf.write(struct.pack(">BQ", dtype_flag, len(data)))
+            buf.write(data)
 
     payload = buf.getvalue()
     Path(out_path).write_bytes(payload)
@@ -224,14 +300,16 @@ def unpack_state_dict(
 ) -> Dict[str, Tensor]:
     """Load a Q2BN file back to a float-valued state dict.
 
-    2-D+ tensors are dequantised to {-1.0, -0.5, +0.5, +1.0} unit
-    reconstruction points.  This is a valid unit-scale representation;
-    callers that need the exact per-row scale must save τ separately.
+    Format v2: per-row τ is stored alongside the packed symbols; dequantised
+    values use the saved τ to recover the correct weight magnitudes.
+    Format v1 (legacy): unit-scale reconstruction {-1, -0.5, +0.5, +1}.
+    Alias records (dtype_flag=2) are resolved to the previously-loaded tensor.
+    Multi-dimensional tensors are reshaped back to their original shape.
     """
     raw = Path(in_path).read_bytes()
     if raw[:4] != _HEADER_MAGIC:
         raise ValueError(f"Not a Q2BN file: {in_path}")
-    # _ver = raw[4]  # reserved for future version checks
+    file_version = raw[4]
     pos = 5
 
     result: Dict[str, Tensor] = {}
@@ -253,23 +331,51 @@ def unpack_state_dict(
         data = raw[pos : pos + n_bytes]
         pos += n_bytes
 
+        if dtype_flag == 2:
+            # Alias record: resolve to a previously-loaded tensor.
+            (alias_len,) = struct.unpack_from(">I", data, 0)
+            alias_key = data[4 : 4 + alias_len].decode()
+            result[key] = result[alias_key]
+            continue
+
         if dtype_flag == 1:
-            # fp16 raw
+            # fp16 raw (biases, norms).
             t = torch.frombuffer(bytearray(data), dtype=torch.float16).to(dtype)
             result[key] = t.reshape(shape).to(device)
+            continue
+
+        # dtype_flag == 0: Q2 packed (with per-row τ in v2, without in v1).
+        rows = shape[0]
+        cols = int(math.prod(shape[1:]))
+        n_packed = math.ceil(cols / 4)
+
+        if file_version >= 2:
+            # v2: first rows*2 bytes are fp16 τ values.
+            tau_bytes = rows * 2
+            tau_arr   = torch.frombuffer(bytearray(data[:tau_bytes]), dtype=torch.float16)
+            tau_vals  = tau_arr.float().to(device).unsqueeze(1)  # (rows, 1)
+            sym_data  = data[tau_bytes:]
         else:
-            # Q2 packed: unpack → invert Gray map → dequantise to unit levels
-            rows = shape[0]
-            cols = int(math.prod(shape[1:]))
-            n_packed = math.ceil(cols / 4)
-            packed = torch.frombuffer(bytearray(data), dtype=torch.uint8)
-            packed = packed.reshape(rows, n_packed)
-            gray = unpack_symbols(packed, cols)
-            sym  = gray_decode(gray).long()
-            # Unit reconstruction: {0,1,2,3} → {-1.0, -0.5, +0.5, +1.0}
+            tau_vals = None
+            sym_data = data
+
+        packed = torch.frombuffer(bytearray(sym_data), dtype=torch.uint8)
+        packed = packed.reshape(rows, n_packed)
+        gray   = unpack_symbols(packed, cols)
+        sym    = gray_decode(gray).long()
+
+        if tau_vals is not None:
+            # Dequantise using saved τ: {0,1,2,3} → {-1.5,-0.5,+0.5,+1.5}·τ/1.5
+            # Reconstruction points at ±0.5τ and ±1.5τ (equiprobable cells §D-2.5).
+            val_map = torch.tensor([-1.5, -0.5, 0.5, 1.5], dtype=torch.float32,
+                                   device=device)
+            W_hat = val_map[sym.to(device)] * (tau_vals / 1.5)
+        else:
+            # Legacy v1: unit-scale reconstruction.
             val_map = torch.tensor([-1.0, -0.5, 0.5, 1.0], dtype=dtype)
-            W_hat = val_map[sym].reshape(shape)
-            result[key] = W_hat.to(device)
+            W_hat = val_map[sym].to(dtype)
+
+        result[key] = W_hat.reshape(shape).to(device)
 
     return result
 
