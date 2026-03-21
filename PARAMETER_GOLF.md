@@ -13,6 +13,7 @@ Section references of the form §R-x refer to [RELATED_WORK.md](RELATED_WORK.md)
 2. [Current State of the Art](#2-current-state-of-the-art)
 3. [The Q² Compression Advantage](#3-the-q-compression-advantage)
 4. [Architecture: Liquid Time Constant Networks](#4-architecture-liquid-time-constant-networks)
+   - 4.5 [Geode-derived layer layout](#45-geode-derived-layer-layout)
 5. [The Combined Strategy](#5-the-combined-strategy)
 6. [Implementation Roadmap](#6-implementation-roadmap)
 7. [Performance Projections](#7-performance-projections)
@@ -260,6 +261,64 @@ for two reasons:
    and $D$ (strong positive, above $+\tau^{\ast}$) correspond to the saturation
    regime; $B$ and $C$ correspond to the linear-response regime near zero.
 
+### 4.5 Geode-derived layer layout
+
+LFM 2.5's 10:6 CfC:GQA ratio was found empirically. The Geode factorization
+(§D-4.1) provides a principled derivation that eliminates the guesswork.
+
+The generating function for Q²'s transition sequences:
+
+$$S(x) - 1 = \frac{4x}{1-3x} = \underbrace{4x}_{S_1} \cdot \underbrace{\frac{1}{1-3x}}_{G}$$
+
+decomposes into two factors with a direct architectural interpretation:
+
+- **$S_1 = 4x$**: the first symbol has **4 choices** — the 4 coarse quantization
+  cells. Architecturally: **4 GQA blocks**, each establishing the broadest
+  context structure (equivalent to selecting one of 4 block files in the
+  transition key, §D-3.4).
+
+- **$G = 1/(1-3x) = 1 + 3x + 9x^2 + \cdots$**: each subsequent symbol has
+  **3 choices** — refinement within the established coarse cell.
+  Architecturally: **3 CfC blocks per GQA block**, each performing one 3-way
+  refinement step within the coarse context.
+
+This gives the layer pattern:
+
+$$\underbrace{[\text{GQA},\ \text{CfC},\ \text{CfC},\ \text{CfC}]}_{\text{one Geode level}} \times 4 = 16 \text{ layers total}$$
+
+**4 GQA + 12 CfC**, with CfC:GQA ratio **3:1** — compared to LFM 2.5's empirical
+10:6 = 1.67:1. The Geode predicts a more CfC-heavy architecture, consistent with
+the hypothesis that less attention is needed at the short-context (2048-token)
+parameter-golf scale.
+
+**Information accumulated at each stage.** The Geode gives the bits of
+structural information captured at depth $k$:
+
+- After 1 GQA block: $\log_2 4 = 2$ bits of coarse context.
+- After each additional CfC step: $+\log_2 3 \approx 1.585$ bits of refinement.
+- After all 16 layers (4 coarse + 12 refinement): $4 \times (2 + 3 \times \log_2 3) \approx 27.0$ bits.
+
+This sits within the 51.1-bit capacity of the full 32-symbol key (§D-3.6),
+confirming the 16-layer model can represent sufficient structural information for
+2048-token language modeling.
+
+**Layer position mapping:**
+
+| Layer | Type | Geode node | Purpose |
+|:-----:|:-----|:----------:|:--------|
+| 1 | GQA | $S_1$ root | Coarse context — 4 choices ($r_0$, §D-3.2) |
+| 2–4 | CfC × 3 | $G$ level 1 | First refinement — 3 choices per step |
+| 5 | GQA | $S_1$ reset | Re-establishes coarse context |
+| 6–8 | CfC × 3 | $G$ level 2 | Second refinement |
+| 9 | GQA | $S_1$ reset | Re-establishes coarse context |
+| 10–12 | CfC × 3 | $G$ level 3 | Third refinement |
+| 13 | GQA | $S_1$ reset | Final coarse context |
+| 14–16 | CfC × 3 | $G$ level 4 | Fourth refinement |
+
+The GQA layers act as "semantic resets" — attending across the full token
+sequence to re-establish coarse structure; the CfC layers refine within that
+structure token-by-token using recurrent state.
+
 ---
 
 ## 5 The Combined Strategy
@@ -270,23 +329,22 @@ The proposed architecture for the Parameter Golf submission is a **Q²-QAT hybri
 LTC-Transformer**, combining:
 
 1. **Q² 2-bit QAT** for all weight matrices (attention, MLP, CfC state).
-2. **Hybrid depth:** alternating CfC recurrent blocks and GQA attention blocks,
-   following the LFM 2.5 ratio of ~10:6 (recurrent to attention).
+2. **Hybrid depth:** Geode-derived layout (§4.5) — [GQA, CfC, CfC, CfC] × 4
+   = 16 layers (4 GQA + 12 CfC).
 3. **BigramHash** vocabulary embedding: a hash table of bigram statistics stored
    as part of the 16 MB artifact.
 4. **Sliding window evaluation** at stride 64.
 
 ```mermaid
 flowchart TD
-    subgraph Model["Q2-QAT Hybrid LTC-Transformer"]
+    subgraph Model["Q2-QAT Hybrid LTC-Transformer (Geode layout)"]
         direction TB
         emb["Token Embedding\n(FP16, tied)"]
         bh["BigramHash\n(bigram log-probs, 2-4 MB)"]
-        subgraph Stack["12-16 layer hybrid stack"]
+        subgraph Stack["16-layer Geode stack: (GQA, CfC, CfC, CfC) x4"]
             direction TB
-            cfc1["CfC Block x8\n(Q2 2-bit weights)"]
-            gqa1["GQA Block x4\n(Q2 2-bit weights)"]
-            mlp1["MLP 2x-3x\n(Q2 2-bit weights)"]
+            gqa1["GQA Block x4\n(Q2 2-bit, coarse: 4 choices)"]
+            cfc1["CfC Block x12\n(Q2 2-bit, refine: 3 choices each)"]
         end
         lm_head["LM Head\n(tied to embedding)"]
     end
@@ -300,12 +358,17 @@ packed 4 per byte, and BigramHash(10240) consuming ~4 MB:
 
 $$N_{\text{model}} \approx \frac{(16 \times 10^6 - 4 \times 10^6 - 50{,}000) \times 4 \times 8}{8} \approx 48 \text{ M effective parameters}$$
 
-At hidden dimension $d = 768$, 16 layers (10 CfC + 6 GQA), MLP ratio 2×:
+At hidden dimension $d = 768$ with $n_{\text{kv}} = 4$ KV heads and MLP ratio 3×,
+the parameter count breaks down by component:
 
-$$N \approx 16 \times (d^2 + 2d^2) + 6 \times 4d^2 = 16 \times 3 \times 768^2 + 6 \times 4 \times 768^2 \approx 49 \text{ M}$$
+- **4 GQA blocks:** Q ($d^2$) + K ($d^2/3$) + V ($d^2/3$) + O ($d^2$) +
+  MLP-up/gate/down (3 × 3$d^2$) = $(8/3 + 9)d^2 \approx 11.67d^2$ each.
+- **12 CfC blocks:** $A_1$ ($2d^2$) + $A_2$ ($2d^2$) + out ($d^2$) = $5d^2$ each.
 
-This comfortably fits the budget. Tuning $d$ to 800–960 and adjusting the
-CfC/GQA ratio provides a parameter dial within the 16 MB constraint.
+$$N \approx 4 \times 11.67 d^2 + 12 \times 5 d^2 = 106.7 d^2 \approx 63 \text{ M at } d = 768$$
+
+This matches the 64 M capacity projected in §3.1. Tuning $d$ to 700–730 leaves
+room for the BigramHash table; $d = 768$ fills the budget tightly without it.
 
 ### 5.2 Quantization scheme
 
@@ -389,85 +452,99 @@ before the quantization constraint is imposed.
 
 ## 6 Implementation Roadmap
 
-### 6.1 Phase 1 — Q² weight packing utilities (1–2 hours)
+The implementation is in two Python scripts in `scripts/`:
 
-The `src/q2.ts` and `src/q2.wat` files already implement Gray encoding and 2-bit
-packing for activations. The same routines apply to weights.
+- **`scripts/q2_pack.py`** — GPU-accelerated Q² weight packing and unpacking.
+- **`scripts/train_q2_ltc.py`** — Complete training script: Q²-QAT, Geode
+  architecture, Muon optimizer, SWA, and artifact packaging.
 
-**Files to add:**
+### 6.1 Phase 1 — Q² weight packing (`scripts/q2_pack.py`)
 
-- `scripts/q2_pack.py` — Python utility that takes a PyTorch state dict and
-  produces a Q²-packed binary file for the checkpoint.
-- `scripts/q2_unpack.py` — Reverse: load Q²-packed weights into a PyTorch model.
+`q2_pack.py` converts a PyTorch state dict to the Q2BN binary format and back.
+All quantisation operations run on GPU when available, falling back to CPU.
 
-The packing format is identical to the `q2` dtype described in `README.md`:
+Key functions:
 
-> `q2` — Input is already packed Q² symbols from a prior pass. The `n/4` bytes
-> are copied directly to output; normalisation, thresholding, and quantisation
-> are bypassed.
+- `empirical_tau(W)` — per-row 75th-percentile threshold (§D-2.5), vectorised
+  on GPU via `torch.quantile`.
+- `q2_quantise(W, tau)` — four-cell quantisation to {A=0,B=1,C=2,D=3} using
+  three vectorised comparisons with no Python loops.
+- `gray_encode(sym)` / `gray_decode(gray)` — Gray map φ: sym XOR (sym >> 1).
+- `pack_symbols(gray)` / `unpack_symbols(packed, n)` — 4 symbols per byte,
+  MSB-first; packing uses a single batched `|` operation over the 4-symbol groups.
+- `pack_state_dict(state_dict, out_path)` — serialise to Q2BN format.
+- `unpack_state_dict(in_path, device)` — deserialise back to float tensors.
 
-### 6.2 Phase 2 — CfC block implementation (2–4 hours)
+CLI usage:
 
-Implement a PyTorch `CfCBlock` module following the closed-form LTC solution:
+```bash
+# Pack a PyTorch checkpoint to Q2 binary:
+python scripts/q2_pack.py model.pt model.q2bin
 
-```python
-class CfCBlock(nn.Module):
-    """Closed-form Continuous-time recurrent block."""
-    def __init__(self, d_model: int):
-        super().__init__()
-        self.A1 = nn.Linear(d_model * 2, d_model)  # decay network
-        self.A2 = nn.Linear(d_model * 2, d_model)  # integration network
-        self.dt = nn.Parameter(torch.ones(d_model))  # learnable time step
-
-    def forward(self, x: Tensor, h: Tensor) -> tuple[Tensor, Tensor]:
-        xh = torch.cat([x, h], dim=-1)
-        a1 = F.softplus(self.A1(xh))   # positive decay rate
-        a2 = self.A2(xh)               # integration target
-        decay = torch.exp(-a1 * self.dt.abs())
-        h_new = decay * h + (a2 / (a1 + 1e-6)) * (1.0 - decay)
-        return h_new, h_new
+# Inspect a packed file:
+python scripts/q2_pack.py --unpack model.q2bin
 ```
 
-All `nn.Linear` layers in `CfCBlock` are replaced by Q²-quantized linear layers
-using the STE wrapper.
+### 6.2 Phase 2 — Training script (`scripts/train_q2_ltc.py`)
 
-### 6.3 Phase 3 — Hybrid model assembly (2–3 hours)
+`train_q2_ltc.py` is the complete training script. It implements:
 
-Assemble the full model following the LFM 2.5 architecture ratio:
+- **`Q2Linear`** — `nn.Linear` subclass with STE quantisation.  Behaves as a
+  standard linear layer during FP32 warm-up; call `activate_q2()` to switch.
+  Refreshes τ* every `tau_update_every` steps from the empirical weight
+  distribution.
 
-```python
-class HybridLTCTransformer(nn.Module):
-    def __init__(self, n_cfc: int = 10, n_gqa: int = 6, d_model: int = 768):
-        # Alternating CfC and GQA layers
-        # 10 CfC + 6 GQA = 16 layers total
-        ...
+- **`CfCBlock`** — One Geode G-node (3-way refinement).  Runs the closed-form
+  LTC update per token; state `h` propagates across the sequence with no KV
+  cache.  All projections are `Q2Linear`.
+
+- **`GQABlock`** — One Geode S1-node (4-way coarse selection).  Uses
+  `F.scaled_dot_product_attention` (FlashAttention kernel on H100) with GQA
+  head sharing.  SwiGLU MLP with 3× expansion.  All projections are `Q2Linear`.
+
+- **`Q2LTCModel`** — Full 16-layer model with Geode layout
+  `[GQA, CfC, CfC, CfC] × 4`.  OrthoInit weights; tied embeddings and LM head.
+
+- **`Muon`** — Nesterov momentum + per-matrix spectral normalisation.  Prevents
+  large weight moves from disrupting Q² complement structure during QAT.
+
+- **Training loop** — `torch.compile(mode="max-autotune")` for kernel fusion;
+  bfloat16 autocast; gradient accumulation; cosine LR + warmup; SWA from 60% of
+  training; sliding-window validation; automatic Q2BN + zstd-22 packaging.
+
+Single-GPU smoke test:
+
+```bash
+MAX_STEPS=200 BATCH_TOKENS=8192 python scripts/train_q2_ltc.py
 ```
 
-The interleaving pattern `[CfC, CfC, GQA, CfC, CfC, GQA, ...]` places attention
-every third layer, matching the LFM 2.5 ratio.
+Full 8×H100 run:
 
-### 6.4 Phase 4 — Q²-QAT training loop (3–4 hours)
+```bash
+torchrun --standalone --nproc_per_node=8 scripts/train_q2_ltc.py
+```
 
-Integrate Q²-QAT into the `train_gpt.py` baseline:
+### 6.3 Phase 3 — Artifact packaging (built into training script)
 
-1. Add `Q2Linear` wrapper that applies the STE quantization on forward pass.
-2. Add threshold calibration callback that updates $\tau^{\ast}$ from the
-   empirical distribution of each layer's weight matrix.
-3. Add a warm-up phase that runs FP32 for the first 500 steps, then quantizes.
-4. Add run-reduction diagnostic logging: report mean transition density per
-   layer per 1000 steps to track the emergence of complement structure.
+At the end of training, `train_q2_ltc.py` automatically:
 
-### 6.5 Phase 5 — Artifact packaging (1–2 hours)
+1. Selects the SWA-averaged model (or the final model if SWA has not started).
+2. Packs all weight matrices to Q2BN via `q2_pack.pack_state_dict`.
+3. Compresses with zstd level 22 (requires `pip install zstandard`).
+4. Reports the total artifact size and flags if it exceeds 16 MB.
 
-At checkpoint export:
+To trigger packaging on an existing checkpoint:
 
-1. Pack all Q² weights using `scripts/q2_pack.py`.
-2. Pack the BigramHash table as FP16 log-probabilities.
-3. Compress the packed binary with zstd level 22.
-4. Verify total artifact ≤ 16,000,000 bytes.
-
-The `train_gpt.py` script's existing `final_int8_zlib_roundtrip` compression step
-is replaced by a `final_q2_zstd22_roundtrip` step.
+```bash
+python -c "
+import torch, sys
+sys.path.insert(0, 'scripts')
+import q2_pack
+sd = torch.load('checkpoint.pt', map_location='cpu', weights_only=True)
+n = q2_pack.pack_state_dict(sd.get('model', sd), 'model.q2bin')
+print(f'{n/1e6:.3f} MB')
+"
+```
 
 ---
 
