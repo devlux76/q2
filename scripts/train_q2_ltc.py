@@ -711,7 +711,10 @@ def train(cfg: Config) -> None:
         zst_path   = q2bin_path
         print("  (zstandard not installed; using uncompressed Q2BN)")
 
-    code_bytes = len(Path(__file__).read_bytes())
+    this_file_bytes = len(Path(__file__).read_bytes())
+    q2_pack_path = Path(__file__).parent / "q2_pack.py"
+    q2_pack_bytes = q2_pack_path.stat().st_size if q2_pack_path.exists() else 0
+    code_bytes = this_file_bytes + q2_pack_bytes
     total      = len(compressed) + code_bytes
     print(f"  code:       {code_bytes:,} bytes")
     print(f"  TOTAL:      {total:,} bytes ({total / 1e6:.3f} MB)")
