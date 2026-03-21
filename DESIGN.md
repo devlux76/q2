@@ -305,29 +305,29 @@ $$\{A,\ B,\ C,\ D\} \;\longleftrightarrow\; \{\text{strong-},\ \text{weak-},\ \t
 where $n_s$ is the embedding dimension[^1], the maximum-entropy condition requires
 equiprobable states:
 
-$$P(v_i \leq -\tau^{*}) = P(-\tau^{*} < v_i \leq 0) = P(0 < v_i \leq \tau^{*}) = P(v_i > \tau^{*}) = \tfrac{1}{4}$$
+$$P(v_i \leq -\tau^{\ast}) = P(-\tau^{\ast} < v_i \leq 0) = P(0 < v_i \leq \tau^{\ast}) = P(v_i > \tau^{\ast}) = \tfrac{1}{4}$$
 
 The threshold is:
 
-$$\tau^{*} = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
+$$\tau^{\ast} = \frac{\Phi^{-1}(3/4)}{\sqrt{n_s}} \approx \frac{0.6745}{\sqrt{n_s}}$$
 
 **The quantization function:**
 
-$$q(v_i) = \begin{cases} A & v_i \leq -\tau^{*} \\ B & -\tau^{*} < v_i \leq 0 \\ C & 0 < v_i \leq \tau^{*} \\ D & v_i > \tau^{*} \end{cases}$$
+$$q(v_i) = \begin{cases} A & v_i \leq -\tau^{\ast} \\ B & -\tau^{\ast} < v_i \leq 0 \\ C & 0 < v_i \leq \tau^{\ast} \\ D & v_i > \tau^{\ast} \end{cases}$$
 
-The four equiprobable zones on the real line, separated by $-\tau^{*}$, $0$, and $+\tau^{*}$:
+The four equiprobable zones on the real line, separated by $-\tau^{\ast}$, $0$, and $+\tau^{\ast}$:
 
 ```mermaid
 graph LR
     A["A\nstrong -\n≤ -τ*"] --- B["B\nweak -\n(-τ*, 0]"] --- C["C\nweak +\n(0, τ*]"] --- D["D\nstrong +\n> τ*"]
 ```
 
-**Empirical calibration.** In practice $\tau^{*}$ is estimated from a reservoir sample
+**Empirical calibration.** In practice $\tau^{\ast}$ is estimated from a reservoir sample
 of 1 024 sample activations per compaction cycle, using the empirical 25th and 75th
 percentiles of $v_i$ to keep the symbol distribution close to equiprobable without
 assuming a specific activation shape.
 
-**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^*$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025; the formal development is in §4.4). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the threshold solution $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
+**Analytical threshold computation.** For source distributions expressible as polynomial or mixture models, the equiprobable threshold $\tau^{\ast}$ can be computed analytically via the hyper-Catalan series (Wildberger & Rubine 2025; the formal development is in §4.4). The threshold equation $F(\tau) = k/4$ for CDF $F$ becomes a polynomial in the distribution parameters, and the threshold solution $\alpha = \sum_\mathbf{m} C_\mathbf{m} \cdot t_2^{m_2} t_3^{m_3} \cdots$ converges without iteration. Truncation order trades precision for compute cost — a natural fit for the resource-constrained setting of §2.1. This does not replace empirical calibration; it provides a second path when a parametric model of the source distribution is available.
 
 Under the equiprobable target, each dimension carries:
 
@@ -804,7 +804,7 @@ where each $C_\mathbf{m}$ is a hyper-Catalan number and $t_j$ are functions of t
 
 The series converges by direct evaluation — no Newton iteration, no gradient descent. On constrained hardware, a closed-form series that can be truncated to the precision affordable within the resource budget (§2.1) is preferable to an iterative solver that may not converge within budget. The truncation order itself is a resource-allocation decision: each additional term in the hyper-Catalan series refines the threshold, trading compute cost for quantization precision.
 
-For the standard case ($q = 4$, Gaussian source), the series reduces to the known quartile $\tau^* = \Phi^{-1}(3/4)$. For mixture-of-Gaussians sources — the natural model for multi-modal activation distributions — the threshold is expressible as a hyper-Catalan series in the mixture weights.
+For the standard case ($q = 4$, Gaussian source), the series reduces to the known quartile $\tau^{\ast} = \Phi^{-1}(3/4)$. For mixture-of-Gaussians sources — the natural model for multi-modal activation distributions — the threshold is expressible as a hyper-Catalan series in the mixture weights.
 
 ---
 
