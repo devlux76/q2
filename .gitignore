@@ -8,3 +8,6 @@ bun.lock
 e2e-results/
 test-results/
 playwright-report/
+__pycache__/
+*.pyc
+*.pyo
