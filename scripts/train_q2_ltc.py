@@ -498,9 +498,17 @@ def token_stream(
 
     while True:
         for f in my_files:
-            raw = f.read_bytes()
-            tokens = torch.from_numpy(np.frombuffer(raw, dtype=np.uint16).copy())
-            tokens = tokens.to(torch.long)
+            if f.suffix == ".npy":
+                # Load NumPy shards via np.load to correctly handle the .npy header.
+                arr = np.load(f, mmap_mode="r")
+                if arr.dtype != np.uint16:
+                    arr = arr.astype(np.uint16)
+                tokens_np = np.array(arr, copy=False).ravel()
+            else:
+                # Treat non-.npy shards (e.g. .bin) as raw uint16 buffers.
+                raw = f.read_bytes()
+                tokens_np = np.frombuffer(raw, dtype=np.uint16)
+            tokens = torch.from_numpy(tokens_np.copy()).to(torch.long)
             for start in range(0, len(tokens) - seq_len - 1, seq_len + 1):
                 chunk = tokens[start : start + seq_len + 1].to(device)
                 yield chunk[:seq_len], chunk[1:]
