@@ -38,6 +38,7 @@ import type {
   GenerationConfig,
   EmbeddingMsg,
   Dtype,
+  ModelOutputsMsg,
 } from './types.js';
 import {
   getKernel,
@@ -509,11 +510,14 @@ async function generateResponse(
     // conversation and call pipe.model() directly (one additional forward pass,
     // no KV cache, O(seqLen) attention).
     //
-    // `last_hidden_state` is only present in the ONNX output if the model was
-    // exported with that output node.  Standard onnx-community text-generation
-    // models export {logits, past_key_values} only.  When the node is absent
-    // we log at debug level and skip Q² fingerprinting silently — the rest of
-    // the generation flow is unaffected.
+    // Hidden-state detection strategy (in order):
+    //   1. Try each name in HIDDEN_STATE_CANDIDATES.
+    //   2. Fall back to any 3-D output (shape [batch, seq, hidden]) — this
+    //      handles models like LFM2.5 that use non-standard output names.
+    //
+    // Regardless of outcome we send a ModelOutputsMsg so the main thread
+    // can show the user exactly what the model exports and why Q² may be
+    // unavailable.
     void (async () => {
       try {
         // Reconstruct the full conversation text from the pipeline output so we
@@ -534,28 +538,73 @@ async function generateResponse(
           truncation: true,
         });
 
-        // Direct model call.  In transformers.js the PreTrainedModel is
-        // callable; it runs the underlying ONNX session and returns a plain
-        // object whose keys are the ONNX graph output names.
+        // Direct model call.  In transformers.js the PreTrainedModel is callable;
+        // it runs the underlying ONNX session and returns an object whose keys
+        // are the ONNX graph output names.
+        type OnnxTensor = { dims: number[]; data: Float32Array };
         const modelCallable = pipe!.model as unknown as (
           inputs: Record<string, unknown>,
-        ) => Promise<Record<string, { dims: number[]; data: Float32Array }>>;
+        ) => Promise<Record<string, OnnxTensor>>;
         const modelOutput = await modelCallable(tokenized);
 
-        // `last_hidden_state` shape: [batch=1, seq_len, hidden_dim]
-        const hiddenState = modelOutput['last_hidden_state'];
+        // Build the shape map for ModelOutputsMsg (sent regardless of outcome).
+        const outputShapes: Record<string, number[]> = {};
+        for (const [k, v] of Object.entries(modelOutput)) {
+          if (v?.dims) outputShapes[k] = v.dims;
+        }
+        workerLog('info', 'Model ONNX outputs', outputShapes);
+
+        // ── Locate the hidden-state tensor ──────────────────────────────────
+        // Well-known names tried first, then any 3-D output as a catch-all so
+        // non-standard architectures (e.g. LFM2.5) are detected automatically.
+        const HIDDEN_STATE_CANDIDATES = [
+          'last_hidden_state',        // standard HF / transformers.js
+          'hidden_states',
+          'last_conv_hidden_states',  // possible LFM2.5 naming
+          'encoder_last_hidden_state',
+        ];
+
+        let hiddenStateKey: string | null = null;
+        let hiddenState: OnnxTensor | null = null;
+
+        for (const key of HIDDEN_STATE_CANDIDATES) {
+          const t = modelOutput[key];
+          if (t?.dims.length === 3) { hiddenStateKey = key; hiddenState = t; break; }
+        }
         if (!hiddenState) {
-          workerLog('debug',
-            'Model does not export last_hidden_state; Q² fingerprinting skipped. ' +
-            'Re-export the ONNX model with the last_hidden_state output node to enable it.');
+          // Shape-based fallback: any 3-D output is likely a hidden state.
+          for (const [key, t] of Object.entries(modelOutput)) {
+            if (t?.dims.length === 3) {
+              hiddenStateKey = key;
+              hiddenState = t;
+              workerLog('info',
+                `Hidden state auto-detected via shape: "${key}" dims=${JSON.stringify(t.dims)}`);
+              break;
+            }
+          }
+        }
+
+        // Always inform the main thread of what the model exported.
+        const modelOutputsMsg: ModelOutputsMsg = {
+          type: 'model-outputs',
+          outputs: outputShapes,
+          hiddenStateKey,
+        };
+        send(modelOutputsMsg);
+
+        if (!hiddenState || hiddenStateKey === null) {
+          workerLog('warn',
+            'No 3-D hidden-state output found; Q² fingerprinting unavailable for this model.',
+            { availableOutputs: Object.keys(outputShapes) });
           return;
         }
 
         const [, seqLen, hiddenDim] = hiddenState.dims;
-        // hiddenState.data is a shared Float32Array backed by the ONNX runtime
-        // buffer; slice() makes an independent copy safe to hand off to the kernel.
+        // hiddenState.data is a shared view backed by the ONNX runtime buffer;
+        // slice() makes an independent copy safe to hand off to the Q² kernel.
         const data = hiddenState.data.slice().buffer;
-        workerLog('info', 'Embedding forward pass complete', { seqLen, hiddenDim });
+        workerLog('info', 'Embedding forward pass complete',
+          { key: hiddenStateKey, seqLen, hiddenDim });
         await quantiseAndSend(data, seqLen!, hiddenDim!, 'fp32');
       } catch (err) {
         workerLog('warn', 'Embedding extraction failed', { error: err });

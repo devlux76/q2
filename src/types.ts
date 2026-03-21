@@ -102,6 +102,27 @@ export interface EmbeddingMsg {
 }
 
 /**
+ * Sent once per generation turn immediately after the embedding forward pass,
+ * regardless of whether a usable hidden-state output was found.
+ *
+ * Lets the main thread show the user exactly which ONNX output nodes the
+ * loaded model exposes and explain why Q² fingerprinting may be unavailable.
+ */
+export interface ModelOutputsMsg {
+  type: 'model-outputs';
+  /**
+   * Every output node the model's ONNX session exposes.
+   * Key: node name.  Value: dimension array, e.g. [1, 42, 4096].
+   */
+  outputs: Record<string, number[]>;
+  /**
+   * The output node name that was selected for Q² quantisation,
+   * or null when no suitable hidden-state tensor was found.
+   */
+  hiddenStateKey: string | null;
+}
+
+/**
  * Q² quantisation result produced by the worker kernel.
  *
  * The worker runs the Q² WASM kernel immediately after extracting an embedding,
@@ -135,6 +156,7 @@ export type WorkerOutMsg =
   | ProgressMsg
   | TokenMsg
   | EmbeddingMsg
+  | ModelOutputsMsg
   | Q2Msg
   | DoneMsg
   | ErrorMsg;

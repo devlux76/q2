@@ -25,6 +25,7 @@ import type {
   ChatMessage,
   GenerationConfig,
   EmbeddingMsg,
+  ModelOutputsMsg,
   Q2Msg,
 } from './types.js';
 import {
@@ -677,6 +678,9 @@ export function handleWorkerMessage(msg: WorkerOutMsg): void {
     case 'embedding':
       onEmbedding(msg);
       break;
+    case 'model-outputs':
+      onModelOutputs(msg);
+      break;
     case 'q2':
       onQ2(msg);
       break;
@@ -835,6 +839,36 @@ export function onEmbedding(msg: EmbeddingMsg): void {
  * The worker runs the Q² WASM kernel before sending, so only packed bytes
  * and the 64-bit key cross the thread boundary (see worker.ts quantiseAndSend).
  */
+/**
+ * Shows the user which ONNX output nodes the loaded model exports and whether
+ * Q² fingerprinting was able to locate a hidden-state tensor among them.
+ *
+ * Called once per generation turn, immediately after the embedding forward
+ * pass in the worker.  Surfaced in the embedding panel so the user knows
+ * exactly why Q² may be unavailable and what the model actually exports.
+ */
+export function onModelOutputs(msg: ModelOutputsMsg): void {
+  appLog('info', 'onModelOutputs received', msg);
+  embeddingPanel.classList.remove('hidden');
+
+  // Format each output as  name[d0×d1×…]  for compact display.
+  const outputList = Object.entries(msg.outputs)
+    .map(([name, dims]) => `${name}[${dims.join('×')}]`)
+    .join('  ');
+
+  if (msg.hiddenStateKey !== null) {
+    embeddingStats.textContent =
+      `ONNX outputs: ${outputList}\n` +
+      `Q² using: ${msg.hiddenStateKey}[${(msg.outputs[msg.hiddenStateKey] ?? []).join('×')}]`;
+  } else {
+    embeddingStats.textContent =
+      `ONNX outputs: ${outputList}\n` +
+      `Q² unavailable — no 3-D hidden-state output found.\n` +
+      `To enable Q² fingerprinting, re-export the model with a last_hidden_state ` +
+      `(or equivalent) output node, or use a model that already exports one.`;
+  }
+}
+
 export function onQ2(msg: Q2Msg): void {
   const packed = new Uint8Array(msg.packed);
   appLog('debug', 'onQ2 received', { n: msg.n, key: `0x${msg.key.toString(16).padStart(16, '0')}` });
