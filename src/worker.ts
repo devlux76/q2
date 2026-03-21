@@ -274,7 +274,7 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
  * @param hiddenDim       - embedding dimension n
  * @param dtype           - element dtype of the activation buffer
  */
-async function quantiseAndSend(
+async function _quantiseAndSend(
   embeddingBuffer: ArrayBuffer,
   seqLen: number,
   hiddenDim: number,
