@@ -274,7 +274,7 @@ function send(msg: WorkerOutMsg, transfer: Transferable[] = []): void {
  * @param hiddenDim       - embedding dimension n
  * @param dtype           - element dtype of the activation buffer
  */
-async function _quantiseAndSend(
+async function quantiseAndSend(
   embeddingBuffer: ArrayBuffer,
   seqLen: number,
   hiddenDim: number,
@@ -503,27 +503,64 @@ async function generateResponse(
       outputLength: output.length,
     });
 
-    // ── Embedding extraction ─────────────────────────────────────────────────
-    // NOTE: Accessing per-layer hidden states during generation is NOT
-    // supported by the transformers.js text-generation pipeline.  The
-    // model.generate() loop in transformers.js v3 does not collect hidden
-    // states — output_hidden_states in GenerationConfig has no effect.
+    // ── Embedding extraction via direct model forward pass ───────────────────
+    // The text-generation pipeline returns decoded text, not raw tensors.
+    // To get the last-token hidden state we tokenize the full generated
+    // conversation and call pipe.model() directly (one additional forward pass,
+    // no KV cache, O(seqLen) attention).
     //
-    // The correct approach to obtain hidden states is:
-    //   1. Use a feature-extraction pipeline with a dedicated embedding model.
-    //   2. Or call pipe.model.forward() on the generated token sequence with
-    //      a model that exports intermediate hidden states in its ONNX graph.
-    //
-    // Standard onnx-community text-generation models export only
-    // {logits, past_key_values}.  To use Q² fingerprinting, configure a
-    // dedicated embedding model via the benchModelT3 setting.
-    const extConfig = config as GenerationConfig & { return_embeddings?: boolean };
-    const wantEmbeddings = extConfig.return_embeddings === true;
-    if (wantEmbeddings) {
-      workerLog('warn',
-        'Embedding extraction via text-generation pipeline is not supported. ' +
-        'Use a feature-extraction pipeline with a dedicated embedding model instead.');
-    }
+    // `last_hidden_state` is only present in the ONNX output if the model was
+    // exported with that output node.  Standard onnx-community text-generation
+    // models export {logits, past_key_values} only.  When the node is absent
+    // we log at debug level and skip Q² fingerprinting silently — the rest of
+    // the generation flow is unaffected.
+    void (async () => {
+      try {
+        // Reconstruct the full conversation text from the pipeline output so we
+        // can re-tokenize it for the embedding forward pass.
+        const fullConv = output[0]?.generated_text;
+        const convText =
+          typeof fullConv === 'string'
+            ? fullConv
+            : (fullConv as ChatMessage[] ?? []).map((m: ChatMessage) => m.content).join('\n');
+
+        // Tokenize without padding — we want the exact sequence length so the
+        // last token position maps cleanly to the final hidden-state row.
+        const tokenized = (pipe!.tokenizer as unknown as (
+          text: string,
+          opts: Record<string, unknown>,
+        ) => Record<string, unknown>)(convText, {
+          return_tensors: 'pt',
+          truncation: true,
+        });
+
+        // Direct model call.  In transformers.js the PreTrainedModel is
+        // callable; it runs the underlying ONNX session and returns a plain
+        // object whose keys are the ONNX graph output names.
+        const modelCallable = pipe!.model as unknown as (
+          inputs: Record<string, unknown>,
+        ) => Promise<Record<string, { dims: number[]; data: Float32Array }>>;
+        const modelOutput = await modelCallable(tokenized);
+
+        // `last_hidden_state` shape: [batch=1, seq_len, hidden_dim]
+        const hiddenState = modelOutput['last_hidden_state'];
+        if (!hiddenState) {
+          workerLog('debug',
+            'Model does not export last_hidden_state; Q² fingerprinting skipped. ' +
+            'Re-export the ONNX model with the last_hidden_state output node to enable it.');
+          return;
+        }
+
+        const [, seqLen, hiddenDim] = hiddenState.dims;
+        // hiddenState.data is a shared Float32Array backed by the ONNX runtime
+        // buffer; slice() makes an independent copy safe to hand off to the kernel.
+        const data = hiddenState.data.slice().buffer;
+        workerLog('info', 'Embedding forward pass complete', { seqLen, hiddenDim });
+        await quantiseAndSend(data, seqLen!, hiddenDim!, 'fp32');
+      } catch (err) {
+        workerLog('warn', 'Embedding extraction failed', { error: err });
+      }
+    })();
 
     send({ type: 'done' });
   } catch (err) {
